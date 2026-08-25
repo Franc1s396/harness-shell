@@ -1,3 +1,5 @@
+pub mod protocol;
+pub mod sidecar;
 pub mod vault;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
