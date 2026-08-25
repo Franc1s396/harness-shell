@@ -119,3 +119,15 @@ fn heartbeat_updates_sequence_and_timestamp() {
     assert_eq!(transition.status.last_heartbeat_at, Some(at));
     assert_eq!(transition.status.state, RuntimeState::Ready);
 }
+
+#[test]
+fn shutdown_timeout_fails_without_respawn() {
+    let transition = transition_from(RuntimeState::Ready, SupervisorEvent::ShutdownTimedOut);
+
+    assert_eq!(transition.status.state, RuntimeState::Failed);
+    assert_eq!(
+        transition.status.error_code.as_deref(),
+        Some("SIDECAR_SHUTDOWN_TIMEOUT")
+    );
+    assert!(!transition.actions.contains(&SupervisorAction::Spawn));
+}

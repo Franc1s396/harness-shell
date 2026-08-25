@@ -4,6 +4,7 @@ use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 pub const PROTOCOL_VERSION: u8 = 1;
 pub const MAX_HEADER_BYTES: usize = 8_192;
@@ -75,6 +76,7 @@ impl fmt::Debug for RedactedFrameDebug<'_> {
         match frame.sensitivity {
             Sensitivity::Secret => {
                 let payload_bytes = serde_json::to_vec(&frame.payload)
+                    .map(Zeroizing::new)
                     .map(|payload| payload.len())
                     .unwrap_or(0);
                 debug.field("payload_bytes", &payload_bytes);

@@ -1,0 +1,767 @@
+use std::{
+    collections::VecDeque,
+    env,
+    path::Path,
+    sync::mpsc::Receiver as ControlReceiver,
+    time::{Duration, Instant},
+};
+
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use serde_json::{json, Map, Value};
+use tauri::{async_runtime::Receiver, AppHandle, Runtime};
+use tauri_plugin_shell::{
+    process::{CommandChild, CommandEvent},
+    ShellExt,
+};
+use time::OffsetDateTime;
+use uuid::Uuid;
+use zeroize::Zeroizing;
+
+use crate::protocol::{
+    encode_frame, FrameDecoder, FrameEnvelope, MessageType, ProtocolError, Sensitivity,
+    PROTOCOL_VERSION,
+};
+use crate::{
+    app_state::{RuntimeControl, RuntimeStateHandle},
+    sidecar::{job::WindowsJob, Supervisor, SupervisorEvent},
+    vault::RuntimeKeys,
+};
+
+const STDERR_LINE_LIMIT: usize = 16 * 1_024;
+const READY_TIMEOUT: Duration = Duration::from_secs(5);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(15);
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
+const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProcessError {
+    #[error("packaged Sidecar operation failed")]
+    Shell(#[from] tauri_plugin_shell::Error),
+    #[error("packaged Sidecar process tree ownership failed")]
+    Job(#[from] super::job::JobError),
+    #[error("packaged Sidecar protocol failed: {0}")]
+    Protocol(#[from] ProtocolError),
+    #[error("packaged Sidecar event channel closed")]
+    EventChannelClosed,
+    #[error("packaged Sidecar operation timed out")]
+    Timeout,
+    #[error("packaged Sidecar exited unexpectedly")]
+    Exited { code: Option<i32> },
+    #[error("runtime database path must be absolute UTF-8")]
+    InvalidRuntimePath,
+    #[error("required Windows Sidecar environment is unavailable")]
+    InvalidEnvironment,
+    #[error("runtime key material must be canonical base64 for exactly 32 bytes")]
+    InvalidRuntimeKey,
+    #[error("packaged Sidecar emitted an invalid {0} frame")]
+    InvalidFrame(&'static str),
+    #[error("runtime state machine stopped the Sidecar")]
+    SupervisorStopped,
+    #[error("application shutdown was requested during Sidecar startup")]
+    StartupShutdownRequested,
+}
+
+pub async fn supervise_runtime<R: Runtime>(
+    app: AppHandle<R>,
+    state: RuntimeStateHandle,
+    mut control: ControlReceiver<RuntimeControl>,
+    runtime_db_path: &Path,
+    extraction_directory: &Path,
+    runtime_keys: RuntimeKeys,
+) -> Result<(), ProcessError> {
+    let mut supervisor = Supervisor::new(state.status());
+    let runtime_data_key_b64 = Zeroizing::new(STANDARD.encode(&runtime_keys.runtime_data_key));
+    let audit_hmac_key_b64 = Zeroizing::new(STANDARD.encode(&runtime_keys.audit_hmac_key));
+    let forbidden = vec![
+        Zeroizing::new(runtime_data_key_b64.as_bytes().to_vec()),
+        Zeroizing::new(audit_hmac_key_b64.as_bytes().to_vec()),
+    ];
+    let mut process = match SidecarProcess::spawn(&app, extraction_directory, forbidden) {
+        Ok(process) => process,
+        Err(error) => {
+            publish(&state, supervisor.transition(SupervisorEvent::SpawnFailed));
+            return Err(error);
+        }
+    };
+
+    let ready = match next_startup_output(&mut process, &mut control, READY_TIMEOUT).await {
+        Ok(SidecarOutput::Frame(frame)) => frame,
+        Ok(SidecarOutput::Terminated { code }) => {
+            publish(
+                &state,
+                supervisor.transition(SupervisorEvent::ProcessExited { code }),
+            );
+            return Err(ProcessError::Exited { code });
+        }
+        Err(error) => {
+            if matches!(error, ProcessError::StartupShutdownRequested) {
+                publish(
+                    &state,
+                    supervisor.transition(SupervisorEvent::ShutdownCompleted),
+                );
+                process.kill()?;
+                return Ok(());
+            }
+            publish_error_if_active(
+                &state,
+                &mut supervisor,
+                &error,
+                SupervisorEvent::InvalidFrame,
+            );
+            process.kill()?;
+            return Err(error);
+        }
+    };
+    if let Err(error) = validate_ready_frame(&ready) {
+        publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+        process.kill()?;
+        return Err(error);
+    }
+    let mut next_inbound_sequence = 2;
+    publish(&state, supervisor.transition(SupervisorEvent::Spawned));
+
+    let mut initialize = match initialize_frame(
+        1,
+        runtime_db_path,
+        &runtime_data_key_b64,
+        &audit_hmac_key_b64,
+    ) {
+        Ok(frame) => frame,
+        Err(error) => {
+            publish(
+                &state,
+                supervisor.transition(SupervisorEvent::InvalidInitializeResponse),
+            );
+            process.kill()?;
+            return Err(error);
+        }
+    };
+    let initialize_request_id = initialize.request_id;
+    let write_result = process.write_frame(&initialize);
+    zeroize_initialize_payload(&mut initialize);
+    if let Err(error) = write_result {
+        publish(
+            &state,
+            supervisor.transition(SupervisorEvent::InvalidInitializeResponse),
+        );
+        process.kill()?;
+        return Err(error);
+    }
+
+    let initialized = match receive_expected_frame(
+        &mut process,
+        &mut supervisor,
+        &state,
+        READY_TIMEOUT,
+        &mut next_inbound_sequence,
+        &mut control,
+    )
+    .await
+    {
+        Ok(frame) => frame,
+        Err(error) => {
+            if matches!(error, ProcessError::StartupShutdownRequested) {
+                publish(
+                    &state,
+                    supervisor.transition(SupervisorEvent::ShutdownCompleted),
+                );
+                process.kill()?;
+                return Ok(());
+            }
+            publish_error_if_active(
+                &state,
+                &mut supervisor,
+                &error,
+                SupervisorEvent::InvalidInitializeResponse,
+            );
+            process.kill()?;
+            return Err(error);
+        }
+    };
+    if let Err(error) = validate_initialize_response(&initialized, initialize_request_id) {
+        publish(
+            &state,
+            supervisor.transition(SupervisorEvent::InvalidInitializeResponse),
+        );
+        process.kill()?;
+        return Err(error);
+    }
+    publish(
+        &state,
+        supervisor.transition(SupervisorEvent::InitializeAccepted),
+    );
+
+    let mut next_outbound_sequence = 2;
+    let mut next_heartbeat = Instant::now() + HEARTBEAT_INTERVAL;
+    let mut last_valid_frame = Instant::now();
+    let mut pending_pings: VecDeque<Uuid> = VecDeque::new();
+
+    loop {
+        if matches!(control.try_recv(), Ok(RuntimeControl::Shutdown)) {
+            return shutdown_runtime(
+                &mut process,
+                &mut supervisor,
+                &state,
+                next_outbound_sequence,
+                &mut next_inbound_sequence,
+                &mut pending_pings,
+            )
+            .await;
+        }
+        if last_valid_frame.elapsed() >= HEARTBEAT_TIMEOUT {
+            publish(
+                &state,
+                supervisor.transition(SupervisorEvent::HeartbeatTimedOut),
+            );
+            process.kill()?;
+            return Err(ProcessError::SupervisorStopped);
+        }
+        if Instant::now() >= next_heartbeat {
+            let heartbeat = heartbeat_frame(next_outbound_sequence);
+            pending_pings.push_back(heartbeat.request_id);
+            if let Err(error) = process.write_frame(&heartbeat) {
+                publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                process.kill()?;
+                return Err(error);
+            }
+            next_outbound_sequence += 1;
+            next_heartbeat += HEARTBEAT_INTERVAL;
+        }
+
+        match process.next_output(CONTROL_POLL_INTERVAL).await {
+            Ok(SidecarOutput::Frame(frame)) => {
+                if frame.sequence != next_inbound_sequence {
+                    publish(
+                        &state,
+                        supervisor.transition(SupervisorEvent::SequenceGap {
+                            expected: next_inbound_sequence,
+                            actual: frame.sequence,
+                        }),
+                    );
+                    process.kill()?;
+                    return Err(ProcessError::SupervisorStopped);
+                }
+                next_inbound_sequence += 1;
+                let Some(request_id) = pending_pings.pop_front() else {
+                    publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    process.kill()?;
+                    return Err(ProcessError::InvalidFrame("unsolicited runtime frame"));
+                };
+                if let Err(error) = validate_pong(&frame, request_id) {
+                    publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    process.kill()?;
+                    return Err(error);
+                }
+                last_valid_frame = Instant::now();
+                publish(
+                    &state,
+                    supervisor.transition(SupervisorEvent::HeartbeatReceived {
+                        sequence: frame.sequence,
+                        at: frame.timestamp,
+                    }),
+                );
+            }
+            Ok(SidecarOutput::Terminated { code }) => {
+                publish(
+                    &state,
+                    supervisor.transition(SupervisorEvent::ProcessExited { code }),
+                );
+                return Err(ProcessError::Exited { code });
+            }
+            Err(ProcessError::Timeout) => {}
+            Err(error) => {
+                publish_error_if_active(
+                    &state,
+                    &mut supervisor,
+                    &error,
+                    SupervisorEvent::InvalidFrame,
+                );
+                process.kill()?;
+                return Err(error);
+            }
+        }
+    }
+}
+
+async fn receive_expected_frame(
+    process: &mut SidecarProcess,
+    supervisor: &mut Supervisor,
+    state: &RuntimeStateHandle,
+    timeout: Duration,
+    next_inbound_sequence: &mut u64,
+    control: &mut ControlReceiver<RuntimeControl>,
+) -> Result<FrameEnvelope, ProcessError> {
+    match next_startup_output(process, control, timeout).await? {
+        SidecarOutput::Frame(frame) => {
+            if frame.sequence != *next_inbound_sequence {
+                publish(
+                    state,
+                    supervisor.transition(SupervisorEvent::SequenceGap {
+                        expected: *next_inbound_sequence,
+                        actual: frame.sequence,
+                    }),
+                );
+                process.kill()?;
+                return Err(ProcessError::SupervisorStopped);
+            }
+            *next_inbound_sequence += 1;
+            Ok(frame)
+        }
+        SidecarOutput::Terminated { code } => {
+            publish(
+                state,
+                supervisor.transition(SupervisorEvent::ProcessExited { code }),
+            );
+            Err(ProcessError::Exited { code })
+        }
+    }
+}
+
+async fn next_startup_output(
+    process: &mut SidecarProcess,
+    control: &mut ControlReceiver<RuntimeControl>,
+    timeout: Duration,
+) -> Result<SidecarOutput, ProcessError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if matches!(control.try_recv(), Ok(RuntimeControl::Shutdown)) {
+            return Err(ProcessError::StartupShutdownRequested);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(ProcessError::Timeout);
+        }
+        let poll = remaining.min(CONTROL_POLL_INTERVAL);
+        match process.next_output(poll).await {
+            Err(ProcessError::Timeout) => continue,
+            output => return output,
+        }
+    }
+}
+
+async fn shutdown_runtime(
+    process: &mut SidecarProcess,
+    supervisor: &mut Supervisor,
+    state: &RuntimeStateHandle,
+    sequence: u64,
+    next_inbound_sequence: &mut u64,
+    pending_pings: &mut VecDeque<Uuid>,
+) -> Result<(), ProcessError> {
+    let transition = supervisor.transition(SupervisorEvent::ShutdownRequested);
+    publish(state, transition);
+    let shutdown = shutdown_frame(sequence);
+    let request_id = shutdown.request_id;
+    if let Err(error) = process.write_frame(&shutdown) {
+        publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+        if let Err(kill_error) = process.kill() {
+            log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+        }
+        return Err(error);
+    }
+    let deadline = Instant::now() + SHUTDOWN_GRACE;
+    let mut acknowledged = false;
+
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match process.next_output(remaining).await {
+            Ok(SidecarOutput::Frame(frame)) => {
+                if frame.sequence != *next_inbound_sequence {
+                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    if let Err(kill_error) = process.kill() {
+                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                    }
+                    return Err(ProcessError::InvalidFrame("shutdown response"));
+                }
+                *next_inbound_sequence += 1;
+                if frame.request_id == request_id
+                    && frame.message_type == MessageType::Response
+                    && frame.payload == object(json!({"result": "stopping"}))
+                {
+                    acknowledged = true;
+                    continue;
+                }
+                let Some(ping_request_id) = pending_pings.pop_front() else {
+                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    if let Err(kill_error) = process.kill() {
+                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                    }
+                    return Err(ProcessError::InvalidFrame("shutdown response"));
+                };
+                if let Err(error) = validate_pong(&frame, ping_request_id) {
+                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    if let Err(kill_error) = process.kill() {
+                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                    }
+                    return Err(error);
+                }
+            }
+            Ok(SidecarOutput::Terminated { code }) => {
+                if !acknowledged || code != Some(0) {
+                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    return Err(ProcessError::Exited { code });
+                }
+                publish(
+                    state,
+                    supervisor.transition(SupervisorEvent::ProcessExited { code }),
+                );
+                return Ok(());
+            }
+            Err(ProcessError::Timeout) => break,
+            Err(error) => {
+                publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                if let Err(kill_error) = process.kill() {
+                    log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    publish(
+        state,
+        supervisor.transition(SupervisorEvent::ShutdownTimedOut),
+    );
+    process.kill()?;
+    Err(ProcessError::Timeout)
+}
+
+fn zeroize_initialize_payload(frame: &mut FrameEnvelope) {
+    for field in ["runtime_data_key_b64", "audit_hmac_key_b64"] {
+        if let Some(Value::String(value)) = frame.payload.get_mut(field) {
+            use zeroize::Zeroize;
+            value.zeroize();
+        }
+    }
+    frame.payload.clear();
+}
+
+fn publish(state: &RuntimeStateHandle, transition: super::SupervisorTransition) {
+    state.publish(transition.status);
+}
+
+#[derive(Debug)]
+pub enum SidecarOutput {
+    Frame(FrameEnvelope),
+    Terminated { code: Option<i32> },
+}
+
+pub struct SidecarProcess {
+    events: Receiver<CommandEvent>,
+    child: Option<CommandChild>,
+    decoder: FrameDecoder,
+    pending_frames: VecDeque<FrameEnvelope>,
+    stderr_buffer: Vec<u8>,
+    discarding_stderr_line: bool,
+    forbidden_stderr_fragments: Vec<Zeroizing<Vec<u8>>>,
+    job: WindowsJob,
+}
+
+impl SidecarProcess {
+    pub fn spawn<R: Runtime>(
+        app: &AppHandle<R>,
+        extraction_directory: &Path,
+        forbidden_stderr_fragments: Vec<Zeroizing<Vec<u8>>>,
+    ) -> Result<Self, ProcessError> {
+        let extraction_directory = extraction_directory
+            .to_str()
+            .filter(|_| extraction_directory.is_absolute())
+            .ok_or(ProcessError::InvalidEnvironment)?;
+        let system_root = env::var_os("SystemRoot").ok_or(ProcessError::InvalidEnvironment)?;
+        let job = WindowsJob::create()?;
+        let (events, child) = app
+            .shell()
+            .sidecar("harness-shell-sidecar")?
+            .set_raw_out(true)
+            .env_clear()
+            .env("SystemRoot", &system_root)
+            .env("WINDIR", &system_root)
+            .env("TEMP", extraction_directory)
+            .env("TMP", extraction_directory)
+            .env("HARNESS_SIDECAR_JOB", job.name())
+            .spawn()?;
+        Ok(Self {
+            events,
+            child: Some(child),
+            decoder: FrameDecoder::new(),
+            pending_frames: VecDeque::new(),
+            stderr_buffer: Vec::new(),
+            discarding_stderr_line: false,
+            forbidden_stderr_fragments,
+            job,
+        })
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(CommandChild::pid)
+    }
+
+    pub fn write_frame(&mut self, frame: &FrameEnvelope) -> Result<(), ProcessError> {
+        let encoded = Zeroizing::new(encode_frame(frame)?);
+        let child = self
+            .child
+            .as_mut()
+            .ok_or(ProcessError::EventChannelClosed)?;
+        child.write(encoded.as_slice())?;
+        Ok(())
+    }
+
+    pub async fn next_output(&mut self, wait: Duration) -> Result<SidecarOutput, ProcessError> {
+        if let Some(frame) = self.pending_frames.pop_front() {
+            return Ok(SidecarOutput::Frame(frame));
+        }
+
+        let deadline = Instant::now() + wait;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(ProcessError::Timeout);
+            }
+            let event = tokio::time::timeout(remaining, self.events.recv())
+                .await
+                .map_err(|_| ProcessError::Timeout)?
+                .ok_or(ProcessError::EventChannelClosed)?;
+            match event {
+                CommandEvent::Stdout(bytes) => {
+                    self.pending_frames.extend(self.decoder.push(&bytes)?);
+                    if let Some(frame) = self.pending_frames.pop_front() {
+                        return Ok(SidecarOutput::Frame(frame));
+                    }
+                }
+                CommandEvent::Stderr(bytes) => self.consume_stderr(&bytes),
+                CommandEvent::Terminated(payload) => {
+                    self.flush_stderr();
+                    self.child = None;
+                    return Ok(SidecarOutput::Terminated { code: payload.code });
+                }
+                CommandEvent::Error(_) => return Err(ProcessError::EventChannelClosed),
+                _ => return Err(ProcessError::EventChannelClosed),
+            }
+        }
+    }
+
+    pub fn kill(&mut self) -> Result<(), ProcessError> {
+        self.job.terminate()?;
+        self.child.take();
+        Ok(())
+    }
+
+    fn consume_stderr(&mut self, bytes: &[u8]) {
+        self.stderr_buffer.extend_from_slice(bytes);
+        loop {
+            if self.discarding_stderr_line {
+                let Some(delimiter) = self
+                    .stderr_buffer
+                    .iter()
+                    .position(|byte| matches!(*byte, b'\r' | b'\n'))
+                else {
+                    self.stderr_buffer.clear();
+                    return;
+                };
+                self.stderr_buffer.drain(..=delimiter);
+                self.discarding_stderr_line = false;
+                continue;
+            }
+
+            if let Some(delimiter) = self
+                .stderr_buffer
+                .iter()
+                .position(|byte| matches!(*byte, b'\r' | b'\n'))
+            {
+                let mut line: Vec<u8> = self.stderr_buffer.drain(..=delimiter).collect();
+                while line
+                    .last()
+                    .is_some_and(|byte| matches!(*byte, b'\r' | b'\n'))
+                {
+                    line.pop();
+                }
+                self.log_stderr_line(&line, false);
+                continue;
+            }
+
+            if self.stderr_buffer.len() > STDERR_LINE_LIMIT {
+                self.stderr_buffer.clear();
+                self.discarding_stderr_line = true;
+                log::warn!(
+                    target: "harness_shell::sidecar",
+                    "sidecar stderr line exceeded {STDERR_LINE_LIMIT} bytes and was redacted"
+                );
+            }
+            return;
+        }
+    }
+
+    fn log_stderr_line(&self, line: &[u8], truncated: bool) {
+        if line.is_empty() {
+            return;
+        }
+        if self.forbidden_stderr_fragments.iter().any(|fragment| {
+            !fragment.is_empty()
+                && line
+                    .windows(fragment.len())
+                    .any(|window| window == fragment.as_slice())
+        }) {
+            log::warn!(target: "harness_shell::sidecar", "sidecar stderr line redacted");
+            return;
+        }
+
+        let line = String::from_utf8_lossy(line);
+        if truncated {
+            log::warn!(target: "harness_shell::sidecar", "{line} [truncated]");
+        } else {
+            log::warn!(target: "harness_shell::sidecar", "{line}");
+        }
+    }
+
+    fn flush_stderr(&mut self) {
+        if !self.discarding_stderr_line && !self.stderr_buffer.is_empty() {
+            let line = std::mem::take(&mut self.stderr_buffer);
+            self.log_stderr_line(&line, false);
+        } else {
+            self.stderr_buffer.clear();
+        }
+        self.discarding_stderr_line = false;
+    }
+}
+
+pub fn initialize_frame(
+    sequence: u64,
+    runtime_db_path: &Path,
+    runtime_data_key_b64: &str,
+    audit_hmac_key_b64: &str,
+) -> Result<FrameEnvelope, ProcessError> {
+    let runtime_db_path = runtime_db_path
+        .to_str()
+        .filter(|_| runtime_db_path.is_absolute())
+        .ok_or(ProcessError::InvalidRuntimePath)?;
+    validate_runtime_key(runtime_data_key_b64)?;
+    validate_runtime_key(audit_hmac_key_b64)?;
+    Ok(frame(
+        MessageType::Request,
+        sequence,
+        Sensitivity::Secret,
+        json!({
+            "method": "initialize",
+            "app_version": env!("CARGO_PKG_VERSION"),
+            "runtime_db_path": runtime_db_path,
+            "runtime_data_key_b64": runtime_data_key_b64,
+            "audit_hmac_key_b64": audit_hmac_key_b64,
+            "heartbeat_interval_ms": 5_000,
+            "heartbeat_timeout_ms": 15_000
+        }),
+    ))
+}
+
+pub fn heartbeat_frame(sequence: u64) -> FrameEnvelope {
+    frame(
+        MessageType::Heartbeat,
+        sequence,
+        Sensitivity::Normal,
+        json!({"kind": "ping"}),
+    )
+}
+
+pub fn shutdown_frame(sequence: u64) -> FrameEnvelope {
+    frame(
+        MessageType::Request,
+        sequence,
+        Sensitivity::Normal,
+        json!({"method": "shutdown"}),
+    )
+}
+
+pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
+    let capabilities = frame.payload.get("capabilities").and_then(Value::as_object);
+    let supports_v1 = capabilities
+        .and_then(|value| value.get("protocol_versions"))
+        .and_then(Value::as_array)
+        .is_some_and(|versions| versions.contains(&json!(PROTOCOL_VERSION)));
+    let schema_v1 =
+        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(1));
+    if frame.message_type != MessageType::Event
+        || frame.sequence != 1
+        || frame.sensitivity != Sensitivity::Normal
+        || frame.payload.get("event") != Some(&json!("sidecar.ready"))
+        || !supports_v1
+        || !schema_v1
+    {
+        return Err(ProcessError::InvalidFrame("sidecar.ready"));
+    }
+    Ok(())
+}
+
+pub fn validate_initialize_response(
+    frame: &FrameEnvelope,
+    request_id: Uuid,
+) -> Result<(), ProcessError> {
+    if frame.request_id != request_id
+        || frame.message_type != MessageType::Response
+        || frame.payload != object(json!({"result": "initialized", "state": "READY"}))
+    {
+        return Err(ProcessError::InvalidFrame("initialize response"));
+    }
+    Ok(())
+}
+
+pub fn validate_pong(frame: &FrameEnvelope, request_id: Uuid) -> Result<(), ProcessError> {
+    if frame.request_id != request_id
+        || frame.message_type != MessageType::Heartbeat
+        || frame.payload != object(json!({"kind": "pong"}))
+    {
+        return Err(ProcessError::InvalidFrame("heartbeat pong"));
+    }
+    Ok(())
+}
+
+fn validate_runtime_key(encoded: &str) -> Result<(), ProcessError> {
+    let decoded = Zeroizing::new(
+        STANDARD
+            .decode(encoded)
+            .map_err(|_| ProcessError::InvalidRuntimeKey)?,
+    );
+    if decoded.len() != 32 || STANDARD.encode(decoded.as_slice()) != encoded {
+        return Err(ProcessError::InvalidRuntimeKey);
+    }
+    Ok(())
+}
+
+fn frame(
+    message_type: MessageType,
+    sequence: u64,
+    sensitivity: Sensitivity,
+    payload: Value,
+) -> FrameEnvelope {
+    FrameEnvelope {
+        protocol_version: PROTOCOL_VERSION,
+        message_type,
+        request_id: Uuid::new_v4(),
+        task_id: None,
+        workflow_run_id: None,
+        sequence,
+        timestamp: OffsetDateTime::now_utc(),
+        sensitivity,
+        payload: object(payload),
+    }
+}
+
+fn object(value: Value) -> Map<String, Value> {
+    value
+        .as_object()
+        .expect("protocol payload literals must be objects")
+        .clone()
+}
+
+fn publish_error_if_active(
+    state: &RuntimeStateHandle,
+    supervisor: &mut Supervisor,
+    error: &ProcessError,
+    fallback: SupervisorEvent,
+) {
+    let event = match error {
+        ProcessError::Protocol(ProtocolError::UnsupportedProtocolVersion { actual }) => {
+            SupervisorEvent::ProtocolVersionMismatch { actual: *actual }
+        }
+        _ => fallback,
+    };
+    publish(state, supervisor.transition(event));
+}

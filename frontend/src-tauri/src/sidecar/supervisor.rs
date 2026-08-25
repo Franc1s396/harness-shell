@@ -17,6 +17,7 @@ pub enum SupervisorEvent {
     HeartbeatTimedOut,
     SequenceGap { expected: u64, actual: u64 },
     ShutdownRequested,
+    ShutdownTimedOut,
     ShutdownCompleted,
     ProcessExited { code: Option<i32> },
 }
@@ -111,6 +112,7 @@ impl Supervisor {
                     SupervisorAction::KillAfterGrace,
                 ]
             }
+            SupervisorEvent::ShutdownTimedOut => self.fail("SIDECAR_SHUTDOWN_TIMEOUT"),
             SupervisorEvent::ShutdownCompleted => {
                 self.enter(RuntimeState::Stopped, None, false);
                 vec![SupervisorAction::PublishStatus]

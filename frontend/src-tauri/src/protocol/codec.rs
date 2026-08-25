@@ -1,4 +1,5 @@
 use super::models::{FrameEnvelope, MAX_HEADER_BYTES, MAX_PAYLOAD_BYTES, PROTOCOL_VERSION};
+use zeroize::Zeroizing;
 
 const HEADER_DELIMITER: &[u8] = b"\r\n\r\n";
 const CONTENT_LENGTH_PREFIX: &[u8] = b"Content-Length: ";
@@ -11,6 +12,8 @@ pub enum ProtocolError {
     InvalidHeader,
     #[error("frame payload length {actual} exceeds {max} bytes")]
     FrameTooLarge { actual: usize, max: usize },
+    #[error("protocol version {actual} is unsupported")]
+    UnsupportedProtocolVersion { actual: u64 },
     #[error("frame payload is not a valid v1 envelope")]
     InvalidEnvelope,
 }
@@ -19,7 +22,8 @@ pub fn encode_frame(frame: &FrameEnvelope) -> Result<Vec<u8>, ProtocolError> {
     if frame.protocol_version != PROTOCOL_VERSION || frame.sequence == 0 {
         return Err(ProtocolError::InvalidEnvelope);
     }
-    let body = serde_json::to_vec(frame).map_err(|_| ProtocolError::InvalidEnvelope)?;
+    let body =
+        Zeroizing::new(serde_json::to_vec(frame).map_err(|_| ProtocolError::InvalidEnvelope)?);
     if body.len() > MAX_PAYLOAD_BYTES {
         return Err(ProtocolError::FrameTooLarge {
             actual: body.len(),
@@ -28,7 +32,7 @@ pub fn encode_frame(frame: &FrameEnvelope) -> Result<Vec<u8>, ProtocolError> {
     }
 
     let mut encoded = format!("Content-Length: {}\r\n\r\n", body.len()).into_bytes();
-    encoded.extend(body);
+    encoded.extend_from_slice(body.as_slice());
     Ok(encoded)
 }
 
@@ -84,8 +88,18 @@ impl FrameDecoder {
 
             let body = self.buffer[body_start..frame_end].to_vec();
             self.buffer.drain(..frame_end);
-            let frame =
+            let value: serde_json::Value =
                 serde_json::from_slice(&body).map_err(|_| ProtocolError::InvalidEnvelope)?;
+            if let Some(actual) = value
+                .get("protocol_version")
+                .and_then(serde_json::Value::as_u64)
+            {
+                if actual != u64::from(PROTOCOL_VERSION) {
+                    return Err(ProtocolError::UnsupportedProtocolVersion { actual });
+                }
+            }
+            let frame =
+                serde_json::from_value(value).map_err(|_| ProtocolError::InvalidEnvelope)?;
             frames.push(frame);
         }
     }

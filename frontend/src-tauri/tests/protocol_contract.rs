@@ -99,6 +99,20 @@ fn decoder_rejects_the_python_invalid_payload_corpus() {
 }
 
 #[test]
+fn decoder_surfaces_unsupported_protocol_version_for_supervisor_mapping() {
+    let mut body: Value = serde_json::from_slice(&fixture_bytes()).unwrap();
+    body["protocol_version"] = json!(2);
+    let body = serde_json::to_vec(&body).unwrap();
+    let mut wire = format!("Content-Length: {}\r\n\r\n", body.len()).into_bytes();
+    wire.extend(body);
+
+    assert_eq!(
+        FrameDecoder::new().push(&wire),
+        Err(ProtocolError::UnsupportedProtocolVersion { actual: 2 })
+    );
+}
+
+#[test]
 fn envelope_rejects_invalid_fields_unknown_fields_and_non_object_payload() {
     let baseline: Value = serde_json::from_slice(&fixture_bytes()).unwrap();
     let mutations = [

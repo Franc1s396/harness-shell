@@ -26,6 +26,8 @@ docs/superpowers/
 **/.coverage
 **/htmlcov/
 **/build/
+backend/dist/
+frontend/src-tauri/binaries/*.exe
 
 # Local configuration and secrets
 **/.env

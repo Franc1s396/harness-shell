@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 
 from harness_shell_sidecar.runtime import SidecarService
+from harness_shell_sidecar.runtime.windows_job import attach_required_job
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -32,6 +33,8 @@ def configure_stderr_logging() -> None:
 
 
 def main() -> int:
+    if getattr(sys, "frozen", False):
+        attach_required_job()
     configure_stderr_logging()
     try:
         return asyncio.run(SidecarService.for_stdio().run())
