@@ -126,6 +126,24 @@ def test_initialize_transitions_to_ready() -> None:
     assert router.phase is RuntimePhase.READY
 
 
+def test_initializer_failure_is_terminal_and_redacted() -> None:
+    def fail_initializer(payload) -> None:
+        raise RuntimeError(payload.runtime_data_key_b64)
+
+    router = Router(initializer=fail_initializer)
+    router.ready_event()
+
+    response = initialize(router)
+
+    assert response.payload == {
+        "error_code": "RUNTIME_INITIALIZATION_FAILED",
+        "message": "runtime initialization failed",
+    }
+    assert router.phase is RuntimePhase.FAILED
+    assert router.should_stop is True
+    assert "ZGRkZGRk" not in str(response.payload)
+
+
 def test_unknown_request_fails_without_dispatch() -> None:
     router = Router()
     router.ready_event()
@@ -199,4 +217,3 @@ def test_shutdown_stops_the_router() -> None:
 
     assert response.payload == {"result": "stopping"}
     assert router.phase is RuntimePhase.STOPPING
-

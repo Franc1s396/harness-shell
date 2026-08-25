@@ -100,6 +100,7 @@ def test_module_stdout_contains_only_protocol_frames(tmp_path: Path) -> None:
         initialized = read_one_frame(process.stdout)
         assert initialized.request_id == initialize_request.request_id
         assert initialized.payload["state"] == "READY"
+        assert (tmp_path / "runtime.sqlite3").exists()
 
         shutdown_request = request(2, {"method": "shutdown"})
         process.stdin.write(encode_frame(shutdown_request))

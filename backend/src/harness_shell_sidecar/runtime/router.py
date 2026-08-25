@@ -35,7 +35,7 @@ class Router:
 
     @property
     def should_stop(self) -> bool:
-        return self.phase is RuntimePhase.STOPPING
+        return self.phase in (RuntimePhase.STOPPING, RuntimePhase.FAILED)
 
     def ready_event(self) -> FrameEnvelope:
         if self.phase is not RuntimePhase.STARTING:
@@ -109,11 +109,13 @@ class Router:
         try:
             self._initializer(payload)
         except Exception:
-            return self._error(
+            response = self._error(
                 frame,
                 "RUNTIME_INITIALIZATION_FAILED",
                 "runtime initialization failed",
             )
+            self.phase = RuntimePhase.FAILED
+            return response
 
         self.phase = RuntimePhase.READY
         return self._outbound_for(
@@ -227,4 +229,3 @@ class Router:
         )
         self._next_outbound_sequence += 1
         return frame
-

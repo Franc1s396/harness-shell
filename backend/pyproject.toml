@@ -9,6 +9,7 @@ description = "Python sidecar for Harness Shell"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "cryptography>=45,<48",
   "pydantic>=2.11,<3",
 ]
 
@@ -24,3 +25,6 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"harness_shell_sidecar.storage" = ["migrations/*.sql"]
