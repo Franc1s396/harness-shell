@@ -1,7 +1,15 @@
-def test_main_returns_success() -> None:
-    try:
-        from harness_shell_sidecar.__main__ import main
-    except ModuleNotFoundError:
-        raise AssertionError("sidecar entry point is missing") from None
+from harness_shell_sidecar import __main__
 
-    assert main() == 0
+
+def test_main_returns_the_stdio_service_exit_code(monkeypatch) -> None:
+    class FakeService:
+        async def run(self) -> int:
+            return 23
+
+    monkeypatch.setattr(
+        __main__.SidecarService,
+        "for_stdio",
+        classmethod(lambda cls: FakeService()),
+    )
+
+    assert __main__.main() == 23
