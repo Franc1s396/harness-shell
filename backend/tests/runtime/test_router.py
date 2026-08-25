@@ -12,7 +12,11 @@ from harness_shell_sidecar.protocol import (
     ProtocolViolation,
     Sensitivity,
 )
-from harness_shell_sidecar.runtime import Router, RuntimePhase
+from harness_shell_sidecar.runtime import (
+    Router,
+    RuntimeInitializationFailure,
+    RuntimePhase,
+)
 
 
 def frame(
@@ -142,6 +146,24 @@ def test_initializer_failure_is_terminal_and_redacted() -> None:
     assert router.phase is RuntimePhase.FAILED
     assert router.should_stop is True
     assert "ZGRkZGRk" not in str(response.payload)
+
+
+def test_typed_initializer_failure_preserves_safe_error_code() -> None:
+    def fail_initializer(payload) -> None:
+        raise RuntimeInitializationFailure(
+            "AUDIT_CHAIN_INVALID", "audit chain verification failed"
+        )
+
+    router = Router(initializer=fail_initializer)
+    router.ready_event()
+
+    response = initialize(router)
+
+    assert response.payload == {
+        "error_code": "AUDIT_CHAIN_INVALID",
+        "message": "audit chain verification failed",
+    }
+    assert router.phase is RuntimePhase.FAILED
 
 
 def test_unknown_request_fails_without_dispatch() -> None:

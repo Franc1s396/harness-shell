@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import base64
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+
+_SAFE_ERROR_CODE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
+
+
+class RuntimeInitializationFailure(RuntimeError):
+    def __init__(self, error_code: str, public_message: str) -> None:
+        if _SAFE_ERROR_CODE.fullmatch(error_code) is None:
+            raise ValueError("runtime error code must use uppercase identifiers")
+        super().__init__(public_message)
+        self.error_code = error_code
+        self.public_message = public_message
 
 
 class RuntimePhase(StrEnum):
@@ -65,4 +78,3 @@ class RuntimeCapabilities(BaseModel):
         "audit_chain",
         "local_trace",
     )
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
@@ -114,6 +115,36 @@ def test_module_stdout_contains_only_protocol_frames(tmp_path: Path) -> None:
         stderr = process.stderr.read()
         assert b"ZGRkZGRk" not in stderr
         assert b"YWFhYWFh" not in stderr
+        connection = sqlite3.connect(tmp_path / "runtime.sqlite3")
+        try:
+            event_types = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT event_type FROM audit_entries ORDER BY sequence"
+                ).fetchall()
+            ]
+            span_names = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM trace_spans"
+                ).fetchall()
+            }
+        finally:
+            connection.close()
+        assert event_types == [
+            "runtime.started",
+            "runtime.ready",
+            "runtime.stopped",
+        ]
+        assert {
+            "runtime.starting",
+            "audit.verify",
+            "storage.self_check",
+            "runtime.ready",
+        } <= span_names
+        persisted_database = (tmp_path / "runtime.sqlite3").read_bytes()
+        assert b"ZGRkZGRk" not in persisted_database
+        assert b"YWFhYWFh" not in persisted_database
     finally:
         if process.poll() is None:
             process.kill()
@@ -131,3 +162,67 @@ def test_eof_before_shutdown_is_not_reported_as_success() -> None:
     finally:
         if process.poll() is None:
             process.kill()
+
+
+def test_tampered_audit_chain_blocks_subsequent_startup(tmp_path: Path) -> None:
+    runtime_db = tmp_path / "runtime.sqlite3"
+    first = start_sidecar_module()
+    assert first.stdin is not None
+    assert first.stdout is not None
+    try:
+        read_one_frame(first.stdout)
+        first.stdin.write(
+            encode_frame(
+                request(
+                    1,
+                    initialize_payload(runtime_db),
+                    sensitivity=Sensitivity.SECRET,
+                )
+            )
+        )
+        first.stdin.flush()
+        assert read_one_frame(first.stdout).payload["state"] == "READY"
+        first.stdin.write(encode_frame(request(2, {"method": "shutdown"})))
+        first.stdin.flush()
+        assert read_one_frame(first.stdout).payload == {"result": "stopping"}
+        assert first.wait(timeout=3) == 0
+    finally:
+        if first.poll() is None:
+            first.kill()
+
+    connection = sqlite3.connect(runtime_db)
+    try:
+        connection.execute(
+            "UPDATE audit_entries SET body_json = ? WHERE sequence = 1",
+            ('{"state":"forged"}',),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    second = start_sidecar_module()
+    assert second.stdin is not None
+    assert second.stdout is not None
+    try:
+        read_one_frame(second.stdout)
+        second.stdin.write(
+            encode_frame(
+                request(
+                    1,
+                    initialize_payload(runtime_db),
+                    sensitivity=Sensitivity.SECRET,
+                )
+            )
+        )
+        second.stdin.flush()
+        rejected = read_one_frame(second.stdout)
+
+        assert rejected.message_type is MessageType.ERROR
+        assert rejected.payload == {
+            "error_code": "AUDIT_CHAIN_INVALID",
+            "message": "audit chain verification failed",
+        }
+        assert second.wait(timeout=3) != 0
+    finally:
+        if second.poll() is None:
+            second.kill()

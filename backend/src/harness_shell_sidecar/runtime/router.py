@@ -19,6 +19,7 @@ from harness_shell_sidecar.protocol import (
 from .messages import (
     InitializeRequestPayload,
     RuntimeCapabilities,
+    RuntimeInitializationFailure,
     RuntimePhase,
 )
 
@@ -108,6 +109,10 @@ class Router:
 
         try:
             self._initializer(payload)
+        except RuntimeInitializationFailure as exc:
+            response = self._error(frame, exc.error_code, exc.public_message)
+            self.phase = RuntimePhase.FAILED
+            return response
         except Exception:
             response = self._error(
                 frame,
