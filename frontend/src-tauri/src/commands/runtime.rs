@@ -10,7 +10,7 @@ pub fn get_runtime_status(state: State<'_, RuntimeStateHandle>) -> RuntimeStatus
 }
 
 #[tauri::command]
-pub fn open_approval_window(app: AppHandle) -> Result<(), CommandError> {
+pub async fn open_approval_window(app: AppHandle) -> Result<(), CommandError> {
     if let Some(window) = app.get_webview_window("approval") {
         return window.set_focus().map_err(|_| {
             CommandError::new(

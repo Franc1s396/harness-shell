@@ -262,3 +262,18 @@ fn build_manifest_scopes_exactly_the_four_custom_commands() {
         .collect::<BTreeSet<_>>();
     assert_eq!(registered, CUSTOM_COMMANDS.into_iter().collect());
 }
+
+#[test]
+fn approval_window_creation_uses_an_async_command_on_windows() {
+    let runtime_commands = fs::read_to_string(manifest_dir().join("src/commands/runtime.rs"))
+        .expect("runtime commands must be readable");
+
+    assert!(
+        runtime_commands.contains("pub async fn open_approval_window("),
+        "WebviewWindowBuilder deadlocks when called from a synchronous command on Windows"
+    );
+    assert!(
+        !runtime_commands.contains("install_approval_window_lifecycle"),
+        "native close behavior must not be patched after a deadlocked window is created"
+    );
+}
