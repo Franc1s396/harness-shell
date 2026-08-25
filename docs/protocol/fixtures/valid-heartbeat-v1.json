@@ -1,0 +1,1 @@
+{"protocol_version":1,"message_type":"heartbeat","request_id":"018f3f83-7a53-7b5d-9c4e-1b2f68e27911","task_id":null,"workflow_run_id":null,"sequence":1,"timestamp":"2026-08-25T00:00:00Z","sensitivity":"normal","payload":{"kind":"ping"}}
