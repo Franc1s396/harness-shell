@@ -1,0 +1,50 @@
+# JavaScript / TypeScript
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Rust / Tauri
+**/target/
+
+# Local development workflow
+docs/superpowers/
+
+# Python
+**/__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+**/.venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/htmlcov/
+**/build/
+
+# Local configuration and secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# Editors
+.idea/
+.vscode/
+*.suo
+*.user
+*.sw?
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
