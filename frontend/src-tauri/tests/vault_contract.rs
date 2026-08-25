@@ -2,6 +2,7 @@
 
 use std::fs;
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use harness_shell_lib::vault::{
     dpapi::{protect, unprotect, DpapiError},
     CredentialId, CredentialKind, SecretVault, VaultError,
@@ -45,14 +46,16 @@ fn vault_round_trips_secrets_without_persisting_plaintext() {
 #[test]
 fn runtime_keys_are_stable_and_exactly_32_bytes() {
     let directory = tempdir().expect("create vault temp directory");
-    let vault = SecretVault::open(directory.path().join("vault.sqlite3")).expect("open vault");
-
-    let first = vault
-        .get_or_create_runtime_keys()
-        .expect("create runtime keys");
-    let second = vault
-        .get_or_create_runtime_keys()
-        .expect("resolve runtime keys");
+    let (first, second) = {
+        let vault = SecretVault::open(directory.path().join("vault.sqlite3")).expect("open vault");
+        let first = vault
+            .get_or_create_runtime_keys()
+            .expect("create runtime keys");
+        let second = vault
+            .get_or_create_runtime_keys()
+            .expect("resolve runtime keys");
+        (first, second)
+    };
 
     assert_eq!(first.runtime_data_key.len(), 32);
     assert_eq!(first.audit_hmac_key.len(), 32);
@@ -68,6 +71,31 @@ fn runtime_keys_are_stable_and_exactly_32_bytes() {
         first.runtime_data_key.as_slice(),
         first.audit_hmac_key.as_slice()
     );
+
+    for entry in fs::read_dir(directory.path()).expect("list Vault files") {
+        let path = entry.expect("read Vault file entry").path();
+        if !path.is_file() {
+            continue;
+        }
+        let persisted = fs::read(&path).expect("read Vault file");
+        for key in [&first.runtime_data_key, &first.audit_hmac_key] {
+            let encoded = STANDARD.encode(key.as_slice());
+            assert!(
+                !persisted
+                    .windows(key.len())
+                    .any(|window| window == key.as_slice()),
+                "runtime key plaintext persisted in {}",
+                path.display()
+            );
+            assert!(
+                !persisted
+                    .windows(encoded.len())
+                    .any(|window| window == encoded.as_bytes()),
+                "runtime key base64 persisted in {}",
+                path.display()
+            );
+        }
+    }
 }
 
 #[test]

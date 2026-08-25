@@ -8,7 +8,7 @@ pub enum SupervisorEvent {
     Spawned,
     SpawnFailed,
     InitializeAccepted,
-    InitializeRejected,
+    InitializeRejected { error_code: String },
     InvalidInitializeResponse,
     ProtocolVersionMismatch { actual: u64 },
     InvalidFrame,
@@ -103,7 +103,7 @@ impl Supervisor {
             }
             SupervisorEvent::InvalidFrame => self.fail("SIDECAR_PROTOCOL_VIOLATION"),
             SupervisorEvent::InvalidInitializeResponse => self.fail("SIDECAR_INITIALIZE_INVALID"),
-            SupervisorEvent::InitializeRejected => self.fail("SIDECAR_INITIALIZE_REJECTED"),
+            SupervisorEvent::InitializeRejected { error_code } => self.fail(&error_code),
             SupervisorEvent::SpawnFailed => self.fail("SIDECAR_SPAWN_FAILED"),
             SupervisorEvent::ShutdownRequested => {
                 self.shutdown_requested = true;

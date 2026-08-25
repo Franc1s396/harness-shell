@@ -1,9 +1,5 @@
 use std::{
-    collections::VecDeque,
-    env,
-    path::Path,
-    sync::mpsc::Receiver as ControlReceiver,
-    time::{Duration, Instant},
+    collections::VecDeque, env, path::Path, sync::mpsc::Receiver as ControlReceiver, time::Duration,
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -14,6 +10,7 @@ use tauri_plugin_shell::{
     ShellExt,
 };
 use time::OffsetDateTime;
+use tokio::time::Instant;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -56,6 +53,8 @@ pub enum ProcessError {
     InvalidRuntimeKey,
     #[error("packaged Sidecar emitted an invalid {0} frame")]
     InvalidFrame(&'static str),
+    #[error("packaged Sidecar rejected initialization")]
+    InitializeRejected { error_code: String },
     #[error("runtime state machine stopped the Sidecar")]
     SupervisorStopped,
     #[error("application shutdown was requested during Sidecar startup")]
@@ -180,9 +179,11 @@ pub async fn supervise_runtime<R: Runtime>(
         }
     };
     if let Err(error) = validate_initialize_response(&initialized, initialize_request_id) {
-        publish(
+        publish_error_if_active(
             &state,
-            supervisor.transition(SupervisorEvent::InvalidInitializeResponse),
+            &mut supervisor,
+            &error,
+            SupervisorEvent::InvalidInitializeResponse,
         );
         process.kill()?;
         return Err(error);
@@ -209,11 +210,10 @@ pub async fn supervise_runtime<R: Runtime>(
             )
             .await;
         }
-        if last_valid_frame.elapsed() >= HEARTBEAT_TIMEOUT {
-            publish(
-                &state,
-                supervisor.transition(SupervisorEvent::HeartbeatTimedOut),
-            );
+        if let Some(transition) =
+            apply_heartbeat_timeout(&mut supervisor, last_valid_frame, Instant::now())
+        {
+            publish(&state, transition);
             process.kill()?;
             return Err(ProcessError::SupervisorStopped);
         }
@@ -694,13 +694,41 @@ pub fn validate_initialize_response(
     frame: &FrameEnvelope,
     request_id: Uuid,
 ) -> Result<(), ProcessError> {
-    if frame.request_id != request_id
-        || frame.message_type != MessageType::Response
+    if frame.request_id != request_id {
+        return Err(ProcessError::InvalidFrame("initialize response"));
+    }
+
+    if frame.message_type == MessageType::Error {
+        let error_code = frame
+            .payload
+            .get("error_code")
+            .and_then(Value::as_str)
+            .and_then(allowed_initialize_error_code)
+            .ok_or(ProcessError::InvalidFrame("initialize error"))?;
+        return Err(ProcessError::InitializeRejected {
+            error_code: error_code.into(),
+        });
+    }
+
+    if frame.message_type != MessageType::Response
         || frame.payload != object(json!({"result": "initialized", "state": "READY"}))
     {
         return Err(ProcessError::InvalidFrame("initialize response"));
     }
     Ok(())
+}
+
+pub fn heartbeat_timed_out(last_valid: Instant, now: Instant) -> bool {
+    now.duration_since(last_valid) >= HEARTBEAT_TIMEOUT
+}
+
+pub fn apply_heartbeat_timeout(
+    supervisor: &mut Supervisor,
+    last_valid: Instant,
+    now: Instant,
+) -> Option<super::SupervisorTransition> {
+    heartbeat_timed_out(last_valid, now)
+        .then(|| supervisor.transition(SupervisorEvent::HeartbeatTimedOut))
 }
 
 pub fn validate_pong(frame: &FrameEnvelope, request_id: Uuid) -> Result<(), ProcessError> {
@@ -723,6 +751,17 @@ fn validate_runtime_key(encoded: &str) -> Result<(), ProcessError> {
         return Err(ProcessError::InvalidRuntimeKey);
     }
     Ok(())
+}
+
+fn allowed_initialize_error_code(value: &str) -> Option<&'static str> {
+    match value {
+        "AUDIT_CHAIN_INVALID" => Some("AUDIT_CHAIN_INVALID"),
+        "RUNTIME_INITIALIZATION_FAILED" => Some("RUNTIME_INITIALIZATION_FAILED"),
+        "INVALID_INITIALIZE_PAYLOAD" => Some("INVALID_INITIALIZE_PAYLOAD"),
+        "SENSITIVE_FRAME_REQUIRED" => Some("SENSITIVE_FRAME_REQUIRED"),
+        "INVALID_RUNTIME_PHASE" => Some("INVALID_RUNTIME_PHASE"),
+        _ => None,
+    }
 }
 
 fn frame(
@@ -751,17 +790,27 @@ fn object(value: Value) -> Map<String, Value> {
         .clone()
 }
 
+pub fn supervisor_event_for_process_error(
+    error: &ProcessError,
+    fallback: SupervisorEvent,
+) -> SupervisorEvent {
+    match error {
+        ProcessError::Protocol(ProtocolError::UnsupportedProtocolVersion { actual }) => {
+            SupervisorEvent::ProtocolVersionMismatch { actual: *actual }
+        }
+        ProcessError::InitializeRejected { error_code } => SupervisorEvent::InitializeRejected {
+            error_code: error_code.clone(),
+        },
+        _ => fallback,
+    }
+}
+
 fn publish_error_if_active(
     state: &RuntimeStateHandle,
     supervisor: &mut Supervisor,
     error: &ProcessError,
     fallback: SupervisorEvent,
 ) {
-    let event = match error {
-        ProcessError::Protocol(ProtocolError::UnsupportedProtocolVersion { actual }) => {
-            SupervisorEvent::ProtocolVersionMismatch { actual: *actual }
-        }
-        _ => fallback,
-    };
+    let event = supervisor_event_for_process_error(error, fallback);
     publish(state, supervisor.transition(event));
 }
