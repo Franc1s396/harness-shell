@@ -41,3 +41,4 @@ zeroize = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
+toml = "0.9"

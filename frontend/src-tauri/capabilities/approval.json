@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "approval",
+  "description": "Approval-only access for the fixed approval window.",
+  "windows": ["approval"],
+  "permissions": ["approval"]
+}

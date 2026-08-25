@@ -1,11 +1,11 @@
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  color: #182230;
+  background: #eef2f6;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -14,23 +14,194 @@
   -webkit-text-size-adjust: 100%;
 }
 
-.container {
+.app-shell {
   min-height: 100vh;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  padding: 40px;
+}
+
+.status-card {
+  width: min(760px, 100%);
+  box-sizing: border-box;
+  padding: 36px;
+  border: 1px solid #d6dee8;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(24, 34, 48, 0.09);
+}
+
+.eyebrow {
+  margin-bottom: 8px;
+  color: #52657a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.title-row {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
 }
 
 h1 {
-  margin-bottom: 0;
+  margin: 0;
+  color: #111927;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.08;
+}
+
+.subtitle {
+  margin: 10px 0 0;
+  color: #64748b;
+}
+
+.state-badge {
+  flex: none;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #e8edf3;
+  color: #435267;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.state-ready {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.state-failed,
+.state-paused {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 32px 0;
+  overflow: hidden;
+  border: 1px solid #dce3eb;
+  border-radius: 12px;
+  background: #dce3eb;
+}
+
+.status-grid > div {
+  min-width: 0;
+  padding: 18px;
+  background: #f8fafc;
+}
+
+dt {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 5px 0 0;
+  color: #182230;
+  font-weight: 650;
+}
+
+.monospace {
+  overflow-wrap: anywhere;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.83rem;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  background: #175cd3;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+button:focus-visible {
+  outline: 3px solid rgba(23, 92, 211, 0.3);
+  outline-offset: 3px;
+}
+
+.error-banner {
+  margin: 24px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.approval-shell {
+  padding: 28px;
+}
+
+.approval-card {
+  width: min(620px, 100%);
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 210px;
+  margin: 30px 0 24px;
+  border: 1px dashed #c8d2df;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #435267;
   text-align: center;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+.empty-state p {
+  margin: 10px 0 0;
+  font-weight: 700;
+}
+
+.empty-state small {
+  color: #7b8a9d;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.empty-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 800;
+}
+
+@media (max-width: 620px) {
+  .app-shell {
+    padding: 18px;
+  }
+
+  .status-card {
+    padding: 24px;
+  }
+
+  .title-row {
+    display: grid;
+  }
+
+  .status-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "approval"
+description = "Allows the approval window to inspect and decide the current approval request."
+commands.allow = ["get_approval_context", "submit_approval_decision"]

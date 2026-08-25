@@ -1,4 +1,5 @@
 pub mod app_state;
+pub mod commands;
 pub mod protocol;
 pub mod sidecar;
 pub mod vault;
@@ -6,6 +7,9 @@ pub mod vault;
 use std::{fs, sync::mpsc, time::Duration};
 
 use app_state::RuntimeStateHandle;
+use commands::{
+    get_approval_context, get_runtime_status, open_approval_window, submit_approval_decision,
+};
 use sidecar::{process::supervise_runtime, RuntimeState, RuntimeStatus};
 use tauri::{Manager, RunEvent};
 use vault::SecretVault;
@@ -14,6 +18,12 @@ use vault::SecretVault;
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            get_runtime_status,
+            open_approval_window,
+            get_approval_context,
+            submit_approval_decision
+        ])
         .setup(|app| {
             let app_data = app.path().app_local_data_dir()?;
             let extraction_directory = app_data.join("sidecar-tmp");

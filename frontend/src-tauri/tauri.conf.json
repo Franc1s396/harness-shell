@@ -12,13 +12,28 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Harness Shell",
         "width": 1280,
         "height": 720
       }
     ],
     "security": {
-      "csp": null
+      "capabilities": ["main", "approval"],
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "img-src": "'self' asset: http://asset.localhost data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
+        "img-src": "'self' asset: http://asset.localhost data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self' http://localhost:1420"
+      }
     }
   },
   "bundle": {
