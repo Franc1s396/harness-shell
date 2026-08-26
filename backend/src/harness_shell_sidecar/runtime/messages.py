@@ -72,9 +72,14 @@ class RuntimeCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     protocol_versions: tuple[Literal[1], ...] = (1,)
-    storage_schema_version: Literal[1] = 1
+    storage_schema_version: Literal[2] = 2
     features: tuple[str, ...] = (
         "encrypted_records",
         "audit_chain",
         "local_trace",
+        "connection_profiles",
+        "host_key_store",
+        "ssh_runtime",
+        "pty",
+        "agent_readonly_io",
     )

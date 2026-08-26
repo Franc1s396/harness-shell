@@ -194,6 +194,21 @@ def test_heartbeat_returns_pong_after_initialize() -> None:
     assert response.payload == {"kind": "pong"}
 
 
+def test_application_event_uses_the_shared_outbound_sequence() -> None:
+    router = Router()
+    ready = router.ready_event()
+    initialize_response = initialize(router)
+
+    event = router.application_event(
+        {"event": "ssh.connection.status", "status": {"state": "CONNECTING"}}
+    )
+
+    assert event.message_type is MessageType.EVENT
+    assert event.sequence == initialize_response.sequence + 1
+    assert event.sequence == ready.sequence + 2
+    assert event.payload["event"] == "ssh.connection.status"
+
+
 def test_cancel_unknown_request_is_typed_error() -> None:
     router = Router()
     router.ready_event()

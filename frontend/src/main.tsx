@@ -1,9 +1,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { initializeLocale } from "./stores/locale-store";
+import "./styles/globals.css";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error("#root is missing.");
+const root = ReactDOM.createRoot(rootElement);
+
+void initializeLocale().then(() => {
+  root.render(<React.StrictMode><App /></React.StrictMode>);
+}).catch((error: unknown) => {
+  rootElement.textContent = `Localization initialization failed: ${error instanceof Error ? error.message : String(error)}`;
+});

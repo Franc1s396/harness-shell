@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -27,6 +27,14 @@ impl fmt::Display for CredentialId {
     }
 }
 
+impl FromStr for CredentialId {
+    type Err = uuid::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(value).map(Self)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialKind {
@@ -45,6 +53,22 @@ impl CredentialKind {
             Self::ImportedPrivateKey => "imported_private_key",
         }
     }
+
+    pub(crate) fn from_stored(value: &str) -> Result<Self, VaultError> {
+        match value {
+            "api_key" => Ok(Self::ApiKey),
+            "ssh_password" => Ok(Self::SshPassword),
+            "private_key_passphrase" => Ok(Self::PrivateKeyPassphrase),
+            "imported_private_key" => Ok(Self::ImportedPrivateKey),
+            _ => Err(VaultError::InvalidCredentialKind(value.to_owned())),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CredentialReference {
+    pub credential_id: CredentialId,
+    pub kind: CredentialKind,
 }
 
 #[derive(Debug)]
@@ -57,6 +81,14 @@ pub struct RuntimeKeys {
 pub enum VaultError {
     #[error("credential {0} was not found")]
     NotFound(CredentialId),
+    #[error("credential {credential_id} has kind {actual:?}, expected {expected:?}")]
+    KindMismatch {
+        credential_id: CredentialId,
+        expected: CredentialKind,
+        actual: CredentialKind,
+    },
+    #[error("stored credential kind is invalid: {0}")]
+    InvalidCredentialKind(String),
     #[error("DPAPI operation failed: {0}")]
     Dpapi(#[from] DpapiError),
     #[error("vault database operation failed")]

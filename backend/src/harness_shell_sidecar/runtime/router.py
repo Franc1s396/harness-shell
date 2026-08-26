@@ -50,7 +50,13 @@ class Router:
         )
 
     def handle(self, frame: FrameEnvelope) -> FrameEnvelope:
+        self.validate_inbound(frame)
+        return self.handle_validated(frame)
+
+    def validate_inbound(self, frame: FrameEnvelope) -> None:
         self._validate_inbound_sequence(frame.sequence)
+
+    def handle_validated(self, frame: FrameEnvelope) -> FrameEnvelope:
 
         if frame.message_type is MessageType.HEARTBEAT:
             return self._handle_heartbeat(frame)
@@ -69,6 +75,32 @@ class Router:
         if method == "shutdown":
             return self._handle_shutdown(frame)
         return self._error(frame, "UNKNOWN_METHOD", "request method is unknown")
+
+    def application_response(
+        self,
+        frame: FrameEnvelope,
+        message_type: MessageType,
+        payload: dict,
+    ) -> FrameEnvelope:
+        if message_type not in (MessageType.RESPONSE, MessageType.ERROR):
+            raise ValueError("application response must be response or error")
+        return self._outbound_for(frame, message_type, payload)
+
+    def application_event(self, payload: dict) -> FrameEnvelope:
+        if self.phase is not RuntimePhase.READY:
+            raise ValueError("application events require a ready runtime")
+        return self._outbound(
+            request_id=uuid4(),
+            message_type=MessageType.EVENT,
+            payload=payload,
+        )
+
+    def cancel_target(self, frame: FrameEnvelope) -> UUID:
+        target = frame.payload.get("target_request_id")
+        reason = frame.payload.get("reason")
+        if reason != "user_requested":
+            raise ValueError("cancel reason is invalid")
+        return UUID(str(target))
 
     def terminal_error(self, error_code: str, message: str) -> FrameEnvelope:
         self.phase = RuntimePhase.FAILED
@@ -143,17 +175,9 @@ class Router:
         )
 
     def _handle_cancel(self, frame: FrameEnvelope) -> FrameEnvelope:
-        target = frame.payload.get("target_request_id")
-        reason = frame.payload.get("reason")
         try:
-            UUID(str(target))
+            self.cancel_target(frame)
         except (ValueError, TypeError, AttributeError):
-            return self._error(
-                frame,
-                "INVALID_CANCEL_PAYLOAD",
-                "cancel payload is invalid",
-            )
-        if reason != "user_requested":
             return self._error(
                 frame,
                 "INVALID_CANCEL_PAYLOAD",

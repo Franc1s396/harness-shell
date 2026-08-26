@@ -2,7 +2,7 @@ use harness_shell_lib::{
     protocol::{FrameEnvelope, MessageType, Sensitivity, PROTOCOL_VERSION},
     sidecar::{
         process::{
-            apply_heartbeat_timeout, supervisor_event_for_process_error,
+            advance_heartbeat_clock, apply_heartbeat_timeout, supervisor_event_for_process_error,
             validate_initialize_response, ProcessError,
         },
         RuntimeState, RuntimeStatus, Supervisor, SupervisorAction, SupervisorEvent,
@@ -124,4 +124,19 @@ fn sixteen_second_heartbeat_gap_pauses_runtime() {
                 Some("SIDECAR_HEARTBEAT_TIMEOUT")
             );
         });
+}
+
+#[test]
+fn application_frames_do_not_refresh_the_heartbeat_clock() {
+    let last_valid_pong = Instant::now();
+    let application_frame_at = last_valid_pong + std::time::Duration::from_secs(14);
+
+    assert_eq!(
+        advance_heartbeat_clock(last_valid_pong, application_frame_at, false),
+        last_valid_pong
+    );
+    assert_eq!(
+        advance_heartbeat_clock(last_valid_pong, application_frame_at, true),
+        application_frame_at
+    );
 }

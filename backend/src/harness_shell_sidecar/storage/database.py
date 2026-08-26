@@ -6,9 +6,17 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 REQUIRED_TABLES = frozenset(
-    {"schema_migrations", "encrypted_records", "audit_entries", "trace_spans"}
+    {
+        "schema_migrations",
+        "encrypted_records",
+        "audit_entries",
+        "trace_spans",
+        "connection_profiles",
+        "host_keys",
+        "artifact_metadata",
+    }
 )
 
 
@@ -92,7 +100,21 @@ class RuntimeDatabase:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        if versions != [SCHEMA_VERSION]:
+        if versions == [1]:
+            migration = (
+                Path(__file__).parent / "migrations" / "002_m2.sql"
+            ).read_text(encoding="utf-8")
+            try:
+                self.connection.executescript(migration)
+            except sqlite3.DatabaseError as exc:
+                raise StorageSelfCheckFailed("schema v2 migration failed") from exc
+            versions = [
+                row[0]
+                for row in self.connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+            ]
+        if versions != list(range(1, SCHEMA_VERSION + 1)):
             raise StorageSelfCheckFailed(
                 f"unsupported schema versions: {versions!r}"
             )
@@ -123,7 +145,15 @@ class RuntimeDatabase:
         }
         if columns != required_columns:
             raise StorageSelfCheckFailed(
-                "encrypted_records schema does not match version 1"
+                "encrypted_records schema does not match version 2"
+            )
+        indexes = {
+            row[1]
+            for row in self.connection.execute("PRAGMA index_list(host_keys)").fetchall()
+        }
+        if "one_active_host_key_per_connection" not in indexes:
+            raise StorageSelfCheckFailed(
+                "schema v2 is missing the active host-key index"
             )
 
     def _table_names(self) -> set[str]:
@@ -133,4 +163,3 @@ class RuntimeDatabase:
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
         }
-

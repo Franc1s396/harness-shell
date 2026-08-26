@@ -1,15 +1,20 @@
 use std::{
-    collections::VecDeque, env, path::Path, sync::mpsc::Receiver as ControlReceiver, time::Duration,
+    collections::{HashSet, VecDeque},
+    env,
+    path::{Path, PathBuf},
+    sync::mpsc::Receiver as ControlReceiver,
+    time::Duration,
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Map, Value};
-use tauri::{async_runtime::Receiver, AppHandle, Runtime};
+use tauri::{async_runtime::Receiver, AppHandle, Emitter, Runtime};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
 };
 use time::OffsetDateTime;
+use tokio::sync::mpsc::Receiver as BrokerReceiver;
 use tokio::time::Instant;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -20,7 +25,13 @@ use crate::protocol::{
 };
 use crate::{
     app_state::{RuntimeControl, RuntimeStateHandle},
-    sidecar::{job::WindowsJob, Supervisor, SupervisorEvent},
+    sidecar::{
+        broker::{
+            validate_runtime_event, BrokerError, PendingReplies, RuntimeCommand, RuntimeRequest,
+        },
+        job::WindowsJob,
+        Supervisor, SupervisorEvent,
+    },
     vault::RuntimeKeys,
 };
 
@@ -65,6 +76,7 @@ pub async fn supervise_runtime<R: Runtime>(
     app: AppHandle<R>,
     state: RuntimeStateHandle,
     mut control: ControlReceiver<RuntimeControl>,
+    mut broker_commands: BrokerReceiver<RuntimeCommand>,
     runtime_db_path: &Path,
     extraction_directory: &Path,
     runtime_keys: RuntimeKeys,
@@ -195,23 +207,84 @@ pub async fn supervise_runtime<R: Runtime>(
 
     let mut next_outbound_sequence = 2;
     let mut next_heartbeat = Instant::now() + HEARTBEAT_INTERVAL;
-    let mut last_valid_frame = Instant::now();
-    let mut pending_pings: VecDeque<Uuid> = VecDeque::new();
+    let mut last_valid_pong = Instant::now();
+    let mut pending_pings: HashSet<Uuid> = HashSet::new();
+    let mut pending_replies = PendingReplies::new();
 
     loop {
         if matches!(control.try_recv(), Ok(RuntimeControl::Shutdown)) {
+            pending_replies.fail_all(BrokerError::Closed);
             return shutdown_runtime(
+                &app,
                 &mut process,
                 &mut supervisor,
                 &state,
                 next_outbound_sequence,
                 &mut next_inbound_sequence,
                 &mut pending_pings,
+                &mut pending_replies,
             )
             .await;
         }
+        while let Ok(command) = broker_commands.try_recv() {
+            match command {
+                RuntimeCommand::Request {
+                    request_id,
+                    request,
+                    reply,
+                } => {
+                    let mut frame =
+                        application_request_frame(next_outbound_sequence, request_id, request);
+                    let write_result = process.write_frame(&frame);
+                    zeroize_sensitive_frame(&mut frame);
+                    if let Err(error) = write_result {
+                        let _ = reply.send(Err(BrokerError::Protocol));
+                        pending_replies.fail_all(BrokerError::Protocol);
+                        publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        process.kill()?;
+                        return Err(error);
+                    }
+                    pending_replies
+                        .insert(request_id, reply)
+                        .map_err(|_| ProcessError::InvalidFrame("duplicate broker request"))?;
+                    next_outbound_sequence += 1;
+                }
+                RuntimeCommand::Cancel {
+                    target_request_id,
+                    reply,
+                } => {
+                    let frame = cancellation_frame(next_outbound_sequence, target_request_id);
+                    let request_id = frame.request_id;
+                    if let Err(error) = process.write_frame(&frame) {
+                        let _ = reply.send(Err(BrokerError::Protocol));
+                        pending_replies.fail_all(BrokerError::Protocol);
+                        publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        process.kill()?;
+                        return Err(error);
+                    }
+                    pending_replies
+                        .insert(request_id, reply)
+                        .map_err(|_| ProcessError::InvalidFrame("duplicate broker cancel"))?;
+                    next_outbound_sequence += 1;
+                }
+                RuntimeCommand::Shutdown => {
+                    pending_replies.fail_all(BrokerError::Closed);
+                    return shutdown_runtime(
+                        &app,
+                        &mut process,
+                        &mut supervisor,
+                        &state,
+                        next_outbound_sequence,
+                        &mut next_inbound_sequence,
+                        &mut pending_pings,
+                        &mut pending_replies,
+                    )
+                    .await;
+                }
+            }
+        }
         if let Some(transition) =
-            apply_heartbeat_timeout(&mut supervisor, last_valid_frame, Instant::now())
+            apply_heartbeat_timeout(&mut supervisor, last_valid_pong, Instant::now())
         {
             publish(&state, transition);
             process.kill()?;
@@ -219,7 +292,7 @@ pub async fn supervise_runtime<R: Runtime>(
         }
         if Instant::now() >= next_heartbeat {
             let heartbeat = heartbeat_frame(next_outbound_sequence);
-            pending_pings.push_back(heartbeat.request_id);
+            pending_pings.insert(heartbeat.request_id);
             if let Err(error) = process.write_frame(&heartbeat) {
                 publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
                 process.kill()?;
@@ -243,26 +316,44 @@ pub async fn supervise_runtime<R: Runtime>(
                     return Err(ProcessError::SupervisorStopped);
                 }
                 next_inbound_sequence += 1;
-                let Some(request_id) = pending_pings.pop_front() else {
+                let frame_received_at = Instant::now();
+                last_valid_pong =
+                    advance_heartbeat_clock(last_valid_pong, frame_received_at, false);
+                if pending_pings.remove(&frame.request_id) {
+                    if let Err(error) = validate_pong(&frame, frame.request_id) {
+                        publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        process.kill()?;
+                        return Err(error);
+                    }
+                    last_valid_pong =
+                        advance_heartbeat_clock(last_valid_pong, frame_received_at, true);
+                    publish(
+                        &state,
+                        supervisor.transition(SupervisorEvent::HeartbeatReceived {
+                            sequence: frame.sequence,
+                            at: frame.timestamp,
+                        }),
+                    );
+                } else if frame.message_type == MessageType::Event {
+                    if validate_runtime_event(&frame.payload).is_err()
+                        || app.emit_to("main", "ssh://event", &frame.payload).is_err()
+                    {
+                        publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        process.kill()?;
+                        return Err(ProcessError::InvalidFrame("runtime event"));
+                    }
+                } else if pending_replies.contains(frame.request_id) {
+                    pending_replies
+                        .complete(frame)
+                        .map_err(|_| ProcessError::InvalidFrame("broker response"))?;
+                } else {
                     publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
                     process.kill()?;
                     return Err(ProcessError::InvalidFrame("unsolicited runtime frame"));
-                };
-                if let Err(error) = validate_pong(&frame, request_id) {
-                    publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                    process.kill()?;
-                    return Err(error);
                 }
-                last_valid_frame = Instant::now();
-                publish(
-                    &state,
-                    supervisor.transition(SupervisorEvent::HeartbeatReceived {
-                        sequence: frame.sequence,
-                        at: frame.timestamp,
-                    }),
-                );
             }
             Ok(SidecarOutput::Terminated { code }) => {
+                pending_replies.fail_all(BrokerError::Closed);
                 publish(
                     &state,
                     supervisor.transition(SupervisorEvent::ProcessExited { code }),
@@ -271,6 +362,7 @@ pub async fn supervise_runtime<R: Runtime>(
             }
             Err(ProcessError::Timeout) => {}
             Err(error) => {
+                pending_replies.fail_all(BrokerError::Protocol);
                 publish_error_if_active(
                     &state,
                     &mut supervisor,
@@ -340,13 +432,15 @@ async fn next_startup_output(
     }
 }
 
-async fn shutdown_runtime(
+async fn shutdown_runtime<R: Runtime>(
+    app: &AppHandle<R>,
     process: &mut SidecarProcess,
     supervisor: &mut Supervisor,
     state: &RuntimeStateHandle,
     sequence: u64,
     next_inbound_sequence: &mut u64,
-    pending_pings: &mut VecDeque<Uuid>,
+    pending_pings: &mut HashSet<Uuid>,
+    pending_replies: &mut PendingReplies,
 ) -> Result<(), ProcessError> {
     let transition = supervisor.transition(SupervisorEvent::ShutdownRequested);
     publish(state, transition);
@@ -381,19 +475,30 @@ async fn shutdown_runtime(
                     acknowledged = true;
                     continue;
                 }
-                let Some(ping_request_id) = pending_pings.pop_front() else {
-                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                    if let Err(kill_error) = process.kill() {
-                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                if pending_pings.remove(&frame.request_id) {
+                    if let Err(error) = validate_pong(&frame, frame.request_id) {
+                        publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        if let Err(kill_error) = process.kill() {
+                            log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                        }
+                        return Err(error);
                     }
+                } else if frame.message_type == MessageType::Event {
+                    if validate_runtime_event(&frame.payload).is_err()
+                        || app.emit_to("main", "ssh://event", &frame.payload).is_err()
+                    {
+                        publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        process.kill()?;
+                        return Err(ProcessError::InvalidFrame("shutdown event"));
+                    }
+                } else if pending_replies.contains(frame.request_id) {
+                    pending_replies
+                        .complete(frame)
+                        .map_err(|_| ProcessError::InvalidFrame("shutdown broker response"))?;
+                } else {
+                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    process.kill()?;
                     return Err(ProcessError::InvalidFrame("shutdown response"));
-                };
-                if let Err(error) = validate_pong(&frame, ping_request_id) {
-                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                    if let Err(kill_error) = process.kill() {
-                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
-                    }
-                    return Err(error);
                 }
             }
             Ok(SidecarOutput::Terminated { code }) => {
@@ -405,6 +510,7 @@ async fn shutdown_runtime(
                     state,
                     supervisor.transition(SupervisorEvent::ProcessExited { code }),
                 );
+                pending_replies.fail_all(BrokerError::Closed);
                 return Ok(());
             }
             Err(ProcessError::Timeout) => break,
@@ -422,6 +528,7 @@ async fn shutdown_runtime(
         state,
         supervisor.transition(SupervisorEvent::ShutdownTimedOut),
     );
+    pending_replies.fail_all(BrokerError::Closed);
     process.kill()?;
     Err(ProcessError::Timeout)
 }
@@ -434,6 +541,38 @@ fn zeroize_initialize_payload(frame: &mut FrameEnvelope) {
         }
     }
     frame.payload.clear();
+}
+
+fn zeroize_sensitive_frame(frame: &mut FrameEnvelope) {
+    if frame.sensitivity != Sensitivity::Secret {
+        return;
+    }
+    for value in frame.payload.values_mut() {
+        zeroize_json_value(value);
+    }
+    frame.payload.clear();
+}
+
+fn zeroize_json_value(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            use zeroize::Zeroize;
+            text.zeroize();
+        }
+        Value::Array(values) => {
+            for value in values.iter_mut() {
+                zeroize_json_value(value);
+            }
+            values.clear();
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                zeroize_json_value(value);
+            }
+            values.clear();
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
 }
 
 fn publish(state: &RuntimeStateHandle, transition: super::SupervisorTransition) {
@@ -468,6 +607,10 @@ impl SidecarProcess {
             .filter(|_| extraction_directory.is_absolute())
             .ok_or(ProcessError::InvalidEnvironment)?;
         let system_root = env::var_os("SystemRoot").ok_or(ProcessError::InvalidEnvironment)?;
+        let system32 = PathBuf::from(&system_root).join("System32");
+        if !system32.is_dir() {
+            return Err(ProcessError::InvalidEnvironment);
+        }
         let job = WindowsJob::create()?;
         let (events, child) = app
             .shell()
@@ -478,6 +621,9 @@ impl SidecarProcess {
             .env("WINDIR", &system_root)
             .env("TEMP", extraction_directory)
             .env("TMP", extraction_directory)
+            .env("PATH", &system32)
+            .env("USERNAME", "harness-shell")
+            .env("USERPROFILE", extraction_directory)
             .env("HARNESS_SIDECAR_JOB", job.name())
             .spawn()?;
         Ok(Self {
@@ -661,6 +807,36 @@ pub fn heartbeat_frame(sequence: u64) -> FrameEnvelope {
     )
 }
 
+pub fn application_request_frame(
+    sequence: u64,
+    request_id: Uuid,
+    request: RuntimeRequest,
+) -> FrameEnvelope {
+    FrameEnvelope {
+        protocol_version: PROTOCOL_VERSION,
+        message_type: MessageType::Request,
+        request_id,
+        task_id: request.task_id,
+        workflow_run_id: request.workflow_run_id,
+        sequence,
+        timestamp: OffsetDateTime::now_utc(),
+        sensitivity: request.sensitivity,
+        payload: request.payload,
+    }
+}
+
+pub fn cancellation_frame(sequence: u64, target_request_id: Uuid) -> FrameEnvelope {
+    frame(
+        MessageType::Cancel,
+        sequence,
+        Sensitivity::Normal,
+        json!({
+            "target_request_id": target_request_id,
+            "reason": "user_requested"
+        }),
+    )
+}
+
 pub fn shutdown_frame(sequence: u64) -> FrameEnvelope {
     frame(
         MessageType::Request,
@@ -676,14 +852,30 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         .and_then(|value| value.get("protocol_versions"))
         .and_then(Value::as_array)
         .is_some_and(|versions| versions.contains(&json!(PROTOCOL_VERSION)));
-    let schema_v1 =
-        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(1));
+    let schema_v2 =
+        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(2));
+    let features = capabilities
+        .and_then(|value| value.get("features"))
+        .and_then(Value::as_array);
+    let required_features = [
+        "connection_profiles",
+        "host_key_store",
+        "ssh_runtime",
+        "pty",
+        "agent_readonly_io",
+    ];
+    let supports_ssh_runtime = features.is_some_and(|features| {
+        required_features
+            .iter()
+            .all(|feature| features.contains(&json!(feature)))
+    });
     if frame.message_type != MessageType::Event
         || frame.sequence != 1
         || frame.sensitivity != Sensitivity::Normal
         || frame.payload.get("event") != Some(&json!("sidecar.ready"))
         || !supports_v1
-        || !schema_v1
+        || !schema_v2
+        || !supports_ssh_runtime
     {
         return Err(ProcessError::InvalidFrame("sidecar.ready"));
     }
@@ -720,6 +912,18 @@ pub fn validate_initialize_response(
 
 pub fn heartbeat_timed_out(last_valid: Instant, now: Instant) -> bool {
     now.duration_since(last_valid) >= HEARTBEAT_TIMEOUT
+}
+
+pub fn advance_heartbeat_clock(
+    last_valid_pong: Instant,
+    frame_received_at: Instant,
+    valid_pong: bool,
+) -> Instant {
+    if valid_pong {
+        frame_received_at
+    } else {
+        last_valid_pong
+    }
 }
 
 pub fn apply_heartbeat_timeout(

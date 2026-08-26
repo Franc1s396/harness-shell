@@ -1,6 +1,6 @@
 # Harness Shell
 
-Harness Shell 是一款面向 Windows 的本地 AI SSH Agent 桌面应用。M1 已实现 Tauri Core 管理的 Python Sidecar、版本化私有 stdio 协议、DPAPI Vault、AES-GCM 运行时存储、篡改可见 Audit/本地 Trace，以及主窗口与审批窗口的 Capability 隔离。SSH、Agent Workflow 和真实审批仍未实现。
+Harness Shell 是一款面向 Windows 的本地 AI SSH Agent 桌面应用。M2 已在 M1 的 Tauri Core、私有 stdio 协议、DPAPI Vault、加密存储、Audit/Trace 和 Capability 边界上增加连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多 tab 人工 PTY，以及不向 WebView 暴露的只读 Agent exec/SFTP 基础。M3 Agent Workflow、真实审批和远程写操作仍未实现。
 
 ## 目录结构
 
@@ -51,7 +51,7 @@ npm run tauri dev
 npm run tauri info
 ```
 
-## M1 一键验证
+## M1 / M2 一键验证
 
 要求 Windows、Python 3.12.13、Node.js/npm、Rust stable MSVC toolchain、Visual Studio C++ Build Tools、Windows SDK 和 WebView2 Runtime：
 
@@ -60,6 +60,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
 ```
 
 脚本严格执行 Python 环境与测试、Sidecar 打包、全部 Rust 测试、`npm ci`/Web 多页构建和 `tauri info`。完整手工验收见 [`docs/testing/m1-acceptance.md`](docs/testing/m1-acceptance.md)。
+
+M2 还要求 Docker Desktop、Docker Compose v2 和 Windows OpenSSH `ssh-keygen.exe`。它会建立双节点隔离实验室，执行真实 password/key/passphrase/ProxyJump/Host-Key/PTY/exec/SFTP 测试并扫描 secret marker：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m2.ps1
+```
+
+完整桌面验收记录见 [`docs/testing/m2-acceptance.md`](docs/testing/m2-acceptance.md)。容器测试与手工清单均不代表生产主机验收。
 
 ## Python Sidecar
 
@@ -79,7 +87,7 @@ PyInstaller 产物由 `backend/scripts/build_sidecar.ps1` 生成到 `backend/dis
 
 本地应用数据目录包含 `vault.sqlite3`（DPAPI 密文）和 `runtime.sqlite3`（Audit、Trace 与 AES-GCM 记录），以及 SQLite 可能创建的 `-wal`/`-shm` 文件。WebView 只能读取脱敏的 `RuntimeStatus`，不能访问 Vault、raw frame、stderr 或 shell。
 
-M1 限制：没有 SSH/SFTP、Provider 调用、Agent Workflow、真实 approval token、自动恢复、远程部署或迁移验收。
+M2 限制：没有 Provider 调用、Agent Workflow、真实 approval token、自动恢复、远程写入、生产部署或迁移验收。只读 Agent exec/SFTP 仅为 Sidecar 内部接口，WebView 没有调用路由。
 
 ## 设计文档
 

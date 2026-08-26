@@ -121,6 +121,7 @@ def main() -> int:
     system_root = os.environ.get("SystemRoot")
     if not system_root:
         raise RuntimeError("SystemRoot is required for the Windows Sidecar")
+    system32 = str(Path(system_root, "System32").resolve(strict=True))
     with tempfile.TemporaryDirectory(prefix="harness-shell-smoke-") as extraction_dir:
         job_handle, job_name = create_job()
         process = subprocess.Popen(
@@ -133,6 +134,9 @@ def main() -> int:
                 "WINDIR": system_root,
                 "TEMP": extraction_dir,
                 "TMP": extraction_dir,
+                "PATH": system32,
+                "USERNAME": "harness-shell",
+                "USERPROFILE": extraction_dir,
                 "HARNESS_SIDECAR_JOB": job_name,
             },
         )
@@ -155,14 +159,24 @@ def main() -> int:
                 except BaseException as exc:
                     result.put(exc)
 
-            threading.Thread(target=drain_stderr, daemon=True).start()
+            stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+            stderr_thread.start()
             threading.Thread(target=read_frame, daemon=True).start()
             try:
                 frame_or_error = result.get(timeout=READY_TIMEOUT_SECONDS)
             except queue.Empty as exc:
                 raise RuntimeError("packaged Sidecar ready frame timed out") from exc
             if isinstance(frame_or_error, BaseException):
-                raise frame_or_error
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+                stderr_thread.join(timeout=1)
+                with stderr_lock:
+                    stderr_text = stderr_capture.decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    f"{frame_or_error}; packaged stderr:\n{stderr_text}"
+                ) from frame_or_error
             frame = frame_or_error
             if frame.message_type is not MessageType.EVENT:
                 raise RuntimeError("packaged Sidecar ready frame has the wrong message type")

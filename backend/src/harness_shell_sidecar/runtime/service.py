@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from uuid import uuid4
 
 from opentelemetry.trace import Status, StatusCode
 
-from harness_shell_sidecar.protocol import ProtocolViolation
+from harness_shell_sidecar.connections.handlers import register_connection_handlers
+from harness_shell_sidecar.connections.repository import ConnectionRepository
+from harness_shell_sidecar.protocol import MessageType, ProtocolViolation
+from harness_shell_sidecar.remote_io import ArtifactStore, RemoteExecutor, RemoteSftp
 from harness_shell_sidecar.storage import (
     AuditEvent,
     AuditLedger,
@@ -17,12 +21,17 @@ from harness_shell_sidecar.storage import (
     RuntimeDatabase,
 )
 from harness_shell_sidecar.telemetry import build_local_tracer_provider
+from harness_shell_sidecar.ssh.handlers import register_ssh_handlers
+from harness_shell_sidecar.ssh.runtime import SshRuntime
+from harness_shell_sidecar.terminal import PtyManager
+from harness_shell_sidecar.terminal.handlers import register_terminal_handlers
 
 from .messages import (
     InitializeRequestPayload,
     RuntimeInitializationFailure,
     RuntimePhase,
 )
+from .dispatcher import DispatchError, RequestDispatcher
 from .router import Router
 from .stdio import StdioTransport
 
@@ -31,16 +40,29 @@ LOGGER = logging.getLogger("harness_shell_sidecar.runtime")
 
 
 class SidecarService:
-    def __init__(self, transport: StdioTransport, router: Router | None = None) -> None:
+    def __init__(
+        self,
+        transport: StdioTransport,
+        router: Router | None = None,
+        dispatcher: RequestDispatcher | None = None,
+    ) -> None:
         self._transport = transport
         self._database: RuntimeDatabase | None = None
+        self._connection_repository: ConnectionRepository | None = None
+        self._ssh_runtime: SshRuntime | None = None
+        self._pty_manager: PtyManager | None = None
         self._record_store: EncryptedRecordStore | None = None
+        self._artifact_store: ArtifactStore | None = None
+        self._remote_executor: RemoteExecutor | None = None
+        self._remote_sftp: RemoteSftp | None = None
         self._audit_ledger: AuditLedger | None = None
         self._trace_provider = None
         self._tracer = None
         self._ready_recorded = False
         self._correlation_id = uuid4()
         self._router = router or Router(initializer=self._initialize_runtime)
+        self._dispatcher = dispatcher or RequestDispatcher()
+        self._application_tasks: set[asyncio.Task[None]] = set()
 
     @classmethod
     def for_stdio(cls) -> SidecarService:
@@ -70,7 +92,25 @@ class SidecarService:
 
                 for frame in frames:
                     try:
-                        response = self._router.handle(frame)
+                        if self._is_application_request(frame):
+                            self._router.validate_inbound(frame)
+                            self._start_application_request(frame)
+                            continue
+                        if frame.message_type is MessageType.CANCEL:
+                            self._router.validate_inbound(frame)
+                            response = await self._handle_cancel(frame)
+                        elif frame.message_type is MessageType.REQUEST and frame.payload.get(
+                            "method"
+                        ) == "shutdown":
+                            self._router.validate_inbound(frame)
+                            await self._dispatcher.close()
+                            if self._pty_manager is not None:
+                                await self._pty_manager.close_all()
+                            if self._ssh_runtime is not None:
+                                await self._ssh_runtime.close_all()
+                            response = self._router.handle_validated(frame)
+                        else:
+                            response = self._router.handle(frame)
                     except ProtocolViolation:
                         await self._transport.send(
                             self._router.terminal_error(
@@ -97,10 +137,115 @@ class SidecarService:
             )
             exit_code = 1
         finally:
-            await self._transport.close()
-            self._close_runtime()
-            self._router.mark_stopped()
+            cleanup_error: BaseException | None = None
+
+            def remember(error: BaseException) -> None:
+                nonlocal cleanup_error
+                if cleanup_error is None:
+                    cleanup_error = error
+
+            try:
+                await self._dispatcher.close()
+            except BaseException as exc:
+                remember(exc)
+            if self._application_tasks:
+                try:
+                    await asyncio.gather(
+                        *self._application_tasks, return_exceptions=True
+                    )
+                except BaseException as exc:
+                    remember(exc)
+            if self._pty_manager is not None:
+                try:
+                    await self._pty_manager.close_all()
+                except BaseException as exc:
+                    remember(exc)
+            if self._ssh_runtime is not None:
+                try:
+                    await self._ssh_runtime.close_all()
+                except BaseException as exc:
+                    remember(exc)
+            try:
+                await self._transport.close()
+            except BaseException as exc:
+                remember(exc)
+            try:
+                self._close_runtime()
+            except BaseException as exc:
+                remember(exc)
+            try:
+                self._router.mark_stopped()
+            except BaseException as exc:
+                remember(exc)
+            if cleanup_error is not None:
+                raise cleanup_error
         return exit_code
+
+    def _is_application_request(self, frame: FrameEnvelope) -> bool:
+        return (
+            frame.message_type is MessageType.REQUEST
+            and self._dispatcher.handles(frame.payload.get("method"))
+        )
+
+    def _start_application_request(self, frame: FrameEnvelope) -> None:
+        task = asyncio.create_task(self._dispatch_application_request(frame))
+        self._application_tasks.add(task)
+        task.add_done_callback(self._application_tasks.discard)
+
+    async def _dispatch_application_request(self, frame: FrameEnvelope) -> None:
+        try:
+            result = await self._dispatcher.dispatch(frame)
+            response = self._router.application_response(
+                frame, result.message_type, result.payload
+            )
+        except DispatchError as exc:
+            payload = {"error_code": exc.error_code, "message": str(exc)}
+            payload.update(exc.details)
+            response = self._router.application_response(
+                frame,
+                MessageType.ERROR,
+                payload,
+            )
+        except Exception:
+            LOGGER.exception(
+                '{"level":"ERROR","error_code":"REQUEST_HANDLER_FAILED"}'
+            )
+            response = self._router.application_response(
+                frame,
+                MessageType.ERROR,
+                {
+                    "error_code": "REQUEST_HANDLER_FAILED",
+                    "message": "application request handler failed",
+                },
+            )
+        await self._transport.send(response)
+
+    async def _handle_cancel(self, frame: FrameEnvelope) -> FrameEnvelope:
+        try:
+            target = self._router.cancel_target(frame)
+        except (ValueError, TypeError, AttributeError):
+            return self._router.application_response(
+                frame,
+                MessageType.ERROR,
+                {
+                    "error_code": "INVALID_CANCEL_PAYLOAD",
+                    "message": "cancel payload is invalid",
+                },
+            )
+        if not await self._dispatcher.cancel(target):
+            return self._router.application_response(
+                frame,
+                MessageType.ERROR,
+                {
+                    "error_code": "CANCEL_TARGET_NOT_FOUND",
+                    "message": "target request is not active",
+                },
+            )
+        return self._router.application_response(
+            frame,
+            MessageType.RESPONSE,
+            {"result": "cancellation_requested", "target_request_id": str(target)},
+        )
 
     def _initialize_runtime(self, payload: InitializeRequestPayload) -> None:
         if self._database is not None:
@@ -114,7 +259,11 @@ class SidecarService:
         trace_provider = None
         try:
             database = RuntimeDatabase.open(payload.runtime_db_path)
+            connection_repository = ConnectionRepository(database)
+            register_connection_handlers(self._dispatcher, connection_repository)
             record_store = EncryptedRecordStore(database, data_key)
+            artifact_store = ArtifactStore(database, record_store)
+            artifact_store.self_check()
             trace_provider = build_local_tracer_provider(LocalTraceStore(database))
             tracer = trace_provider.get_tracer("harness_shell_sidecar.runtime")
             with tracer.start_as_current_span("runtime.starting") as span:
@@ -135,6 +284,20 @@ class SidecarService:
             audit_ledger.append(
                 AuditEvent.runtime_started(correlation_id=self._correlation_id)
             )
+            ssh_runtime = SshRuntime(
+                connection_repository,
+                audit_ledger=audit_ledger,
+                tracer=tracer,
+                status_listener=self._publish_connection_status,
+            )
+            register_ssh_handlers(self._dispatcher, ssh_runtime)
+            pty_manager = PtyManager(
+                ssh_runtime.sessions,
+                event_listener=self._publish_pty_event,
+            )
+            register_terminal_handlers(self._dispatcher, pty_manager)
+            remote_executor = RemoteExecutor(ssh_runtime.sessions, artifact_store)
+            remote_sftp = RemoteSftp(ssh_runtime.sessions, artifact_store)
         except RuntimeInitializationFailure:
             _zeroize(data_key)
             _zeroize(audit_hmac_key)
@@ -161,7 +324,13 @@ class SidecarService:
             raise
 
         self._database = database
+        self._connection_repository = connection_repository
+        self._ssh_runtime = ssh_runtime
+        self._pty_manager = pty_manager
         self._record_store = record_store
+        self._artifact_store = artifact_store
+        self._remote_executor = remote_executor
+        self._remote_sftp = remote_sftp
         self._audit_ledger = audit_ledger
         self._trace_provider = trace_provider
         self._tracer = tracer
@@ -178,33 +347,83 @@ class SidecarService:
             span.set_attribute("runtime.state", "READY")
         self._ready_recorded = True
 
+    async def _publish_connection_status(self, status) -> None:
+        await self._transport.send(
+            self._router.application_event(
+                {
+                    "event": "ssh.connection.status",
+                    "status": status.model_dump(mode="json"),
+                }
+            )
+        )
+
+    async def _publish_pty_event(self, event: dict) -> None:
+        await self._transport.send(self._router.application_event(event))
+
     def _close_runtime(self) -> None:
+        first_error: BaseException | None = None
+
+        def remember(error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = error
+
         if self._audit_ledger is not None:
-            if self._router.phase is RuntimePhase.STOPPING:
-                self._audit_ledger.append(
-                    AuditEvent.runtime_stopped(correlation_id=self._correlation_id)
-                )
-            elif self._router.phase is RuntimePhase.FAILED:
-                self._audit_ledger.append(
-                    AuditEvent.runtime_failed(
-                        correlation_id=self._correlation_id,
-                        error_code="SIDECAR_RUNTIME_FAILED",
+            try:
+                if self._router.phase is RuntimePhase.STOPPING:
+                    self._audit_ledger.append(
+                        AuditEvent.runtime_stopped(correlation_id=self._correlation_id)
                     )
-                )
+                elif self._router.phase is RuntimePhase.FAILED:
+                    self._audit_ledger.append(
+                        AuditEvent.runtime_failed(
+                            correlation_id=self._correlation_id,
+                            error_code="SIDECAR_RUNTIME_FAILED",
+                        )
+                    )
+            except BaseException as exc:
+                remember(exc)
         if self._trace_provider is not None:
-            self._trace_provider.force_flush()
-            self._trace_provider.shutdown()
-            self._trace_provider = None
-            self._tracer = None
+            try:
+                self._trace_provider.force_flush()
+            except BaseException as exc:
+                remember(exc)
+            try:
+                self._trace_provider.shutdown()
+            except BaseException as exc:
+                remember(exc)
+            finally:
+                self._trace_provider = None
+                self._tracer = None
         if self._record_store is not None:
-            self._record_store.zeroize()
-            self._record_store = None
+            try:
+                self._record_store.zeroize()
+            except BaseException as exc:
+                remember(exc)
+            finally:
+                self._record_store = None
+                self._artifact_store = None
+                self._remote_executor = None
+                self._remote_sftp = None
         if self._audit_ledger is not None:
-            self._audit_ledger.zeroize()
-            self._audit_ledger = None
+            try:
+                self._audit_ledger.zeroize()
+            except BaseException as exc:
+                remember(exc)
+            finally:
+                self._audit_ledger = None
         if self._database is not None:
-            self._database.close()
-            self._database = None
+            try:
+                self._database.close()
+            except BaseException as exc:
+                remember(exc)
+            finally:
+                self._database = None
+                self._connection_repository = None
+                self._ssh_runtime = None
+                self._pty_manager = None
+        if first_error is not None:
+            raise first_error
 
 
 def _zeroize(value: bytearray) -> None:

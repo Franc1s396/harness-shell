@@ -12,7 +12,11 @@ pnpm-debug.log*
 **/target/
 
 # Local development workflow
+tests/
+scripts/
 docs/superpowers/
+docs/testing/
+.superpowers/
 
 # Python
 **/__pycache__/

@@ -69,6 +69,28 @@ class AuditEvent:
             {"state": "FAILED", "error_code": error_code},
         )
 
+    @classmethod
+    def ssh_connect_attempt(
+        cls,
+        *,
+        connection_id: UUID,
+        correlation_id: UUID,
+        attempt: int,
+        outcome: str,
+        error_code: str | None,
+    ) -> AuditEvent:
+        if attempt not in (1, 2):
+            raise ValueError("SSH connect attempt must be 1 or 2")
+        body = {
+            "connection_id": str(connection_id),
+            "attempt": str(attempt),
+            "outcome": outcome,
+        }
+        if error_code is not None:
+            _require_safe_error_code(error_code)
+            body["error_code"] = error_code
+        return cls("ssh.connect.attempt", "sidecar", correlation_id, body)
+
 
 @dataclass(frozen=True, slots=True)
 class AuditEntry:
@@ -271,4 +293,3 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"
     )
-

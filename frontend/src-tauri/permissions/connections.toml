@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "connections"
+description = "Allows the main window to manage SSH connection profiles and confirmed Host Keys."
+commands.allow = [
+  "list_connections",
+  "create_connection",
+  "update_connection",
+  "delete_connection",
+  "confirm_host_key",
+  "replace_host_key",
+  "inspect_host_key",
+  "connect_ssh",
+  "disconnect_ssh",
+]

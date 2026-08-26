@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { getApprovalContext, type ApprovalContext } from "../api/approval";
-import "../App.css";
 
 export function ApprovalApp() {
+  const { t } = useTranslation();
   const [context, setContext] = useState<ApprovalContext | null>(null);
   const [loadError, setLoadError] = useState(false);
 
@@ -14,22 +15,22 @@ export function ApprovalApp() {
   }, []);
 
   return (
-    <main className="app-shell approval-shell">
-      <section className="status-card approval-card" aria-labelledby="approval-heading">
-        <div className="eyebrow">Security &amp; approval</div>
-        <h1 id="approval-heading">Approval requests</h1>
-        <p className="subtitle">Sensitive actions require an explicit decision in this window.</p>
+    <main className="grid min-h-screen place-items-center bg-app p-6 text-ink">
+      <section className="w-full max-w-xl rounded-xl border border-line-strong bg-panel p-6 shadow-2xl" aria-labelledby="approval-heading">
+        <div className="text-xs font-semibold uppercase tracking-widest text-accent">{t("approval.eyebrow")}</div>
+        <h1 id="approval-heading" className="mt-2 text-2xl font-semibold">{t("approval.title")}</h1>
+        <p className="mt-2 text-sm text-ink-muted">{t("approval.subtitle")}</p>
 
         {loadError ? (
-          <p className="error-banner" role="alert">Approval context is unavailable.</p>
+          <p className="mt-5 rounded-md border border-danger/60 bg-danger/15 px-3 py-2 text-sm" role="alert">{t("approval.unavailable")}</p>
         ) : context?.pending === false ? (
-          <div className="empty-state">
-            <span className="empty-mark" aria-hidden="true">✓</span>
-            <p>No approval request is pending.</p>
-            <small>pending=false</small>
+          <div className="mt-6 grid place-items-center gap-2 rounded-lg border border-line bg-app p-8 text-center">
+            <span className="text-2xl text-success" aria-hidden="true">✓</span>
+            <p>{t("approval.empty")}</p>
+            <small className="font-mono text-ink-muted">pending=false</small>
           </div>
         ) : (
-          <div className="empty-state" aria-label="Loading approval context">Loading…</div>
+          <div className="mt-6 rounded-lg border border-line bg-app p-8 text-center text-ink-muted" aria-label={t("approval.loading")}>{t("approval.loading")}</div>
         )}
 
       </section>

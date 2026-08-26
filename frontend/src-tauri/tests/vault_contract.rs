@@ -1,6 +1,6 @@
 #![cfg(target_os = "windows")]
 
-use std::fs;
+use std::{env, fs, path::PathBuf};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use harness_shell_lib::vault::{
@@ -23,7 +23,7 @@ fn vault_round_trips_secrets_without_persisting_plaintext() {
             .expect("store credential");
 
         let resolved = vault
-            .resolve_secret(credential_id)
+            .resolve_secret(credential_id, CredentialKind::ApiKey)
             .expect("resolve credential");
         assert_eq!(resolved.as_slice(), PLAINTEXT_MARKER);
     }
@@ -105,9 +105,58 @@ fn unknown_credentials_fail_closed() {
     let unknown_id = CredentialId::new();
 
     assert!(matches!(
-        vault.resolve_secret(unknown_id),
+        vault.resolve_secret(unknown_id, CredentialKind::SshPassword),
         Err(VaultError::NotFound(id)) if id == unknown_id
     ));
+}
+
+#[test]
+fn resolve_rejects_credential_kind_confusion() {
+    let directory = tempdir().expect("create vault temp directory");
+    let vault = SecretVault::open(directory.path().join("vault.sqlite3")).expect("open vault");
+    let credential_id = vault
+        .put_secret(CredentialKind::SshPassword, b"kind-confusion-marker")
+        .expect("store credential");
+
+    assert!(matches!(
+        vault.resolve_secret(credential_id, CredentialKind::ImportedPrivateKey),
+        Err(VaultError::KindMismatch {
+            credential_id: actual_id,
+            expected: CredentialKind::ImportedPrivateKey,
+            actual: CredentialKind::SshPassword,
+        }) if actual_id == credential_id
+    ));
+}
+
+#[test]
+fn deleting_a_credential_is_idempotent_and_prevents_resolution() {
+    let directory = tempdir().expect("create vault temp directory");
+    let vault = SecretVault::open(directory.path().join("vault.sqlite3")).expect("open vault");
+    let credential_id = vault
+        .put_secret(CredentialKind::PrivateKeyPassphrase, b"delete-marker")
+        .expect("store credential");
+
+    assert!(vault
+        .delete_secret(credential_id)
+        .expect("delete credential"));
+    assert!(!vault
+        .delete_secret(credential_id)
+        .expect("repeat credential deletion"));
+    assert!(matches!(
+        vault.resolve_secret(credential_id, CredentialKind::PrivateKeyPassphrase),
+        Err(VaultError::NotFound(id)) if id == credential_id
+    ));
+}
+
+#[test]
+fn credential_ids_round_trip_through_the_command_wire_shape() {
+    let credential_id = CredentialId::new();
+    let parsed = credential_id
+        .to_string()
+        .parse::<CredentialId>()
+        .expect("parse credential ID");
+
+    assert_eq!(parsed, credential_id);
 }
 
 #[test]
@@ -142,4 +191,55 @@ fn dpapi_rejects_empty_and_oversized_blobs_before_ffi() {
             length: 1_048_577
         })
     ));
+}
+
+#[test]
+#[ignore = "run by verify-m2 after the SSH lab creates runtime credentials"]
+fn writes_runtime_lab_vault_evidence_when_requested() {
+    let database_path = PathBuf::from(
+        env::var_os("HARNESS_M2_VAULT_EVIDENCE_DB")
+            .expect("HARNESS_M2_VAULT_EVIDENCE_DB is required"),
+    );
+    assert!(database_path.is_absolute());
+    let jump_password = env::var("HARNESS_M2_JUMP_PASSWORD")
+        .expect("HARNESS_M2_JUMP_PASSWORD is required")
+        .into_bytes();
+    let target_password = env::var("HARNESS_M2_TARGET_PASSWORD")
+        .expect("HARNESS_M2_TARGET_PASSWORD is required")
+        .into_bytes();
+    let passphrase = env::var("HARNESS_M2_KEY_PASSPHRASE")
+        .expect("HARNESS_M2_KEY_PASSPHRASE is required")
+        .into_bytes();
+    let plain_key = fs::read(
+        env::var_os("HARNESS_M2_PLAIN_KEY_PATH").expect("HARNESS_M2_PLAIN_KEY_PATH is required"),
+    )
+    .expect("read unencrypted lab key");
+    let encrypted_key = fs::read(
+        env::var_os("HARNESS_M2_ENCRYPTED_KEY_PATH")
+            .expect("HARNESS_M2_ENCRYPTED_KEY_PATH is required"),
+    )
+    .expect("read encrypted lab key");
+
+    let vault = SecretVault::open(&database_path).expect("open evidence Vault");
+    let values = [
+        (CredentialKind::SshPassword, jump_password.as_slice()),
+        (CredentialKind::SshPassword, target_password.as_slice()),
+        (CredentialKind::ImportedPrivateKey, plain_key.as_slice()),
+        (CredentialKind::ImportedPrivateKey, encrypted_key.as_slice()),
+        (CredentialKind::PrivateKeyPassphrase, passphrase.as_slice()),
+    ];
+    for (kind, plaintext) in values {
+        let credential_id = vault
+            .put_secret(kind, plaintext)
+            .expect("store lab credential");
+        let resolved = vault
+            .resolve_secret(credential_id, kind)
+            .expect("resolve lab credential");
+        assert_eq!(resolved.as_slice(), plaintext);
+    }
+    let keys = vault
+        .get_or_create_runtime_keys()
+        .expect("create runtime keys");
+    assert_eq!(keys.runtime_data_key.len(), 32);
+    assert_eq!(keys.audit_hmac_key.len(), 32);
 }

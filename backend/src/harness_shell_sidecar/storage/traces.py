@@ -17,6 +17,9 @@ ALLOWED_TRACE_ATTRIBUTES = frozenset(
         "frame.queue_wait_ms",
         "runtime.state",
         "error.code",
+        "ssh.connection_id",
+        "ssh.connect.attempt",
+        "ssh.connect.outcome",
         "db.operation",
         "db.duration_ms",
     }
@@ -89,4 +92,3 @@ def _validate_attributes(
             )
         validated[key] = value
     return validated
-

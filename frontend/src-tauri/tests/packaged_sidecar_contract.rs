@@ -12,7 +12,7 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use harness_shell_lib::{
-    protocol::{encode_frame, FrameDecoder, FrameEnvelope, MessageType},
+    protocol::{encode_frame, FrameDecoder, FrameEnvelope, MessageType, Sensitivity},
     sidecar::{
         job::WindowsJob,
         process::{
@@ -41,6 +41,8 @@ impl ProcessHarness {
     fn spawn(executable: &Path) -> Self {
         let extraction_directory = tempdir().expect("create Sidecar extraction directory");
         let system_root = env::var_os("SystemRoot").expect("read SystemRoot");
+        let system32 = PathBuf::from(&system_root).join("System32");
+        assert!(system32.is_dir(), "System32 must exist");
         let job = WindowsJob::create().expect("create Sidecar Job Object");
         let mut child = Command::new(executable)
             .env_clear()
@@ -48,6 +50,9 @@ impl ProcessHarness {
             .env("WINDIR", &system_root)
             .env("TEMP", extraction_directory.path())
             .env("TMP", extraction_directory.path())
+            .env("PATH", &system32)
+            .env("USERNAME", "harness-shell")
+            .env("USERPROFILE", extraction_directory.path())
             .env("HARNESS_SIDECAR_JOB", job.name())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -183,6 +188,73 @@ fn initialize(harness: &mut ProcessHarness, runtime_db: &Path) {
         .expect("validate initialize response");
 }
 
+fn application_request(sequence: u64, payload: serde_json::Value) -> FrameEnvelope {
+    FrameEnvelope {
+        protocol_version: 1,
+        message_type: MessageType::Request,
+        request_id: Uuid::new_v4(),
+        task_id: None,
+        workflow_run_id: None,
+        sequence,
+        timestamp: OffsetDateTime::now_utc(),
+        sensitivity: Sensitivity::Normal,
+        payload: payload
+            .as_object()
+            .expect("application request payload is an object")
+            .clone(),
+    }
+}
+
+#[test]
+fn ready_contract_requires_all_m2_runtime_features() {
+    let ready = FrameEnvelope {
+        protocol_version: 1,
+        message_type: MessageType::Event,
+        request_id: Uuid::new_v4(),
+        task_id: None,
+        workflow_run_id: None,
+        sequence: 1,
+        timestamp: OffsetDateTime::now_utc(),
+        sensitivity: Sensitivity::Normal,
+        payload: json!({
+            "event": "sidecar.ready",
+            "capabilities": {
+                "protocol_versions": [1],
+                "storage_schema_version": 2,
+                "features": ["connection_profiles", "host_key_store"]
+            }
+        })
+        .as_object()
+        .expect("ready payload is an object")
+        .clone(),
+    };
+
+    assert!(validate_ready_frame(&ready).is_err());
+
+    let mut ready_with_ssh = ready.clone();
+    ready_with_ssh.payload["capabilities"]["features"] =
+        json!(["connection_profiles", "host_key_store", "ssh_runtime"]);
+    assert!(validate_ready_frame(&ready_with_ssh).is_err());
+
+    let mut ready_with_pty = ready;
+    ready_with_pty.payload["capabilities"]["features"] = json!([
+        "connection_profiles",
+        "host_key_store",
+        "ssh_runtime",
+        "pty"
+    ]);
+    assert!(validate_ready_frame(&ready_with_pty).is_err());
+
+    ready_with_pty.payload["capabilities"]["features"] = json!([
+        "connection_profiles",
+        "host_key_store",
+        "ssh_runtime",
+        "pty",
+        "agent_readonly_io"
+    ]);
+    validate_ready_frame(&ready_with_pty).expect("all M2 runtime features must be accepted");
+}
+
 #[test]
 fn packaged_sidecar_initializes_heartbeats_and_shuts_down_cleanly() {
     let directory = tempdir().expect("create runtime temp directory");
@@ -211,6 +283,115 @@ fn packaged_sidecar_initializes_heartbeats_and_shuts_down_cleanly() {
         response.payload,
         json!({"result": "stopping"}).as_object().unwrap().clone()
     );
+    assert_eq!(harness.wait_for_exit(), 0);
+}
+
+#[test]
+fn packaged_sidecar_serves_m2_connection_management_methods() {
+    let directory = tempdir().expect("create runtime temp directory");
+    let mut harness = ProcessHarness::spawn(&executable_path());
+    initialize(&mut harness, &directory.path().join("runtime.sqlite3"));
+
+    let credential_id = Uuid::new_v4();
+    let create = application_request(
+        2,
+        json!({
+            "method": "connections.create",
+            "params": {
+                "display_name": "packaged-prod",
+                "group_name": null,
+                "host": "packaged.example",
+                "port": 22,
+                "username": "deploy",
+                "auth_kind": "password",
+                "credential_id": credential_id,
+                "passphrase_credential_id": null,
+                "proxy_jump_id": null,
+                "favorite": false
+            }
+        }),
+    );
+    harness.send(&create);
+    let created = harness.receive();
+    assert_eq!(created.request_id, create.request_id);
+    assert_eq!(created.message_type, MessageType::Response);
+    assert_eq!(
+        created.payload["connection"]["display_name"],
+        "packaged-prod"
+    );
+
+    let list = application_request(3, json!({"method": "connections.list", "params": {}}));
+    harness.send(&list);
+    let listed = harness.receive();
+    assert_eq!(listed.request_id, list.request_id);
+    assert_eq!(listed.message_type, MessageType::Response);
+    assert_eq!(listed.payload["connections"].as_array().unwrap().len(), 1);
+
+    let shutdown = shutdown_frame(4);
+    harness.send(&shutdown);
+    assert_eq!(harness.receive().message_type, MessageType::Response);
+    assert_eq!(harness.wait_for_exit(), 0);
+}
+
+#[test]
+fn packaged_sidecar_host_key_inspection_returns_typed_network_error() {
+    let directory = tempdir().expect("create runtime temp directory");
+    let mut harness = ProcessHarness::spawn(&executable_path());
+    initialize(&mut harness, &directory.path().join("runtime.sqlite3"));
+
+    let create = application_request(
+        2,
+        json!({
+            "method": "connections.create",
+            "params": {
+                "display_name": "unreachable-localhost",
+                "group_name": null,
+                "host": "127.0.0.1",
+                "port": 1,
+                "username": "deploy",
+                "auth_kind": "password",
+                "credential_id": Uuid::new_v4(),
+                "passphrase_credential_id": null,
+                "proxy_jump_id": null,
+                "favorite": false
+            }
+        }),
+    );
+    harness.send(&create);
+    let created = harness.receive();
+    assert_eq!(created.message_type, MessageType::Response);
+    let connection_id = created.payload["connection"]["connection_id"]
+        .as_str()
+        .expect("created connection id");
+
+    let inspect = application_request(
+        3,
+        json!({
+            "method": "host_key.inspect",
+            "params": {"connection_id": connection_id}
+        }),
+    );
+    harness.send(&inspect);
+    let failure = harness.receive();
+    assert_eq!(failure.request_id, inspect.request_id);
+    assert_eq!(failure.message_type, MessageType::Error);
+    assert_eq!(
+        failure.payload["error_code"],
+        json!("HOST_KEY_INSPECTION_FAILED")
+    );
+    assert_eq!(failure.payload["node"], json!("host_key"));
+    assert_eq!(failure.payload["recoverable"], json!(true));
+    assert_eq!(failure.payload["remote_state"], json!("pre_auth"));
+    Uuid::parse_str(
+        failure.payload["correlation_id"]
+            .as_str()
+            .expect("typed failure correlation id"),
+    )
+    .expect("valid typed failure correlation id");
+
+    let shutdown = shutdown_frame(4);
+    harness.send(&shutdown);
+    assert_eq!(harness.receive().message_type, MessageType::Response);
     assert_eq!(harness.wait_for_exit(), 0);
 }
 

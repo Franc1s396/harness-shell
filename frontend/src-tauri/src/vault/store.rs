@@ -65,17 +65,34 @@ impl SecretVault {
     pub fn resolve_secret(
         &self,
         credential_id: CredentialId,
+        expected_kind: CredentialKind,
     ) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-        let protected: Option<Vec<u8>> = self
+        let stored: Option<(String, Vec<u8>)> = self
             .connection
             .query_row(
-                "SELECT protected_secret FROM vault_secrets WHERE credential_id = ?1",
+                "SELECT kind, protected_secret FROM vault_secrets WHERE credential_id = ?1",
                 [credential_id.to_string()],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        let protected = protected.ok_or(VaultError::NotFound(credential_id))?;
+        let (stored_kind, protected) = stored.ok_or(VaultError::NotFound(credential_id))?;
+        let actual_kind = CredentialKind::from_stored(&stored_kind)?;
+        if actual_kind != expected_kind {
+            return Err(VaultError::KindMismatch {
+                credential_id,
+                expected: expected_kind,
+                actual: actual_kind,
+            });
+        }
         dpapi::unprotect(&protected).map_err(Into::into)
+    }
+
+    pub fn delete_secret(&self, credential_id: CredentialId) -> Result<bool, VaultError> {
+        let deleted = self.connection.execute(
+            "DELETE FROM vault_secrets WHERE credential_id = ?1",
+            [credential_id.to_string()],
+        )?;
+        Ok(deleted == 1)
     }
 
     pub fn get_or_create_runtime_keys(&self) -> Result<RuntimeKeys, VaultError> {

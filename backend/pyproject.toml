@@ -9,7 +9,9 @@ description = "Python sidecar for Harness Shell"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "cryptography>=45,<48",
+  "asyncssh>=2.24,<2.25",
+  "bcrypt>=4,<6",
+  "cryptography>=48.0.1,<51",
   "opentelemetry-api>=1.36,<2",
   "opentelemetry-sdk>=1.36,<2",
   "pydantic>=2.11,<3",
@@ -22,6 +24,7 @@ dev = ["pyinstaller>=6.14,<7", "pytest>=8.3,<10"]
 harness-shell-sidecar = "harness_shell_sidecar.__main__:main"
 
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 
