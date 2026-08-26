@@ -12,11 +12,11 @@ pnpm-debug.log*
 **/target/
 
 # Local development workflow
-tests/
-scripts/
 docs/superpowers/
-docs/testing/
 .superpowers/
+
+# Integration test runtime data and credentials
+tests/ssh_lab/.runtime/
 
 # Python
 **/__pycache__/
@@ -28,6 +28,8 @@ docs/testing/
 **/.mypy_cache/
 **/.ruff_cache/
 **/.coverage
+**/.coverage.*
+**/coverage/
 **/htmlcov/
 **/build/
 backend/dist/

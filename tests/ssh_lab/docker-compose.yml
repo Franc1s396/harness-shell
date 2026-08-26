@@ -1,0 +1,29 @@
+services:
+  jump:
+    build:
+      context: .
+    environment:
+      SSH_USER: jumpuser
+      SSH_PASSWORD: ${JUMP_PASSWORD}
+      LAB_NODE: jump
+    volumes:
+      - ./.runtime/jump:/runtime:ro
+    ports:
+      - "127.0.0.1:2222:22"
+    networks: [ssh_ingress, ssh_lab]
+
+  target:
+    build:
+      context: .
+    environment:
+      SSH_USER: targetuser
+      SSH_PASSWORD: ${TARGET_PASSWORD}
+      LAB_NODE: target
+    volumes:
+      - ./.runtime/target:/runtime:ro
+    networks: [ssh_lab]
+
+networks:
+  ssh_ingress:
+  ssh_lab:
+    internal: true
