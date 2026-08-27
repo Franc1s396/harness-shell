@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
 
 import { StrictMode } from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const terminalMock = vi.hoisted(() => ({
@@ -65,11 +66,12 @@ vi.mock("@xterm/xterm", () => ({
   },
 }));
 
-import { PtyOutputBuffer } from "./terminal-output-buffer";
+import { TerminalOutputBuffer } from "./terminal-output-buffer";
 import { TerminalTab } from "./TerminalTab";
 
 const makeBuffer = (initial?: Uint8Array) => {
-  const outputBuffer = new PtyOutputBuffer();
+  const outputBuffer = new TerminalOutputBuffer();
+  outputBuffer.registerTab("tab-1", 1);
   if (initial) {
     outputBuffer.ingest({
       ptySessionId: "pty-1",
@@ -77,7 +79,11 @@ const makeBuffer = (initial?: Uint8Array) => {
       data: initial,
     });
   }
-  outputBuffer.register("pty-1");
+  outputBuffer.bindPty({
+    ptySessionId: "pty-1",
+    tabId: "tab-1",
+    generation: 1,
+  });
   return outputBuffer;
 };
 
@@ -89,7 +95,7 @@ const renderTab = ({
   onInput = () => Promise.resolve(),
   onResize = () => undefined,
 }: {
-  outputBuffer?: PtyOutputBuffer;
+  outputBuffer?: TerminalOutputBuffer;
   active?: boolean;
   enabled?: boolean;
   fitRequestKey?: number;
@@ -98,7 +104,7 @@ const renderTab = ({
 } = {}) =>
   render(
     <TerminalTab
-      ptySessionId="pty-1"
+      tabId="tab-1"
       outputBuffer={outputBuffer}
       active={active}
       enabled={enabled}
@@ -162,7 +168,7 @@ describe("TerminalTab", () => {
     render(
       <StrictMode>
         <TerminalTab
-          ptySessionId="pty-1"
+          tabId="tab-1"
           outputBuffer={outputBuffer}
           active
           enabled
@@ -176,6 +182,62 @@ describe("TerminalTab", () => {
     );
     expect(terminalMock.instances).toHaveLength(2);
     expect(terminalMock.instances[1].writes).toEqual([banner]);
+  });
+
+  it("shows a visible focus boundary only while terminal input is focused", () => {
+    const { container } = renderTab();
+    const terminalSurface = container.firstElementChild;
+    expect(terminalSurface).not.toBeNull();
+    expect(terminalSurface).not.toHaveClass("ring-1");
+
+    fireEvent.focusIn(terminalSurface!);
+    expect(terminalSurface).toHaveClass("ring-1", "ring-inset", "ring-accent");
+
+    fireEvent.focusOut(terminalSurface!);
+    expect(terminalSurface).not.toHaveClass("ring-1");
+  });
+
+  it("keeps one xterm instance when a replacement PTY is bound", () => {
+    const outputBuffer = makeBuffer(new TextEncoder().encode("old prompt"));
+    const view = renderTab({ outputBuffer });
+    outputBuffer.advanceGeneration("tab-1", 2);
+    outputBuffer.bindPty({
+      ptySessionId: "pty-2",
+      tabId: "tab-1",
+      generation: 2,
+      separator: new TextEncoder().encode("\r\n── Reconnected ──\r\n"),
+    });
+    act(() => {
+      outputBuffer.ingest({
+        ptySessionId: "pty-2",
+        streamSequence: 1,
+        data: new TextEncoder().encode("new prompt"),
+      });
+    });
+    view.rerender(
+      <TerminalTab
+        tabId="tab-1"
+        outputBuffer={outputBuffer}
+        active
+        enabled
+        fitRequestKey={1}
+        focusRequestKey={0}
+        onInput={() => Promise.resolve()}
+        onResize={() => undefined}
+        onFocusChange={() => undefined}
+      />,
+    );
+
+    expect(terminalMock.instances).toHaveLength(1);
+    expect(
+      terminalMock.instances[0].writes.map((data) =>
+        new TextDecoder().decode(data),
+      ),
+    ).toEqual([
+      "old prompt",
+      "\r\n── Reconnected ──\r\n",
+      "new prompt",
+    ]);
   });
 
   it("forwards input unchanged and receives output without a React rerender", async () => {
@@ -234,7 +296,7 @@ describe("TerminalTab", () => {
     onResize.mockClear();
     view.rerender(
       <TerminalTab
-        ptySessionId="pty-1"
+        tabId="tab-1"
         outputBuffer={outputBuffer}
         active
         enabled
@@ -258,7 +320,7 @@ describe("TerminalTab", () => {
     onResize.mockClear();
     view.rerender(
       <TerminalTab
-        ptySessionId="pty-1"
+        tabId="tab-1"
         outputBuffer={outputBuffer}
         active
         enabled={false}
@@ -287,7 +349,7 @@ describe("TerminalTab", () => {
     await waitFor(() => expect(onInput).toHaveBeenCalledTimes(1));
     view.rerender(
       <TerminalTab
-        ptySessionId="pty-1"
+        tabId="tab-1"
         outputBuffer={outputBuffer}
         active
         enabled={false}

@@ -14,6 +14,11 @@ const runtimeApi = vi.hoisted(() => ({
   openApprovalWindow: vi.fn(),
 }));
 
+const tauriWindow = vi.hoisted(() => ({
+  close: vi.fn(),
+  onCloseRequested: vi.fn(),
+}));
+
 const sshApi = vi.hoisted(() => ({
   closePty: vi.fn(),
   confirmHostKey: vi.fn(),
@@ -37,12 +42,23 @@ const sshApi = vi.hoisted(() => ({
 const terminalTabMock = vi.hoisted(() => ({
   onInput: null as null | ((data: Uint8Array) => Promise<void>),
   onResize: null as null | ((cols: number, rows: number) => void),
+  tabId: null as string | null,
+  outputBuffer: null as null | {
+    subscribe: (
+      tabId: string,
+      listener: (data: Uint8Array) => void,
+    ) => () => void;
+  },
   renderCount: 0,
 }));
 
 vi.mock("./api/runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api/runtime")>()),
   ...runtimeApi,
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => tauriWindow,
 }));
 
 vi.mock("./api/ssh", async (importOriginal) => ({
@@ -52,15 +68,26 @@ vi.mock("./api/ssh", async (importOriginal) => ({
 
 vi.mock("./features/terminal/TerminalTab", () => ({
   TerminalTab: ({
+    tabId,
+    outputBuffer,
     enabled,
     onInput,
     onResize,
   }: {
+    tabId: string;
+    outputBuffer: {
+      subscribe: (
+        tabId: string,
+        listener: (data: Uint8Array) => void,
+      ) => () => void;
+    };
     enabled: boolean;
     onInput: (data: Uint8Array) => Promise<void>;
     onResize: (cols: number, rows: number) => void;
   }) => {
     terminalTabMock.renderCount += 1;
+    terminalTabMock.tabId = tabId;
+    terminalTabMock.outputBuffer = outputBuffer;
     terminalTabMock.onInput = onInput;
     terminalTabMock.onResize = onResize;
     return <div data-testid="terminal-tab" data-enabled={String(enabled)} />;
@@ -117,13 +144,21 @@ const openSavedProfile = async () => {
 };
 
 const disconnectSavedProfile = async () => {
-  fireEvent.click(
-    await screen.findByRole("button", {
-      name: /Connection actions: Test profile/i,
-    }),
+  fireEvent.contextMenu(
+    await screen.findByRole("tab", { name: /Test profile/i }),
+    { clientX: 20, clientY: 40 },
   );
   fireEvent.click(
     await screen.findByRole("menuitem", { name: /Disconnect/i }),
+  );
+};
+
+const closeSavedSession = async () => {
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Close Test profile/i }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Close session" }),
   );
 };
 
@@ -181,18 +216,24 @@ describe("App connection orchestration", () => {
       configurable: true,
       value: 1440,
     });
+    let nextUuid = 0;
     Object.defineProperty(globalThis.crypto, "randomUUID", {
       configurable: true,
-      value: vi.fn(() => "tab-test"),
+      value: vi.fn(() => `uuid-${++nextUuid}`),
     });
     useWorkspaceUiStore.getState().reset();
     Object.values(runtimeApi).forEach((mock) => mock.mockReset());
     Object.values(sshApi).forEach((mock) => mock.mockReset());
+    Object.values(tauriWindow).forEach((mock) => mock.mockReset());
     terminalTabMock.onInput = null;
     terminalTabMock.onResize = null;
+    terminalTabMock.tabId = null;
+    terminalTabMock.outputBuffer = null;
     terminalTabMock.renderCount = 0;
     runtimeApi.getRuntimeStatus.mockResolvedValue(runtimeReadyStatus);
     runtimeApi.openApprovalWindow.mockResolvedValue(undefined);
+    tauriWindow.close.mockResolvedValue(undefined);
+    tauriWindow.onCloseRequested.mockResolvedValue(() => undefined);
     sshApi.subscribeSshEvents.mockResolvedValue(() => undefined);
     sshApi.storeSshPassword.mockResolvedValue({
       credential_id: savedProfile.credential_id,
@@ -204,7 +245,10 @@ describe("App connection orchestration", () => {
       .mockResolvedValue([savedProfile]);
     sshApi.confirmHostKey.mockResolvedValue(undefined);
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
 
   it("persists, closes, then inspects Host Key for Save & Connect", async () => {
     sshApi.inspectHostKey.mockResolvedValue(failedInspection("AUTH_FAILED"));
@@ -268,6 +312,262 @@ describe("App connection orchestration", () => {
     expect(await screen.findByText("PTY_OPEN_FAILED")).toBeInTheDocument();
   });
 
+  it("creates independent sessions from the same connection profile", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh
+      .mockResolvedValueOnce(status({ state: "READY", session_id: "ssh-1" }))
+      .mockResolvedValueOnce(status({ state: "READY", session_id: "ssh-2" }));
+    sshApi.openPty
+      .mockResolvedValueOnce({
+        pty_session_id: "pty-1",
+        ssh_session_id: "ssh-1",
+        connection_id: savedProfile.connection_id,
+        cols: 80,
+        rows: 24,
+        state: "OPEN",
+      })
+      .mockResolvedValueOnce({
+        pty_session_id: "pty-2",
+        ssh_session_id: "ssh-2",
+        connection_id: savedProfile.connection_id,
+        cols: 80,
+        rows: 24,
+        state: "OPEN",
+      });
+
+    render(<App />);
+    await openSavedProfile();
+    await openSavedProfile();
+
+    await waitFor(() => expect(sshApi.connectSsh).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getAllByRole("tab", { name: /Test profile/i }),
+    ).toHaveLength(2);
+  });
+
+  it("reconnects one tab in place and rejects output from its old PTY", async () => {
+    let emitSshEvent!: (event: SshEvent) => void;
+    sshApi.subscribeSshEvents.mockImplementation(async (onEvent) => {
+      emitSshEvent = onEvent;
+      return () => undefined;
+    });
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh
+      .mockResolvedValueOnce(
+        status({ state: "READY", session_id: "ssh-before" }),
+      )
+      .mockResolvedValueOnce(
+        status({ state: "READY", session_id: "ssh-after" }),
+      );
+    sshApi.openPty
+      .mockResolvedValueOnce({
+        pty_session_id: "pty-before",
+        ssh_session_id: "ssh-before",
+        connection_id: savedProfile.connection_id,
+        cols: 80,
+        rows: 24,
+        state: "OPEN",
+      })
+      .mockResolvedValueOnce({
+        pty_session_id: "pty-after",
+        ssh_session_id: "ssh-after",
+        connection_id: savedProfile.connection_id,
+        cols: 80,
+        rows: 24,
+        state: "OPEN",
+      });
+    sshApi.closePty.mockResolvedValue({ state: "CLOSED" });
+    sshApi.disconnectSsh.mockResolvedValue(status({ state: "DISCONNECTED" }));
+
+    render(<App />);
+    await openSavedProfile();
+    const tab = await screen.findByRole("tab", { name: /Test profile/i });
+    await waitFor(() => expect(emitSshEvent).toBeTypeOf("function"));
+    act(() => {
+      emitSshEvent({
+        event: "ssh.pty.output",
+        pty_session_id: "pty-before",
+        stream_sequence: 1,
+        data_b64: "YmVmb3Jl",
+      });
+    });
+
+    fireEvent.contextMenu(tab, { clientX: 20, clientY: 40 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Disconnect" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("active-session-status")).toHaveTextContent(
+        "Disconnected",
+      ),
+    );
+    fireEvent.contextMenu(tab, { clientX: 20, clientY: 40 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+    await waitFor(() => expect(sshApi.connectSsh).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      emitSshEvent({
+        event: "ssh.pty.output",
+        pty_session_id: "pty-before",
+        stream_sequence: 2,
+        data_b64: "bGF0ZS1vbGQ=",
+      });
+      emitSshEvent({
+        event: "ssh.pty.output",
+        pty_session_id: "pty-after",
+        stream_sequence: 1,
+        data_b64: "YWZ0ZXI=",
+      });
+    });
+
+    const output: string[] = [];
+    const unsubscribe = terminalTabMock.outputBuffer!.subscribe(
+      terminalTabMock.tabId!,
+      (data) => output.push(new TextDecoder().decode(data)),
+    );
+    expect(output).toEqual([
+      "before",
+      "\r\n── Reconnected ──\r\n",
+      "after",
+    ]);
+    expect(
+      screen.getAllByRole("tab", { name: /Test profile/i }),
+    ).toHaveLength(1);
+    unsubscribe();
+  });
+
+  it("removes a confirmed tab before its background cleanup resolves", async () => {
+    let resolveClose!: () => void;
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+    sshApi.closePty.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveClose = resolve; }),
+    );
+    sshApi.disconnectSsh.mockResolvedValue(status({ state: "DISCONNECTED" }));
+
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByRole("tab", { name: /Test profile/i });
+    await closeSavedSession();
+
+    expect(
+      screen.queryByRole("tab", { name: /Test profile/i }),
+    ).not.toBeInTheDocument();
+    expect(sshApi.disconnectSsh).not.toHaveBeenCalled();
+    await act(async () => resolveClose());
+    await waitFor(() =>
+      expect(sshApi.disconnectSsh).toHaveBeenCalledWith("ssh-session-test"),
+    );
+  });
+
+  it("keeps final cleanup failures visible and retries unfinished steps", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+    sshApi.closePty.mockRejectedValue({
+      code: "PTY_CLOSE_FAILED",
+      message: "close failed",
+    });
+    sshApi.disconnectSsh.mockRejectedValue({
+      code: "SSH_DISCONNECT_FAILED",
+      message: "disconnect failed",
+    });
+
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByRole("tab", { name: /Test profile/i });
+    vi.useFakeTimers();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Close Test profile/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+
+    expect(screen.getByText(/Could not finish cleaning up Test profile/)).toBeVisible();
+    expect(screen.getByText(/PTY_CLOSE_FAILED/)).toBeVisible();
+    expect(screen.getByText(/SSH_DISCONNECT_FAILED/)).toBeVisible();
+    expect(sshApi.closePty).toHaveBeenCalledTimes(3);
+    expect(sshApi.disconnectSsh).toHaveBeenCalledTimes(3);
+
+    sshApi.closePty.mockResolvedValue({ state: "CLOSED" });
+    sshApi.disconnectSsh.mockResolvedValue(status({ state: "DISCONNECTED" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry cleanup" }));
+    await act(async () => Promise.resolve());
+    expect(
+      screen.queryByText(/Could not finish cleaning up Test profile/),
+    ).not.toBeInTheDocument();
+    expect(sshApi.closePty).toHaveBeenCalledTimes(4);
+    expect(sshApi.disconnectSsh).toHaveBeenCalledTimes(4);
+  });
+
+  it("cleans late PTY results without restoring a closed connecting tab", async () => {
+    let resolveOpenPty!: (value: {
+      pty_session_id: string;
+      ssh_session_id: string;
+      connection_id: string;
+      cols: number;
+      rows: number;
+      state: "OPEN";
+    }) => void;
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockImplementation(
+      () => new Promise((resolve) => { resolveOpenPty = resolve; }),
+    );
+    sshApi.closePty.mockResolvedValue({ state: "CLOSED" });
+    sshApi.disconnectSsh.mockResolvedValue(status({ state: "DISCONNECTED" }));
+
+    render(<App />);
+    await openSavedProfile();
+    await waitFor(() => expect(sshApi.openPty).toHaveBeenCalled());
+    await closeSavedSession();
+    expect(
+      screen.queryByRole("tab", { name: /Test profile/i }),
+    ).not.toBeInTheDocument();
+
+    await act(async () =>
+      resolveOpenPty({
+        pty_session_id: "pty-session-test",
+        ssh_session_id: "ssh-session-test",
+        connection_id: savedProfile.connection_id,
+        cols: 80,
+        rows: 24,
+        state: "OPEN",
+      }),
+    );
+    await waitFor(() =>
+      expect(sshApi.closePty).toHaveBeenCalledWith("pty-session-test"),
+    );
+    expect(sshApi.disconnectSsh).toHaveBeenCalledWith("ssh-session-test");
+    expect(
+      screen.queryByRole("tab", { name: /Test profile/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shares one SSH disconnect between PTY-open cleanup and Explorer", async () => {
     let rejectOpenPty!: (error: unknown) => void;
     let resolveDisconnect!: (value: ConnectionStatus) => void;
@@ -295,113 +595,6 @@ describe("App connection orchestration", () => {
     expect(sshApi.disconnectSsh).toHaveBeenCalledTimes(1);
     await act(async () => resolveDisconnect(status({ state: "DISCONNECTED" })));
     expect(await screen.findByText("PTY_OPEN_FAILED")).toBeInTheDocument();
-  });
-
-  it("keeps a terminal tab retryable until PTY and SSH cleanup succeed", async () => {
-    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
-    sshApi.connectSsh.mockResolvedValue(
-      status({ state: "READY", session_id: "ssh-session-test" }),
-    );
-    sshApi.openPty.mockResolvedValue({
-      pty_session_id: "pty-session-test",
-      ssh_session_id: "ssh-session-test",
-      connection_id: savedProfile.connection_id,
-      cols: 80,
-      rows: 24,
-      state: "OPEN",
-    });
-    sshApi.closePty.mockRejectedValue({
-      code: "PTY_CLOSE_FAILED",
-      message: "close failed",
-    });
-    sshApi.disconnectSsh.mockRejectedValue({
-      code: "SSH_DISCONNECT_FAILED",
-      message: "disconnect failed",
-    });
-
-    render(<App />);
-    await openSavedProfile();
-    const closeButton = await screen.findByRole("button", {
-      name: /Close Test profile/i,
-    });
-    fireEvent.click(closeButton);
-
-    await waitFor(() => expect(sshApi.closePty).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: /Close Test profile/i })).toBeVisible();
-    await expect(
-      terminalTabMock.onInput!(new Uint8Array([65])),
-    ).rejects.toMatchObject({ code: "PTY_INPUT_BLOCKED" });
-    expect(sshApi.writePty).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: /Close Test profile/i }));
-    await waitFor(() => expect(sshApi.closePty).toHaveBeenCalledTimes(2));
-    expect(sshApi.disconnectSsh).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not close the PTY twice when only SSH disconnect needs retry", async () => {
-    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
-    sshApi.connectSsh.mockResolvedValue(
-      status({ state: "READY", session_id: "ssh-session-test" }),
-    );
-    sshApi.openPty.mockResolvedValue({
-      pty_session_id: "pty-session-test",
-      ssh_session_id: "ssh-session-test",
-      connection_id: savedProfile.connection_id,
-      cols: 80,
-      rows: 24,
-      state: "OPEN",
-    });
-    sshApi.closePty.mockResolvedValue({ state: "CLOSED" });
-    sshApi.disconnectSsh
-      .mockRejectedValueOnce({
-        code: "SSH_DISCONNECT_FAILED",
-        message: "disconnect failed",
-      })
-      .mockResolvedValueOnce(status({ state: "DISCONNECTED" }));
-
-    render(<App />);
-    await openSavedProfile();
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Close Test profile/i }),
-    );
-    await screen.findByText("SSH_DISCONNECT_FAILED");
-    fireEvent.click(screen.getByRole("button", { name: /Close Test profile/i }));
-
-    await waitFor(() => expect(sshApi.disconnectSsh).toHaveBeenCalledTimes(2));
-    expect(sshApi.closePty).toHaveBeenCalledTimes(1);
-    expect(
-      screen.queryByRole("button", { name: /Close Test profile/i }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("disables terminal input immediately while cleanup is pending", async () => {
-    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
-    sshApi.connectSsh.mockResolvedValue(
-      status({ state: "READY", session_id: "ssh-session-test" }),
-    );
-    sshApi.openPty.mockResolvedValue({
-      pty_session_id: "pty-session-test",
-      ssh_session_id: "ssh-session-test",
-      connection_id: savedProfile.connection_id,
-      cols: 80,
-      rows: 24,
-      state: "OPEN",
-    });
-    sshApi.closePty.mockImplementation(() => new Promise(() => undefined));
-
-    render(<App />);
-    await openSavedProfile();
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Close Test profile/i }),
-    );
-
-    expect(screen.getByTestId("terminal-tab")).toHaveAttribute(
-      "data-enabled",
-      "false",
-    );
   });
 
   it("blocks terminal input and resize immediately while Explorer disconnect is pending", async () => {
@@ -436,54 +629,6 @@ describe("App connection orchestration", () => {
     terminalTabMock.onResize!(100, 30);
     expect(sshApi.writePty).not.toHaveBeenCalled();
     expect(sshApi.resizePty).not.toHaveBeenCalled();
-  });
-
-  it("coalesces stream-failure and user-close cleanup for the same PTY", async () => {
-    let emitSshEvent!: (event: SshEvent) => void;
-    sshApi.subscribeSshEvents.mockImplementation(async (onEvent) => {
-      emitSshEvent = onEvent;
-      return () => undefined;
-    });
-    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
-    sshApi.connectSsh.mockResolvedValue(
-      status({ state: "READY", session_id: "ssh-session-test" }),
-    );
-    sshApi.openPty.mockResolvedValue({
-      pty_session_id: "pty-session-test",
-      ssh_session_id: "ssh-session-test",
-      connection_id: savedProfile.connection_id,
-      cols: 80,
-      rows: 24,
-      state: "OPEN",
-    });
-    sshApi.closePty.mockImplementation(() => new Promise(() => undefined));
-
-    render(<App />);
-    await openSavedProfile();
-    const closeButton = await screen.findByRole("button", {
-      name: /Close Test profile/i,
-    });
-    await waitFor(() => expect(emitSshEvent).toBeTypeOf("function"));
-    act(() => {
-      emitSshEvent({
-        event: "ssh.pty.output",
-        pty_session_id: "pty-session-test",
-        stream_sequence: 2,
-        data_b64: "QQ==",
-      });
-      emitSshEvent({
-        event: "ssh.pty.output",
-        pty_session_id: "pty-session-test",
-        stream_sequence: 2,
-        data_b64: "QQ==",
-      });
-      fireEvent.click(closeButton);
-    });
-
-    await waitFor(() => expect(sshApi.closePty).toHaveBeenCalled());
-    expect(sshApi.closePty).toHaveBeenCalledTimes(1);
-    expect(sshApi.disconnectSsh).not.toHaveBeenCalled();
   });
 
   it("does not rerender the React terminal wrapper for PTY output", async () => {
@@ -594,44 +739,11 @@ describe("App connection orchestration", () => {
     await act(async () => resolveDisconnect(status({ state: "DISCONNECTED" })));
   });
 
-  it("preserves both PTY and SSH cleanup errors and prioritizes SSH", async () => {
+  it("keeps rapid open requests independent", async () => {
     sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
-    sshApi.connectSsh.mockResolvedValue(
-      status({ state: "READY", session_id: "ssh-session-test" }),
-    );
-    sshApi.openPty.mockResolvedValue({
-      pty_session_id: "pty-session-test",
-      ssh_session_id: "ssh-session-test",
-      connection_id: savedProfile.connection_id,
-      cols: 80,
-      rows: 24,
-      state: "OPEN",
-    });
-    sshApi.closePty.mockRejectedValue({
-      code: "PTY_CLOSE_FAILED",
-      message: "close failed",
-    });
-    sshApi.disconnectSsh.mockRejectedValue({
-      code: "SSH_DISCONNECT_FAILED",
-      message: "disconnect failed",
-    });
-
-    render(<App />);
-    await openSavedProfile();
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Close Test profile/i }),
-    );
-
-    expect(await screen.findByText("SSH_DISCONNECT_FAILED")).toBeInTheDocument();
-    expect(screen.getByText(/PTY_CLOSE_FAILED/)).toBeInTheDocument();
-  });
-
-  it("coalesces rapid connect requests for the same profile", async () => {
-    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    let resolveInspection!: (value: ConnectionStatus) => void;
+    const resolveInspections: Array<(value: ConnectionStatus) => void> = [];
     sshApi.inspectHostKey.mockImplementation(
-      () => new Promise((resolve) => { resolveInspection = resolve; }),
+      () => new Promise((resolve) => { resolveInspections.push(resolve); }),
     );
 
     render(<App />);
@@ -641,21 +753,29 @@ describe("App connection orchestration", () => {
     fireEvent.doubleClick(connectionRow);
     fireEvent.doubleClick(connectionRow);
 
-    expect(sshApi.inspectHostKey).toHaveBeenCalledTimes(1);
-    resolveInspection(failedInspection("AUTH_FAILED"));
-    expect(await screen.findByText("AUTH_FAILED")).toBeInTheDocument();
+    await waitFor(() => expect(sshApi.inspectHostKey).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getAllByRole("tab", { name: /Test profile/i }),
+    ).toHaveLength(2);
+    await act(async () => {
+      for (const resolve of resolveInspections) {
+        resolve(failedInspection("AUTH_FAILED"));
+      }
+    });
   });
 
-  it("rejects a different Save & Connect context while a normal connect is active", async () => {
+  it("allows Save & Connect to create another session while a normal connect is active", async () => {
     sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
     sshApi.updateConnection.mockResolvedValue({
       ...savedProfile,
       updated_at: "2026-08-26T01:00:00Z",
     });
-    let resolveInspection!: (value: ConnectionStatus) => void;
-    sshApi.inspectHostKey.mockImplementation(
-      () => new Promise((resolve) => { resolveInspection = resolve; }),
-    );
+    let resolveFirstInspection!: (value: ConnectionStatus) => void;
+    sshApi.inspectHostKey
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { resolveFirstInspection = resolve; }),
+      )
+      .mockResolvedValueOnce(failedInspection("AUTH_FAILED"));
 
     render(<App />);
     await openSavedProfile();
@@ -664,12 +784,17 @@ describe("App connection orchestration", () => {
       await screen.findByRole("button", { name: "Save & Connect" }),
     );
 
+    await waitFor(() => expect(sshApi.inspectHostKey).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/profile saved/i)).toBeInTheDocument();
     expect(
-      await screen.findByText("CONNECTION_OPERATION_IN_PROGRESS"),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/profile saved/i)).toBeInTheDocument();
-    expect(sshApi.inspectHostKey).toHaveBeenCalledTimes(1);
-    resolveInspection(failedInspection("AUTH_FAILED"));
+      screen.queryByText("CONNECTION_OPERATION_IN_PROGRESS"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("tab", { name: /Test profile/i }),
+    ).toHaveLength(2);
+    await act(async () => {
+      resolveFirstInspection(failedInspection("AUTH_FAILED"));
+    });
   });
 
   it("surfaces approval-window launch failures", async () => {

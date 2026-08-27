@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "../../components/ui/controls";
@@ -10,6 +10,7 @@ import { ResizableSeparator } from "./ResizableSeparator";
 import { SettingsPopover } from "./SettingsPopover";
 import { ShellIcon } from "./icons";
 import { StatusBar } from "./StatusBar";
+import { useApplicationCloseConfirmation } from "./useApplicationCloseConfirmation";
 import {
   DEFAULT_AGENT_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
@@ -26,7 +27,6 @@ export type WorkspaceFrameProps = {
   agentWorkspace: ReactNode;
   workspaceOverlay?: ReactNode;
   runtimeState: string;
-  connectionState: string;
   hostKeyState: string;
   ptySize: { cols: number; rows: number } | null;
   route: "Direct" | "ProxyJump" | "unknown";
@@ -48,7 +48,6 @@ export function WorkspaceFrame({
   agentWorkspace,
   workspaceOverlay,
   runtimeState,
-  connectionState,
   hostKeyState,
   ptySize,
   route,
@@ -79,6 +78,12 @@ export function WorkspaceFrame({
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [settingsAnchor, setSettingsAnchor] =
     useState<HTMLButtonElement | null>(null);
+  const closeSettings = useCallback(() => setSettingsAnchor(null), []);
+  const {
+    closeConfirmationOpen,
+    cancelApplicationClose,
+    confirmApplicationClose,
+  } = useApplicationCloseConfirmation();
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -121,7 +126,6 @@ export function WorkspaceFrame({
         environmentLabel={environmentLabel}
         connectionName={connectionName}
         targetSummary={targetSummary}
-        connectionState={connectionState}
         sidebarOpen={responsive.sidebarInline || drawerOpen}
         activeTerminalAvailable={activeTerminalAvailable}
         actionsDisabled={connectionActionsDisabled}
@@ -223,7 +227,6 @@ export function WorkspaceFrame({
 
       <StatusBar
         runtimeState={runtimeState}
-        sshState={connectionState}
         hostKeyState={hostKeyState}
         ptySize={ptySize}
         agentWidth={effectiveAgentWidth}
@@ -246,8 +249,25 @@ export function WorkspaceFrame({
       <SettingsPopover
         open={settingsAnchor !== null}
         anchor={settingsAnchor}
-        onClose={() => setSettingsAnchor(null)}
+        onClose={closeSettings}
       />
+      <Dialog
+        open={closeConfirmationOpen}
+        title={t("applicationClose.title")}
+        onClose={cancelApplicationClose}
+      >
+        <p className="mt-3 text-sm text-ink-muted">
+          {t("applicationClose.body")}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={cancelApplicationClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={() => void confirmApplicationClose()}>
+            {t("applicationClose.confirm")}
+          </Button>
+        </div>
+      </Dialog>
       {workspaceOverlay}
     </main>
   );

@@ -1,3 +1,5 @@
+import type { SessionBinding } from "./terminal-session";
+
 type PtyOutputChunk = {
   ptySessionId: string;
   streamSequence: number;
@@ -6,14 +8,19 @@ type PtyOutputChunk = {
 
 export type PtyOutputListener = (data: Uint8Array) => void;
 
-type PtyOutputStream = {
-  registered: boolean;
+type PtyStream = {
   nextSequence: number;
-  history: Uint8Array[];
-  preRegistrationBytes: number;
-  listener: PtyOutputListener | null;
+  pending: Uint8Array[];
+  pendingBytes: number;
+  binding: SessionBinding | null;
   closed: boolean;
   failure: PtyOutputBufferError | null;
+};
+
+type TabStream = {
+  generation: number;
+  history: Uint8Array[];
+  listener: PtyOutputListener | null;
 };
 
 export type PtyOutputRegistration = {
@@ -26,8 +33,10 @@ export type PtyOutputBufferErrorCode =
   | "PTY_STREAM_SEQUENCE_INVALID"
   | "PTY_PENDING_OUTPUT_LIMIT_EXCEEDED"
   | "PTY_STREAM_CLOSED"
-  | "PTY_STREAM_NOT_REGISTERED"
-  | "PTY_STREAM_ALREADY_SUBSCRIBED";
+  | "PTY_STREAM_ALREADY_BOUND"
+  | "PTY_STREAM_ALREADY_SUBSCRIBED"
+  | "TERMINAL_TAB_NOT_REGISTERED"
+  | "TERMINAL_TAB_GENERATION_INVALID";
 
 export class PtyOutputBufferError extends Error {
   readonly code: PtyOutputBufferErrorCode;
@@ -39,25 +48,87 @@ export class PtyOutputBufferError extends Error {
   }
 }
 
-const createStream = (): PtyOutputStream => ({
-  registered: false,
+const createPtyStream = (): PtyStream => ({
   nextSequence: 1,
-  history: [],
-  preRegistrationBytes: 0,
-  listener: null,
+  pending: [],
+  pendingBytes: 0,
+  binding: null,
   closed: false,
   failure: null,
 });
 
-export class PtyOutputBuffer {
-  private readonly streams = new Map<string, PtyOutputStream>();
+export class TerminalOutputBuffer {
+  private readonly ptys = new Map<string, PtyStream>();
+  private readonly tabs = new Map<string, TabStream>();
   private pendingBytes = 0;
 
-  ingest(chunk: PtyOutputChunk): void {
-    let stream = this.streams.get(chunk.ptySessionId);
+  registerTab(tabId: string, generation: number): void {
+    const current = this.tabs.get(tabId);
+    if (current) {
+      if (current.generation === generation) return;
+      throw new PtyOutputBufferError(
+        "TERMINAL_TAB_GENERATION_INVALID",
+        `Terminal tab ${tabId} is already registered at generation ${current.generation}.`,
+      );
+    }
+    this.tabs.set(tabId, { generation, history: [], listener: null });
+  }
+
+  advanceGeneration(tabId: string, generation: number): void {
+    const tab = this.requireTab(tabId);
+    if (generation <= tab.generation) {
+      throw new PtyOutputBufferError(
+        "TERMINAL_TAB_GENERATION_INVALID",
+        `Terminal tab ${tabId} cannot advance from generation ${tab.generation} to ${generation}.`,
+      );
+    }
+    tab.generation = generation;
+  }
+
+  bindPty(
+    input: SessionBinding & { ptySessionId: string; separator?: Uint8Array },
+  ): PtyOutputRegistration {
+    const tab = this.requireTab(input.tabId);
+    if (tab.generation !== input.generation) {
+      throw new PtyOutputBufferError(
+        "TERMINAL_TAB_GENERATION_INVALID",
+        `Terminal tab ${input.tabId} is at generation ${tab.generation}, not ${input.generation}.`,
+      );
+    }
+
+    let stream = this.ptys.get(input.ptySessionId);
     if (!stream) {
-      stream = createStream();
-      this.streams.set(chunk.ptySessionId, stream);
+      stream = createPtyStream();
+      this.ptys.set(input.ptySessionId, stream);
+    }
+    if (stream.failure) throw stream.failure;
+    if (stream.binding) {
+      if (
+        stream.binding.tabId === input.tabId &&
+        stream.binding.generation === input.generation
+      ) {
+        return { closed: stream.closed };
+      }
+      throw new PtyOutputBufferError(
+        "PTY_STREAM_ALREADY_BOUND",
+        `PTY ${input.ptySessionId} is already bound to terminal tab ${stream.binding.tabId}.`,
+      );
+    }
+
+    stream.binding = { tabId: input.tabId, generation: input.generation };
+    if (input.separator) this.deliver(tab, input.separator);
+    for (const data of stream.pending) this.deliver(tab, data);
+    this.pendingBytes -= stream.pendingBytes;
+    stream.pending = [];
+    stream.pendingBytes = 0;
+    return { closed: stream.closed };
+  }
+
+  ingest(chunk: PtyOutputChunk): void {
+    let stream = this.ptys.get(chunk.ptySessionId);
+    if (!stream) {
+      stream = createPtyStream();
+      this.ptys.set(chunk.ptySessionId, stream);
     }
     if (stream.failure) throw stream.failure;
     if (stream.closed) {
@@ -78,109 +149,108 @@ export class PtyOutputBuffer {
         ),
       );
     }
-    if (
-      !stream.registered &&
-      this.pendingBytes + chunk.data.byteLength >
-        MAX_PENDING_PTY_OUTPUT_BYTES
-    ) {
-      throw this.fail(
-        chunk.ptySessionId,
-        new PtyOutputBufferError(
-          "PTY_PENDING_OUTPUT_LIMIT_EXCEEDED",
-          `PTY output received before tab registration exceeded ${MAX_PENDING_PTY_OUTPUT_BYTES} bytes.`,
-        ),
-      );
-    }
-
-    stream.history.push(chunk.data);
     stream.nextSequence += 1;
-    if (stream.registered) {
-      stream.listener?.(chunk.data);
-    } else {
-      stream.preRegistrationBytes += chunk.data.byteLength;
+
+    if (!stream.binding) {
+      if (
+        this.pendingBytes + chunk.data.byteLength >
+        MAX_PENDING_PTY_OUTPUT_BYTES
+      ) {
+        throw this.fail(
+          chunk.ptySessionId,
+          new PtyOutputBufferError(
+            "PTY_PENDING_OUTPUT_LIMIT_EXCEEDED",
+            `PTY output received before tab binding exceeded ${MAX_PENDING_PTY_OUTPUT_BYTES} bytes.`,
+          ),
+        );
+      }
+      stream.pending.push(chunk.data);
+      stream.pendingBytes += chunk.data.byteLength;
       this.pendingBytes += chunk.data.byteLength;
+      return;
     }
+
+    const tab = this.tabs.get(stream.binding.tabId);
+    if (!tab || stream.binding.generation !== tab.generation) return;
+    this.deliver(tab, chunk.data);
   }
 
-  register(ptySessionId: string): PtyOutputRegistration {
-    let stream = this.streams.get(ptySessionId);
-    if (!stream) {
-      stream = createStream();
-      stream.registered = true;
-      this.streams.set(ptySessionId, stream);
-      return { closed: false };
-    }
-    if (stream.failure) throw stream.failure;
-    if (!stream.registered) {
-      stream.registered = true;
-      this.pendingBytes -= stream.preRegistrationBytes;
-      stream.preRegistrationBytes = 0;
-    }
-    return { closed: stream.closed };
-  }
-
-  subscribe(
-    ptySessionId: string,
-    listener: PtyOutputListener,
-  ): () => void {
-    const stream = this.streams.get(ptySessionId);
-    if (!stream?.registered) {
-      throw new PtyOutputBufferError(
-        "PTY_STREAM_NOT_REGISTERED",
-        `PTY ${ptySessionId} must be registered before subscribing.`,
-      );
-    }
-    if (stream.failure) throw stream.failure;
-    if (stream.listener) {
+  subscribe(tabId: string, listener: PtyOutputListener): () => void {
+    const tab = this.requireTab(tabId);
+    if (tab.listener) {
       throw new PtyOutputBufferError(
         "PTY_STREAM_ALREADY_SUBSCRIBED",
-        `PTY ${ptySessionId} already has a live output subscriber.`,
+        `Terminal tab ${tabId} already has a live output subscriber.`,
       );
     }
 
-    stream.listener = listener;
-    for (const data of stream.history) listener(data);
+    tab.listener = listener;
+    for (const data of tab.history) listener(data);
     let active = true;
     return () => {
       if (!active) return;
       active = false;
-      if (stream.listener === listener) stream.listener = null;
+      if (tab.listener === listener) tab.listener = null;
     };
   }
 
-  markClosed(ptySessionId: string): void {
-    let stream = this.streams.get(ptySessionId);
+  markPtyClosed(ptySessionId: string): void {
+    let stream = this.ptys.get(ptySessionId);
     if (!stream) {
-      stream = createStream();
-      this.streams.set(ptySessionId, stream);
+      stream = createPtyStream();
+      this.ptys.set(ptySessionId, stream);
     }
     stream.closed = true;
   }
 
-  unregister(ptySessionId: string): void {
-    const stream = this.streams.get(ptySessionId);
+  unregisterPty(ptySessionId: string): void {
+    const stream = this.ptys.get(ptySessionId);
     if (!stream) return;
-    this.pendingBytes -= stream.preRegistrationBytes;
-    this.streams.delete(ptySessionId);
+    this.pendingBytes -= stream.pendingBytes;
+    this.ptys.delete(ptySessionId);
+  }
+
+  unregisterTab(tabId: string): void {
+    this.tabs.delete(tabId);
+    for (const [ptySessionId, stream] of this.ptys) {
+      if (stream.binding?.tabId === tabId) this.unregisterPty(ptySessionId);
+    }
   }
 
   clear(): void {
-    this.streams.clear();
+    this.ptys.clear();
+    this.tabs.clear();
     this.pendingBytes = 0;
+  }
+
+  private deliver(tab: TabStream, data: Uint8Array): void {
+    tab.history.push(data);
+    tab.listener?.(data);
+  }
+
+  private requireTab(tabId: string): TabStream {
+    const tab = this.tabs.get(tabId);
+    if (!tab) {
+      throw new PtyOutputBufferError(
+        "TERMINAL_TAB_NOT_REGISTERED",
+        `Terminal tab ${tabId} must be registered before use.`,
+      );
+    }
+    return tab;
   }
 
   private fail(
     ptySessionId: string,
     error: PtyOutputBufferError,
   ): PtyOutputBufferError {
-    let stream = this.streams.get(ptySessionId);
+    let stream = this.ptys.get(ptySessionId);
     if (!stream) {
-      stream = createStream();
-      this.streams.set(ptySessionId, stream);
+      stream = createPtyStream();
+      this.ptys.set(ptySessionId, stream);
     }
-    this.pendingBytes -= stream.preRegistrationBytes;
-    stream.preRegistrationBytes = 0;
-    stream.listener = null;
+    this.pendingBytes -= stream.pendingBytes;
+    stream.pending = [];
+    stream.pendingBytes = 0;
     stream.failure = error;
     return error;
   }

@@ -1,15 +1,15 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { PtyOutputBuffer } from "./terminal-output-buffer";
+import { TerminalOutputBuffer } from "./terminal-output-buffer";
 import { TerminalResizeController } from "./terminal-resize-controller";
 import { createXtermTheme } from "./xterm-theme";
 
 type Props = {
-  ptySessionId: string;
-  outputBuffer: PtyOutputBuffer;
+  tabId: string;
+  outputBuffer: TerminalOutputBuffer;
   active: boolean;
   enabled: boolean;
   fitRequestKey: number;
@@ -20,7 +20,7 @@ type Props = {
 };
 
 export function TerminalTab({
-  ptySessionId,
+  tabId,
   outputBuffer,
   active,
   enabled,
@@ -32,6 +32,7 @@ export function TerminalTab({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const [focused, setFocused] = useState(false);
   const resizeControllerRef = useRef<TerminalResizeController | null>(null);
   const inputHandler = useRef(onInput);
   const resizeHandler = useRef(onResize);
@@ -81,7 +82,7 @@ export function TerminalTab({
     });
     resizeControllerRef.current = resizeController;
     const unsubscribeOutput = outputBuffer.subscribe(
-      ptySessionId,
+      tabId,
       (data) => terminal.write(data),
     );
     const requestResize = () => {
@@ -95,8 +96,14 @@ export function TerminalTab({
     const observer = new ResizeObserver(requestResize);
     observer.observe(container);
     requestResize();
-    const focusIn = () => focusHandler.current(true);
-    const focusOut = () => focusHandler.current(false);
+    const focusIn = () => {
+      setFocused(true);
+      focusHandler.current(true);
+    };
+    const focusOut = () => {
+      setFocused(false);
+      focusHandler.current(false);
+    };
     container.addEventListener("focusin", focusIn);
     container.addEventListener("focusout", focusOut);
     return () => {
@@ -112,7 +119,7 @@ export function TerminalTab({
       inputInteractive.current = false;
       focusHandler.current(false);
     };
-  }, [outputBuffer, ptySessionId]);
+  }, [outputBuffer, tabId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -160,7 +167,7 @@ export function TerminalTab({
   return (
     <div
       ref={containerRef}
-      className={`absolute inset-0 min-h-0 min-w-0 ${active ? "block" : "hidden"}`}
+      className={`absolute inset-0 min-h-0 min-w-0 ${active ? "block" : "hidden"} ${focused ? "ring-1 ring-inset ring-accent" : ""}`}
       aria-hidden={!active}
       onMouseDown={() => {
         if (active && enabled) terminalRef.current?.focus();

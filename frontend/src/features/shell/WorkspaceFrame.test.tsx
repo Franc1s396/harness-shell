@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import "../../i18n";
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspaceUiStore } from "../../stores/workspace-ui-store";
 import { WorkspaceFrame } from "./WorkspaceFrame";
+
+const tauriWindow = vi.hoisted(() => ({
+  close: vi.fn(),
+  onCloseRequested: vi.fn(),
+  emitCloseRequested: null as null | ((event: { preventDefault: () => void }) => void),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => tauriWindow,
+}));
 
 const setViewport = (width: number) => {
   Object.defineProperty(window, "innerWidth", {
@@ -34,7 +45,6 @@ const renderFrame = (overrides: Partial<React.ComponentProps<typeof WorkspaceFra
       terminalWorkspace={<div>Terminal surface</div>}
       agentWorkspace={<div>Agent surface</div>}
       runtimeState="READY"
-      connectionState="CONNECTED"
       hostKeyState="trusted"
       ptySize={{ cols: 120, rows: 32 }}
       route="Direct"
@@ -56,6 +66,30 @@ describe("WorkspaceFrame", () => {
   beforeEach(() => {
     setViewport(1440);
     useWorkspaceUiStore.getState().reset();
+    tauriWindow.close.mockReset().mockResolvedValue(undefined);
+    tauriWindow.emitCloseRequested = null;
+    tauriWindow.onCloseRequested.mockReset().mockImplementation(async (handler) => {
+      tauriWindow.emitCloseRequested = handler;
+      return () => {
+        tauriWindow.emitCloseRequested = null;
+      };
+    });
+  });
+
+  it("confirms an application close even without an active terminal", async () => {
+    renderFrame({ activeTerminalAvailable: false });
+    const event = { preventDefault: vi.fn() };
+
+    await vi.waitFor(() => expect(tauriWindow.emitCloseRequested).toBeTypeOf("function"));
+    await act(async () => tauriWindow.emitCloseRequested!(event));
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("dialog", { name: "Exit Harness Shell?" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Exit Harness Shell?" })).not.toBeInTheDocument();
+    expect(tauriWindow.close).not.toHaveBeenCalled();
   });
 
   it("renders the wide four-region workbench with independent separators", () => {
@@ -105,7 +139,7 @@ describe("WorkspaceFrame", () => {
     expect(within(header).getByText("Local")).toBeVisible();
     expect(within(header).getByText("Production")).toBeVisible();
     expect(within(header).getByText("admin@example.com")).toBeVisible();
-    expect(within(header).getByText("CONNECTED")).toBeVisible();
+    expect(within(header).queryByText("CONNECTED")).not.toBeInTheDocument();
     expect(within(header).queryByText("Runtime")).not.toBeInTheDocument();
     expect(within(header).queryByText("Host Key")).not.toBeInTheDocument();
     expect(within(header).queryByRole("combobox")).not.toBeInTheDocument();
@@ -125,7 +159,7 @@ describe("WorkspaceFrame", () => {
     const status = screen.getByRole("contentinfo");
     expect(status).toHaveClass("h-[23px]");
     expect(status).toHaveTextContent("Runtime: READY");
-    expect(status).toHaveTextContent("SSH: CONNECTED");
+    expect(status).not.toHaveTextContent(/SSH:/);
     expect(status).toHaveTextContent("Host Key: trusted");
     expect(status).toHaveTextContent("PTY size: 120×32");
     expect(status).toHaveTextContent("Agent: 480px");
@@ -145,5 +179,21 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("combobox", { name: "Language" })).toBeVisible();
     fireEvent.click(approval);
     expect(callbacks.onOpenApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refocus the open language selector when the frame rerenders", () => {
+    renderFrame();
+    fireEvent.click(screen.getByRole("button", { name: /Settings/i }));
+    const language = screen.getByRole("combobox", { name: "Language" });
+    const focusSpy = vi.spyOn(language, "focus");
+
+    try {
+      setViewport(1439);
+      fireEvent(window, new Event("resize"));
+
+      expect(focusSpy).not.toHaveBeenCalled();
+    } finally {
+      focusSpy.mockRestore();
+    }
   });
 });

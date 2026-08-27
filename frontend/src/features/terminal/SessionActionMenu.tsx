@@ -1,40 +1,41 @@
-import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type CSSProperties,
+} from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ConnectionProfile } from "../../api/ssh";
+import { sessionActions, type TerminalSessionModel } from "./terminal-session";
 
-export type ConnectionMenuProfile = ConnectionProfile;
-
-export type ConnectionActionMenuProps = {
-  connection: ConnectionMenuProfile;
+export type SessionActionMenuProps = {
+  session: TerminalSessionModel;
   anchor: { x: number; y: number } | HTMLElement;
-  disabled: boolean;
   onClose: () => void;
-  onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onReconnect: () => void;
+  onDisconnect: () => void;
 };
 
-export function ConnectionActionMenu({
-  connection,
+export function SessionActionMenu({
+  session,
   anchor,
-  disabled,
   onClose,
-  onOpen,
-  onEdit,
-  onDelete,
-}: ConnectionActionMenuProps) {
+  onReconnect,
+  onDisconnect,
+}: SessionActionMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<HTMLButtonElement[]>([]);
   const anchorElement = anchor instanceof HTMLElement ? anchor : null;
+  const actions = sessionActions(session.state);
 
-  const position: CSSProperties = anchor instanceof HTMLElement
-    ? {
-        left: anchor.getBoundingClientRect().right,
-        top: anchor.getBoundingClientRect().bottom,
-      }
-    : { left: anchor.x, top: anchor.y };
+  const position: CSSProperties =
+    anchor instanceof HTMLElement
+      ? {
+          left: anchor.getBoundingClientRect().right,
+          top: anchor.getBoundingClientRect().bottom,
+        }
+      : { left: anchor.x, top: anchor.y };
 
   useLayoutEffect(() => {
     itemRefs.current.find((item) => !item.disabled)?.focus();
@@ -64,9 +65,9 @@ export function ConnectionActionMenu({
     <div
       ref={menuRef}
       role="menu"
-      aria-label={t("connections.actions")}
+      aria-label={t("terminal.actions")}
       style={position}
-      className="fixed z-50 grid min-w-52 rounded-md border border-line-strong bg-raised p-1 shadow-2xl"
+      className="fixed z-50 grid min-w-44 rounded-md border border-line-strong bg-raised p-1 shadow-2xl"
       onKeyDown={(event) => {
         const enabled = itemRefs.current.filter((item) => !item.disabled);
         if (event.key === "Escape") {
@@ -75,10 +76,14 @@ export function ConnectionActionMenu({
           return;
         }
         if (enabled.length === 0) return;
-        const current = enabled.indexOf(document.activeElement as HTMLButtonElement);
+        const current = enabled.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
         let next: number | null = null;
         if (event.key === "ArrowDown") next = (current + 1) % enabled.length;
-        if (event.key === "ArrowUp") next = (current - 1 + enabled.length) % enabled.length;
+        if (event.key === "ArrowUp") {
+          next = (current - 1 + enabled.length) % enabled.length;
+        }
         if (event.key === "Home") next = 0;
         if (event.key === "End") next = enabled.length - 1;
         if (next === null) return;
@@ -90,31 +95,22 @@ export function ConnectionActionMenu({
         ref={setItemRef(0)}
         type="button"
         role="menuitem"
-        disabled={disabled}
+        disabled={!actions.reconnect}
         className="rounded px-3 py-2 text-left text-sm hover:bg-accent-soft disabled:opacity-40"
-        onClick={() => run(onOpen)}
+        onClick={() => run(onReconnect)}
       >
-        {t("connections.open")}
+        {t("terminal.reconnect")}
       </button>
       <button
         ref={setItemRef(1)}
         type="button"
         role="menuitem"
-        className="rounded px-3 py-2 text-left text-sm hover:bg-accent-soft"
-        onClick={() => run(onEdit)}
+        disabled={!actions.disconnect}
+        className="rounded px-3 py-2 text-left text-sm hover:bg-accent-soft disabled:opacity-40"
+        onClick={() => run(onDisconnect)}
       >
-        {t("connections.edit")}
+        {t("terminal.disconnect")}
       </button>
-      <button
-        ref={setItemRef(2)}
-        type="button"
-        role="menuitem"
-        className="rounded px-3 py-2 text-left text-sm text-danger hover:bg-danger/10"
-        onClick={() => run(onDelete)}
-      >
-        {t("common.delete")}
-      </button>
-      <span className="sr-only">{connection.display_name}</span>
     </div>
   );
 }

@@ -2,18 +2,16 @@ import { Fragment, useState, type KeyboardEvent, type MouseEvent, type ReactNode
 import { useTranslation } from "react-i18next";
 
 import { IconButton } from "../../components/ui/controls";
-import { EmptyState, StatusIndicator } from "../../components/ui/feedback";
+import { EmptyState } from "../../components/ui/feedback";
 import {
   ConnectionActionMenu,
   type ConnectionMenuProfile,
-  type ConnectionMenuStatus,
 } from "./ConnectionActionMenu";
 import { groupVisibleConnections } from "./connection-groups";
 
 export type ConnectionNavigatorProps = {
   connections: ConnectionMenuProfile[];
   selectedId: string | null;
-  statuses: Record<string, ConnectionMenuStatus>;
   disabled: boolean;
   selectedErrorNotice?: ReactNode;
   onSelect: (connectionId: string) => void;
@@ -21,7 +19,6 @@ export type ConnectionNavigatorProps = {
   onCreate: () => void;
   onEdit: (connectionId: string) => void;
   onDelete: (connectionId: string) => void;
-  onDisconnect: (sshSessionId: string) => void;
 };
 
 type MenuState = {
@@ -32,7 +29,6 @@ type MenuState = {
 export function ConnectionNavigator({
   connections,
   selectedId,
-  statuses,
   disabled,
   selectedErrorNotice,
   onSelect,
@@ -40,7 +36,6 @@ export function ConnectionNavigator({
   onCreate,
   onEdit,
   onDelete,
-  onDisconnect,
 }: ConnectionNavigatorProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -104,8 +99,6 @@ export function ConnectionNavigator({
                   {group.name ?? t("connections.ungrouped")}
                 </h3>
                 {group.connections.map((connection) => {
-                  const currentStatus = statuses[connection.connection_id];
-                  const state = currentStatus?.state ?? "DISCONNECTED";
                   const target = `${connection.username}@${connection.host}:${connection.port}`;
                   const selected = selectedId === connection.connection_id;
                   return (
@@ -127,9 +120,6 @@ export function ConnectionNavigator({
                       onKeyDown={(event) => onRowKeyDown(event, connection)}
                       onContextMenu={(event) => onContextMenu(event, connection)}
                     >
-                      <span aria-hidden className="shrink-0">
-                        <StatusIndicator value={state} />
-                      </span>
                       <span className="grid min-w-0 flex-1 text-left leading-tight">
                         <strong className="truncate text-xs font-medium text-ink">
                           {connection.favorite ? "★ " : ""}{connection.display_name}
@@ -168,14 +158,12 @@ export function ConnectionNavigator({
       {menu ? (
         <ConnectionActionMenu
           connection={menu.connection}
-          status={statuses[menu.connection.connection_id]}
           anchor={menu.anchor}
           disabled={disabled}
           onClose={() => setMenu(null)}
           onOpen={() => onOpen(menu.connection.connection_id)}
           onEdit={() => onEdit(menu.connection.connection_id)}
           onDelete={() => onDelete(menu.connection.connection_id)}
-          onDisconnect={onDisconnect}
         />
       ) : null}
     </section>

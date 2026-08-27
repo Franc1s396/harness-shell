@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ConnectionProfile, ConnectionStatus } from "../../api/ssh";
+import type { ConnectionProfile } from "../../api/ssh";
 import { i18n, i18nReady } from "../../i18n";
 import { ConnectionActionMenu } from "./ConnectionActionMenu";
 
@@ -24,17 +24,6 @@ const connection: ConnectionProfile = {
   updated_at: "2026-08-26T00:00:00Z",
 };
 
-const ready: ConnectionStatus = {
-  connection_id: "prod",
-  state: "READY",
-  session_id: "ssh-1",
-  error_code: null,
-  recoverable: false,
-  correlation_id: "c1",
-  host_key_candidate: null,
-  trusted_fingerprint_sha256: "SHA256:trusted",
-};
-
 describe("ConnectionActionMenu", () => {
   afterEach(cleanup);
 
@@ -49,12 +38,10 @@ describe("ConnectionActionMenu", () => {
       onOpen: vi.fn(),
       onEdit: vi.fn(),
       onDelete: vi.fn(),
-      onDisconnect: vi.fn(),
     };
     const { unmount } = render(
       <ConnectionActionMenu
         connection={connection}
-        status={ready}
         anchor={anchor}
         disabled={false}
         {...callbacks}
@@ -65,12 +52,11 @@ describe("ConnectionActionMenu", () => {
     expect(items.map((item) => item.textContent)).toEqual([
       "Open connection",
       "Edit connection",
-      "Disconnect",
       "Delete",
     ]);
     expect(items[0]).toHaveFocus();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "End" });
-    expect(items[3]).toHaveFocus();
+    expect(items[2]).toHaveFocus();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
     expect(items[0]).toHaveFocus();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
@@ -88,14 +74,12 @@ describe("ConnectionActionMenu", () => {
     render(
       <ConnectionActionMenu
         connection={connection}
-        status={undefined}
         anchor={anchor}
         disabled
         onClose={vi.fn()}
         onOpen={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
-        onDisconnect={vi.fn()}
       />,
     );
     expect(screen.getByRole("menuitem", { name: "Open connection" })).toBeDisabled();

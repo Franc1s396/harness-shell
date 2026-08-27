@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { ConnectionProfile, ConnectionStatus } from "../../api/ssh";
+import type { ConnectionProfile } from "../../api/ssh";
 import { i18n, i18nReady } from "../../i18n";
 import { ConnectionNavigator } from "./ConnectionNavigator";
 
@@ -29,21 +29,6 @@ const profile = (
   updated_at: "2026-08-26T00:00:00Z",
 });
 
-const status = (
-  connectionId: string,
-  state: ConnectionStatus["state"],
-  sessionId: string | null = null,
-): ConnectionStatus => ({
-  connection_id: connectionId,
-  state,
-  session_id: sessionId,
-  error_code: null,
-  recoverable: false,
-  correlation_id: `c-${connectionId}`,
-  host_key_candidate: null,
-  trusted_fingerprint_sha256: null,
-});
-
 const setup = (disabled = false) => {
   const callbacks = {
     onSelect: vi.fn(),
@@ -51,7 +36,6 @@ const setup = (disabled = false) => {
     onCreate: vi.fn(),
     onEdit: vi.fn(),
     onDelete: vi.fn(),
-    onDisconnect: vi.fn(),
   };
   render(
     <ConnectionNavigator
@@ -61,10 +45,6 @@ const setup = (disabled = false) => {
         profile("prod", "Production", "Servers", true),
       ]}
       selectedId="prod"
-      statuses={{
-        prod: status("prod", "READY", "ssh-prod"),
-        lab: status("lab", "FAILED"),
-      }}
       disabled={disabled}
       {...callbacks}
     />,
@@ -108,16 +88,18 @@ describe("ConnectionNavigator", () => {
     expect(screen.getByRole("tooltip", { name: "New connection" })).toBeVisible();
   });
 
-  it("selects on one click and opens only on double click or Enter", () => {
+  it("selects on one click and opens on every double click or Enter", () => {
     const callbacks = setup();
     const lab = screen.getByRole("option", { name: /Lab/ });
     fireEvent.click(lab);
     expect(callbacks.onSelect).toHaveBeenCalledWith("lab");
     expect(callbacks.onOpen).not.toHaveBeenCalled();
     fireEvent.doubleClick(lab);
-    expect(callbacks.onOpen).toHaveBeenCalledWith("lab");
+    fireEvent.doubleClick(lab);
+    expect(callbacks.onOpen).toHaveBeenNthCalledWith(1, "lab");
+    expect(callbacks.onOpen).toHaveBeenNthCalledWith(2, "lab");
     fireEvent.keyDown(lab, { key: "Enter" });
-    expect(callbacks.onOpen).toHaveBeenCalledTimes(2);
+    expect(callbacks.onOpen).toHaveBeenCalledTimes(3);
   });
 
   it("uses the same menu for the visible button, context menu, and Shift+F10", () => {
@@ -129,8 +111,11 @@ describe("ConnectionNavigator", () => {
     expect(callbacks.onEdit).toHaveBeenCalledWith("prod");
 
     fireEvent.contextMenu(prod, { clientX: 20, clientY: 40 });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Disconnect" }));
-    expect(callbacks.onDisconnect).toHaveBeenCalledWith("ssh-prod");
+    expect(
+      screen.queryByRole("menuitem", { name: "Disconnect" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open connection" }));
+    expect(callbacks.onOpen).toHaveBeenCalledWith("prod");
 
     fireEvent.keyDown(prod, { key: "F10", shiftKey: true });
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));

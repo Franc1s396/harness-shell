@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 
 export type StatusBarProps = {
   runtimeState: string;
-  sshState: string;
   hostKeyState: string;
   ptySize: { cols: number; rows: number } | null;
   agentWidth: number | null;
@@ -11,7 +10,6 @@ export type StatusBarProps = {
 
 export function StatusBar({
   runtimeState,
-  sshState,
   hostKeyState,
   ptySize,
   agentWidth,
@@ -20,7 +18,6 @@ export function StatusBar({
   const { t } = useTranslation();
   const values = [
     [t("status.runtime"), runtimeState],
-    [t("status.ssh"), sshState],
     [t("status.hostKey"), hostKeyState],
     [t("status.pty"), ptySize ? `${ptySize.cols}×${ptySize.rows}` : "unknown"],
     [t("status.agent"), agentWidth === null ? "collapsed" : `${agentWidth}px`],

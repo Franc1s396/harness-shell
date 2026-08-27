@@ -211,6 +211,8 @@ fn window_capabilities_are_least_privilege() {
             "connections".to_owned(),
             "core:event:allow-listen".to_owned(),
             "core:event:allow-unlisten".to_owned(),
+            "core:window:allow-close".to_owned(),
+            "core:window:allow-destroy".to_owned(),
             "credentials".to_owned(),
             "runtime".to_owned(),
             "terminal".to_owned(),
@@ -219,6 +221,17 @@ fn window_capabilities_are_least_privilege() {
     assert!(!main.permissions.iter().any(|permission| {
         permission == "core:event:allow-emit" || permission == "core:event:allow-emit-to"
     }));
+    assert_eq!(
+        main.permissions
+            .iter()
+            .filter(|permission| permission.starts_with("core:window:"))
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "core:window:allow-close".to_owned(),
+            "core:window:allow-destroy".to_owned(),
+        ])
+    );
     let main_commands = allowed_commands(main);
     assert!(main_commands.contains("get_runtime_status"));
     assert!(main_commands.contains("open_approval_window"));
@@ -262,19 +275,25 @@ fn window_capabilities_are_least_privilege() {
         );
         assert!(
             capability
-                .permissions
-                .iter()
-                .all(|permission| !permission.starts_with("core:window:")),
-            "WebView window commands can target other labels and are forbidden"
-        );
-        assert!(
-            capability
                 .windows
                 .iter()
                 .all(|window| !window.contains('*')),
             "window label wildcards are forbidden"
         );
     }
+}
+
+#[test]
+fn only_main_window_can_request_confirmed_close() {
+    let main = fs::read_to_string(manifest_dir().join("capabilities/main.json"))
+        .expect("main capability must be readable");
+    let approval = fs::read_to_string(manifest_dir().join("capabilities/approval.json"))
+        .expect("approval capability must be readable");
+
+    assert!(main.contains("core:window:allow-close"));
+    assert!(main.contains("core:window:allow-destroy"));
+    assert!(!approval.contains("core:window:allow-close"));
+    assert!(!approval.contains("core:window:allow-destroy"));
 }
 
 #[test]

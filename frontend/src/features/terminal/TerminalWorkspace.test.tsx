@@ -1,60 +1,75 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { i18n, i18nReady } from "../../i18n";
 import { useTerminalUiStore } from "../../stores/terminal-ui-store";
-import { PtyOutputBuffer } from "./terminal-output-buffer";
-import {
-  TerminalWorkspace,
-  type TerminalTabModel,
-} from "./TerminalWorkspace";
+import { TerminalOutputBuffer } from "./terminal-output-buffer";
+import type {
+  TerminalSessionModel,
+  TerminalSessionState,
+} from "./terminal-session";
+import { TerminalWorkspace } from "./TerminalWorkspace";
 
 vi.mock("./TerminalTab", () => ({
-  TerminalTab: ({
-    ptySessionId,
-    outputBuffer,
-    active,
-    enabled,
-  }: {
-    ptySessionId: string;
-    outputBuffer: PtyOutputBuffer;
-    active: boolean;
-    enabled: boolean;
-  }) => (
-    <div
-      data-testid="xterm"
-      data-pty-session-id={ptySessionId}
-      data-has-output-buffer={String(outputBuffer instanceof PtyOutputBuffer)}
-      data-active={String(active)}
-      data-enabled={String(enabled)}
-    />
-  ),
+  TerminalTab: () => <div />,
 }));
 
-const tab = (id: string): TerminalTabModel => ({
+const session = (
+  id: string,
+  state: TerminalSessionState,
+): TerminalSessionModel => ({
   tabId: id,
   title: `Tab ${id}`,
-  ptySessionId: `pty-${id}`,
-  sshSessionId: `ssh-${id}`,
+  ptySessionId: state === "CONNECTED" ? `pty-${id}` : null,
+  sshSessionId: state === "CONNECTED" ? `ssh-${id}` : null,
   connectionId: `connection-${id}`,
-  state: "OPEN",
+  state,
+  generation: 1,
 });
 
-const outputBuffer = new PtyOutputBuffer();
+const connected = (id: string) => session(id, "CONNECTED");
+const disconnected = (id: string) => session(id, "DISCONNECTED");
 
-const props = {
-  outputBuffer,
+const makeProps = () => ({
+  outputBuffer: new TerminalOutputBuffer(),
   runtimeReady: true,
   fitRequestKey: 0,
   onWrite: vi.fn().mockResolvedValue(undefined),
   onResize: vi.fn(),
-  onClose: vi.fn(),
+  onReconnect: vi.fn(),
+  onDisconnect: vi.fn(),
+  onCloseConfirmed: vi.fn(),
   onFocusChange: vi.fn(),
   onSelectConnection: vi.fn(),
   onCreateConnection: vi.fn(),
+});
+
+const renderWorkspace = (sessions: TerminalSessionModel[]) => {
+  const props = makeProps();
+  for (const item of sessions) {
+    props.outputBuffer.registerTab(item.tabId, item.generation);
+  }
+  return {
+    props,
+    view: render(<TerminalWorkspace {...props} sessions={sessions} />),
+  };
 };
 
 describe("TerminalWorkspace", () => {
@@ -64,14 +79,54 @@ describe("TerminalWorkspace", () => {
   });
   beforeEach(() => {
     useTerminalUiStore.getState().reset();
-    props.onClose.mockReset();
   });
   afterEach(cleanup);
 
-  it("reconciles selection and uses sibling close buttons", async () => {
-    const view = render(
-      <TerminalWorkspace {...props} tabs={[tab("a"), tab("b")]} />,
+  it("switches the right-edge status with the active session", async () => {
+    renderWorkspace([connected("a"), disconnected("b")]);
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Tab b/ })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
     );
+    expect(screen.getByTestId("active-session-status")).toHaveTextContent(
+      "Disconnected",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /Tab a/ }));
+    expect(screen.getByTestId("active-session-status")).toHaveTextContent(
+      "Connected",
+    );
+  });
+
+  it("uses mutually exclusive actions for the right-clicked session", () => {
+    const { props } = renderWorkspace([connected("a")]);
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /Tab a/ }), {
+      clientX: 20,
+      clientY: 40,
+    });
+    expect(
+      screen.getByRole("menuitem", { name: "Reconnect" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Disconnect" }));
+    expect(props.onDisconnect).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: "a" }),
+    );
+  });
+
+  it("requires confirmation before closing a tab", () => {
+    const { props } = renderWorkspace([connected("a")]);
+    fireEvent.click(screen.getByRole("button", { name: "Close Tab a" }));
+    expect(props.onCloseConfirmed).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Close session?" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+    expect(props.onCloseConfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: "a" }),
+    );
+  });
+
+  it("keeps close controls outside tabs and reconciles the selected sibling", async () => {
+    const { props, view } = renderWorkspace([connected("a"), connected("b")]);
     await waitFor(() =>
       expect(screen.getByRole("tab", { name: /Tab b/ })).toHaveAttribute(
         "aria-selected",
@@ -80,11 +135,9 @@ describe("TerminalWorkspace", () => {
     );
     const close = screen.getByRole("button", { name: "Close Tab b" });
     expect(close.closest('[role="tab"]')).toBeNull();
-    fireEvent.click(close);
-    expect(props.onClose).toHaveBeenCalledWith(
-      expect.objectContaining({ tabId: "b" }),
+    view.rerender(
+      <TerminalWorkspace {...props} sessions={[connected("a")]} />,
     );
-    view.rerender(<TerminalWorkspace {...props} tabs={[tab("a")]} />);
     await waitFor(() =>
       expect(screen.getByRole("tab", { name: /Tab a/ })).toHaveAttribute(
         "aria-selected",
@@ -93,9 +146,10 @@ describe("TerminalWorkspace", () => {
     );
   });
 
-  it("keeps the stage as the explicit flexible region with or without errors", () => {
+  it("keeps the stage as the explicit flexible region with cleanup notices", () => {
+    const props = makeProps();
     const { rerender } = render(
-      <TerminalWorkspace {...props} tabs={[]} errorNotice={null} />,
+      <TerminalWorkspace {...props} sessions={[]} errorNotice={null} />,
     );
     expect(screen.getByTestId("terminal-stage")).toHaveClass(
       "min-h-0",
@@ -105,8 +159,9 @@ describe("TerminalWorkspace", () => {
     rerender(
       <TerminalWorkspace
         {...props}
-        tabs={[]}
+        sessions={[]}
         errorNotice={<div role="alert">Failure</div>}
+        cleanupNotices={<div>Cleanup failure</div>}
       />,
     );
     expect(screen.getByTestId("terminal-stage")).toHaveClass(
@@ -114,17 +169,6 @@ describe("TerminalWorkspace", () => {
       "min-w-0",
       "flex-1",
     );
-  });
-
-  it("passes the shared output buffer and PTY identity to each terminal", () => {
-    render(<TerminalWorkspace {...props} tabs={[tab("a")]} />);
-    expect(screen.getByTestId("xterm")).toHaveAttribute(
-      "data-pty-session-id",
-      "pty-a",
-    );
-    expect(screen.getByTestId("xterm")).toHaveAttribute(
-      "data-has-output-buffer",
-      "true",
-    );
+    expect(screen.getByText("Cleanup failure")).toBeVisible();
   });
 });

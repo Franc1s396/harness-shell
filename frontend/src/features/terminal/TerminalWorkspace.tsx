@@ -1,44 +1,68 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 
+import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/controls";
-import { EmptyState, StatusIndicator } from "../../components/ui/feedback";
+import { EmptyState } from "../../components/ui/feedback";
 import { useTerminalUiStore } from "../../stores/terminal-ui-store";
+import { SessionActionMenu } from "./SessionActionMenu";
 import { TerminalTab } from "./TerminalTab";
-import type { PtyOutputBuffer } from "./terminal-output-buffer";
-
-export type TerminalTabModel = {
-  tabId: string;
-  title: string;
-  ptySessionId: string;
-  sshSessionId: string;
-  connectionId: string;
-  state: "OPEN" | "CLOSED" | "DISCONNECTED";
-};
+import type { TerminalOutputBuffer } from "./terminal-output-buffer";
+import {
+  sessionStatusKey,
+  sessionStatusTone,
+  type TerminalSessionModel,
+} from "./terminal-session";
 
 type Props = {
-  tabs: TerminalTabModel[];
-  outputBuffer: PtyOutputBuffer;
+  sessions: TerminalSessionModel[];
+  outputBuffer: TerminalOutputBuffer;
   runtimeReady: boolean;
   fitRequestKey: number;
   errorNotice?: ReactNode;
-  onWrite: (ptySessionId: string, data: Uint8Array) => Promise<void>;
-  onResize: (ptySessionId: string, cols: number, rows: number) => void;
-  onClose: (tab: TerminalTabModel) => void;
+  cleanupNotices?: ReactNode;
+  onWrite: (tabId: string, data: Uint8Array) => Promise<void>;
+  onResize: (tabId: string, cols: number, rows: number) => void;
+  onReconnect: (session: TerminalSessionModel) => void;
+  onDisconnect: (session: TerminalSessionModel) => void;
+  onCloseConfirmed: (session: TerminalSessionModel) => void;
   onFocusChange: (focused: boolean) => void;
   onSelectConnection?: () => void;
   onCreateConnection?: () => void;
 };
 
+type SessionMenuState = {
+  session: TerminalSessionModel;
+  anchor: { x: number; y: number };
+};
+
+const toneClass = (session: TerminalSessionModel) =>
+  ({
+    accent: "bg-accent",
+    warning: "bg-warning",
+    success: "bg-success",
+    disconnected: "bg-danger/60",
+    danger: "bg-danger",
+  })[sessionStatusTone(session.state)];
+
 export function TerminalWorkspace({
-  tabs,
+  sessions,
   outputBuffer,
   runtimeReady,
   fitRequestKey,
   errorNotice,
+  cleanupNotices,
   onWrite,
   onResize,
-  onClose,
+  onReconnect,
+  onDisconnect,
+  onCloseConfirmed,
   onFocusChange,
   onSelectConnection,
   onCreateConnection,
@@ -50,10 +74,14 @@ export function TerminalWorkspace({
   const setActiveTab = useTerminalUiStore((state) => state.setActiveTab);
   const requestFocus = useTerminalUiStore((state) => state.requestFocus);
   const tabButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
+  const [closeTarget, setCloseTarget] = useState<TerminalSessionModel | null>(
+    null,
+  );
 
   useEffect(() => {
-    reconcileTabs(tabs.map((tab) => tab.tabId));
-  }, [reconcileTabs, tabs]);
+    reconcileTabs(sessions.map((session) => session.tabId));
+  }, [reconcileTabs, sessions]);
 
   const selectTab = (tabId: string, focusButton = false) => {
     setActiveTab(tabId);
@@ -61,46 +89,81 @@ export function TerminalWorkspace({
     if (focusButton) tabButtonRefs.current.get(tabId)?.focus();
   };
 
-  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+  const onTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
     let nextIndex: number | null = null;
-    if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
-    if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % sessions.length;
+    if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + sessions.length) % sessions.length;
+    }
     if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = tabs.length - 1;
+    if (event.key === "End") nextIndex = sessions.length - 1;
     if (nextIndex === null) return;
     event.preventDefault();
-    selectTab(tabs[nextIndex].tabId, true);
+    selectTab(sessions[nextIndex].tabId, true);
   };
 
+  const activeSession =
+    sessions.find((session) => session.tabId === activeTabId) ?? null;
+  const closeMayReachRemote =
+    closeTarget !== null &&
+    closeTarget.state !== "DISCONNECTED" &&
+    closeTarget.state !== "FAILED";
+
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col bg-app" aria-label={t("terminal.title")}>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-2">
+    <section
+      className="flex h-full min-h-0 min-w-0 flex-col bg-app"
+      aria-label={t("terminal.title")}
+    >
+      <div className="flex shrink-0 items-center border-b border-line bg-panel px-2">
         <div className="flex min-w-0 flex-1 overflow-x-auto" role="tablist">
-          {tabs.map((tab, index) => {
-            const active = tab.tabId === activeTabId;
+          {sessions.map((session, index) => {
+            const active = session.tabId === activeTabId;
             return (
-              <div key={tab.tabId} className="flex shrink-0 items-center border-r border-line">
+              <div
+                key={session.tabId}
+                className="flex shrink-0 items-center border-r border-line"
+              >
                 <button
                   ref={(node) => {
-                    if (node) tabButtonRefs.current.set(tab.tabId, node);
-                    else tabButtonRefs.current.delete(tab.tabId);
+                    if (node) tabButtonRefs.current.set(session.tabId, node);
+                    else tabButtonRefs.current.delete(session.tabId);
                   }}
-                  className={`flex h-10 items-center gap-2 px-3 text-sm ${active ? "bg-app text-ink" : "text-ink-muted hover:bg-raised hover:text-ink"}`}
+                  className={`flex h-10 items-center gap-2 px-3 text-sm ${
+                    active
+                      ? "bg-app text-ink"
+                      : "text-ink-muted hover:bg-raised hover:text-ink"
+                  }`}
                   type="button"
                   role="tab"
                   tabIndex={active ? 0 : -1}
                   aria-selected={active}
-                  onClick={() => selectTab(tab.tabId)}
+                  onClick={() => selectTab(session.tabId)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSessionMenu({
+                      session,
+                      anchor: { x: event.clientX, y: event.clientY },
+                    });
+                  }}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
                 >
-                  <span aria-hidden className={`size-2 rounded-full ${tab.state === "OPEN" ? "bg-success" : "bg-danger"}`} />
-                  <span>{tab.title}</span>
+                  <span
+                    aria-hidden
+                    className={`size-2 rounded-full ${toneClass(session)}`}
+                  />
+                  <span>{session.title}</span>
+                  <span className="sr-only">
+                    {t(sessionStatusKey(session.state))}
+                  </span>
                 </button>
                 <button
                   type="button"
                   className="mr-1 grid size-7 place-items-center rounded text-ink-muted hover:bg-raised hover:text-ink"
-                  aria-label={t("terminal.closeTab", { name: tab.title })}
-                  onClick={() => onClose(tab)}
+                  aria-label={t("terminal.closeTab", { name: session.title })}
+                  onClick={() => setCloseTarget(session)}
                 >
                   ×
                 </button>
@@ -108,47 +171,113 @@ export function TerminalWorkspace({
             );
           })}
         </div>
-        <span className="shrink-0 text-xs text-ink-muted">
-          <StatusIndicator value={runtimeReady ? "READY" : "DISCONNECTED"} />{" "}
-          {runtimeReady ? t("terminal.runtimeReady") : t("terminal.inputDisabled")}
-        </span>
+        {activeSession ? (
+          <span
+            data-testid="active-session-status"
+            aria-live="polite"
+            className="flex h-10 shrink-0 items-center gap-2 border-l border-line px-3 text-xs text-ink-muted"
+          >
+            <span
+              aria-hidden
+              className={`size-2 rounded-full ${toneClass(activeSession)}`}
+            />
+            {t(sessionStatusKey(activeSession.state))}
+          </span>
+        ) : null}
       </div>
 
       {errorNotice}
+      {cleanupNotices}
 
-      <div data-testid="terminal-stage" className="relative min-h-0 min-w-0 flex-1">
-        {tabs.length === 0 ? (
+      <div
+        data-testid="terminal-stage"
+        className="relative min-h-0 min-w-0 flex-1"
+      >
+        {sessions.length === 0 ? (
           <EmptyState
             title={t("terminal.emptyTitle")}
             body={t("terminal.emptyBody")}
-            actions={onSelectConnection || onCreateConnection ? (
-              <div className="mt-3 flex justify-center gap-2">
-                {onSelectConnection ? <Button variant="secondary" onClick={onSelectConnection}>{t("terminal.selectConnection")}</Button> : null}
-                {onCreateConnection ? <Button onClick={onCreateConnection}>{t("terminal.createConnection")}</Button> : null}
-              </div>
-            ) : null}
+            actions={
+              onSelectConnection || onCreateConnection ? (
+                <div className="mt-3 flex justify-center gap-2">
+                  {onSelectConnection ? (
+                    <Button variant="secondary" onClick={onSelectConnection}>
+                      {t("terminal.selectConnection")}
+                    </Button>
+                  ) : null}
+                  {onCreateConnection ? (
+                    <Button onClick={onCreateConnection}>
+                      {t("terminal.createConnection")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null
+            }
           />
         ) : null}
-        {tabs.map((tab) => (
+        {sessions.map((session) => (
           <TerminalTab
-            key={tab.tabId}
-            ptySessionId={tab.ptySessionId}
+            key={session.tabId}
+            tabId={session.tabId}
             outputBuffer={outputBuffer}
-            active={tab.tabId === activeTabId}
-            enabled={runtimeReady && tab.state === "OPEN"}
+            active={session.tabId === activeTabId}
+            enabled={runtimeReady && session.state === "CONNECTED"}
             fitRequestKey={fitRequestKey}
-            focusRequestKey={tab.tabId === activeTabId ? focusRevision : 0}
-            onInput={(data) => onWrite(tab.ptySessionId, data)}
-            onResize={(cols, rows) => onResize(tab.ptySessionId, cols, rows)}
+            focusRequestKey={
+              session.tabId === activeTabId ? focusRevision : 0
+            }
+            onInput={(data) => onWrite(session.tabId, data)}
+            onResize={(cols, rows) => onResize(session.tabId, cols, rows)}
             onFocusChange={onFocusChange}
           />
         ))}
-        {!runtimeReady && tabs.length > 0 ? (
-          <div className="absolute inset-x-3 bottom-3 rounded-md border border-danger/60 bg-danger/15 px-3 py-2 text-sm text-ink" role="alert">
+        {!runtimeReady && sessions.length > 0 ? (
+          <div
+            className="absolute inset-x-3 bottom-3 rounded-md border border-danger/60 bg-danger/15 px-3 py-2 text-sm text-ink"
+            role="alert"
+          >
             {t("terminal.sidecarUnavailable")}
           </div>
         ) : null}
       </div>
+
+      {sessionMenu ? (
+        <SessionActionMenu
+          session={sessionMenu.session}
+          anchor={sessionMenu.anchor}
+          onClose={() => setSessionMenu(null)}
+          onReconnect={() => onReconnect(sessionMenu.session)}
+          onDisconnect={() => onDisconnect(sessionMenu.session)}
+        />
+      ) : null}
+
+      <Dialog
+        open={closeTarget !== null}
+        title={t("terminal.closeConfirmTitle")}
+        onClose={() => setCloseTarget(null)}
+      >
+        <p className="mt-3 text-sm text-ink-muted">
+          {t(
+            closeMayReachRemote
+              ? "terminal.closeConnectedBody"
+              : "terminal.closeLocalBody",
+          )}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setCloseTarget(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            onClick={() => {
+              const target = closeTarget;
+              setCloseTarget(null);
+              if (target) onCloseConfirmed(target);
+            }}
+          >
+            {t("terminal.confirmClose")}
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }

@@ -2,14 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { IconButton } from "../../components/ui/controls";
-import { StatusIndicator } from "../../components/ui/feedback";
 import { ShellIcon } from "./icons";
 
 export type ContextBarProps = {
   environmentLabel: string;
   connectionName: string | null;
   targetSummary: string | null;
-  connectionState: string;
   sidebarOpen: boolean;
   activeTerminalAvailable: boolean;
   actionsDisabled?: boolean;
@@ -24,7 +22,6 @@ export function ContextBar({
   environmentLabel,
   connectionName,
   targetSummary,
-  connectionState,
   sidebarOpen,
   activeTerminalAvailable,
   actionsDisabled = false,
@@ -123,7 +120,6 @@ export function ContextBar({
           </div>
         ) : null}
       </div>
-      <StatusIndicator value={connectionState} />
     </header>
   );
 }
