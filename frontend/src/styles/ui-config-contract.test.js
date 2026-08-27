@@ -10,10 +10,10 @@ describe("desktop UI bounds", () => {
   it("prevents the main window from shrinking below the supported terminal layout", () => {
     const main = config.app.windows.find((window) => window.label === "main");
     expect(main).toMatchObject({
-      width: 1280,
-      height: 720,
-      minWidth: 900,
-      minHeight: 600,
+      width: 1440,
+      height: 900,
+      minWidth: 960,
+      minHeight: 640,
     });
   });
 });

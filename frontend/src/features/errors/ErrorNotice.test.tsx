@@ -61,4 +61,25 @@ describe("ErrorNotice", () => {
       ].join("\n"),
     );
   });
+
+  it("renders only recovery actions explicitly supplied by the controller", () => {
+    const onRetry = vi.fn();
+    const onEdit = vi.fn();
+    const onDismiss = vi.fn();
+    render(
+      <ErrorNotice
+        error={{ code: "AUTH_FAILED", message: "denied" }}
+        onRetry={onRetry}
+        onEdit={onEdit}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑连接" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
 });

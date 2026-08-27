@@ -1,0 +1,254 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+
+import { Button } from "../../components/ui/controls";
+import { Dialog } from "../../components/ui/Dialog";
+import { useWorkspaceUiStore } from "../../stores/workspace-ui-store";
+import { ActivityBar } from "./ActivityBar";
+import { ContextBar } from "./ContextBar";
+import { ResizableSeparator } from "./ResizableSeparator";
+import { SettingsPopover } from "./SettingsPopover";
+import { ShellIcon } from "./icons";
+import { StatusBar } from "./StatusBar";
+import {
+  DEFAULT_AGENT_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  agentWidthBounds,
+  resolveEffectiveAgentWidth,
+  resolveResponsiveWorkspace,
+} from "./workspace-layout";
+
+export type WorkspaceFrameProps = {
+  connectionNavigator: ReactNode;
+  terminalWorkspace: ReactNode;
+  agentWorkspace: ReactNode;
+  workspaceOverlay?: ReactNode;
+  runtimeState: string;
+  connectionState: string;
+  hostKeyState: string;
+  ptySize: { cols: number; rows: number } | null;
+  route: "Direct" | "ProxyJump" | "unknown";
+  environmentLabel: string;
+  connectionName: string | null;
+  targetSummary: string | null;
+  agentWidth: number | null;
+  activeTerminalAvailable: boolean;
+  connectionActionsDisabled?: boolean;
+  onCreateConnection: () => void;
+  onEditConnection: () => void;
+  onFocusTerminal: () => void;
+  onOpenApproval: () => void;
+};
+
+export function WorkspaceFrame({
+  connectionNavigator,
+  terminalWorkspace,
+  agentWorkspace,
+  workspaceOverlay,
+  runtimeState,
+  connectionState,
+  hostKeyState,
+  ptySize,
+  route,
+  environmentLabel,
+  connectionName,
+  targetSummary,
+  activeTerminalAvailable,
+  connectionActionsDisabled = false,
+  onCreateConnection,
+  onEditConnection,
+  onFocusTerminal,
+  onOpenApproval,
+}: WorkspaceFrameProps) {
+  const { t } = useTranslation();
+  const requestedSidebarVisible = useWorkspaceUiStore(
+    (state) => state.sidebarVisible,
+  );
+  const requestedSidebarWidth = useWorkspaceUiStore(
+    (state) => state.sidebarWidth,
+  );
+  const requestedAgentVisible = useWorkspaceUiStore(
+    (state) => state.agentVisible,
+  );
+  const requestedAgentWidth = useWorkspaceUiStore((state) => state.agentWidth);
+  const drawerOpen = useWorkspaceUiStore(
+    (state) => state.mediumViewportDrawerOpen,
+  );
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
+  const [settingsAnchor, setSettingsAnchor] =
+    useState<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const responsive = resolveResponsiveWorkspace(
+    viewportWidth,
+    requestedSidebarVisible,
+    requestedAgentVisible,
+  );
+  const effectiveAgentWidth = responsive.agentVisible
+    ? resolveEffectiveAgentWidth(
+        requestedAgentWidth,
+        agentWidthBounds({
+          viewportWidth,
+          sidebarInline: responsive.sidebarInline,
+          sidebarWidth: requestedSidebarWidth,
+        }),
+      )
+    : null;
+
+  const toggleConnections = () => {
+    const store = useWorkspaceUiStore.getState();
+    store.setActiveActivity("connections");
+    if (responsive.sidebarDrawerAvailable) {
+      store.setMediumViewportDrawerOpen(!store.mediumViewportDrawerOpen);
+      return;
+    }
+    store.setSidebarVisible(!store.sidebarVisible);
+  };
+
+  const closeDrawer = () =>
+    useWorkspaceUiStore.getState().setMediumViewportDrawerOpen(false);
+
+  return (
+    <main className="relative grid h-dvh min-h-0 grid-rows-[48px_minmax(0,1fr)_23px] overflow-hidden bg-app text-ink">
+      <ContextBar
+        environmentLabel={environmentLabel}
+        connectionName={connectionName}
+        targetSummary={targetSummary}
+        connectionState={connectionState}
+        sidebarOpen={responsive.sidebarInline || drawerOpen}
+        activeTerminalAvailable={activeTerminalAvailable}
+        actionsDisabled={connectionActionsDisabled}
+        onToggleSidebar={toggleConnections}
+        onCreateConnection={onCreateConnection}
+        onEditConnection={onEditConnection}
+        onFocusTerminal={onFocusTerminal}
+        onOpenApproval={onOpenApproval}
+      />
+
+      <div className="grid min-h-0 min-w-0 grid-cols-[44px_minmax(0,1fr)]">
+        <ActivityBar
+          onToggleConnections={toggleConnections}
+          onOpenApproval={onOpenApproval}
+          onOpenSettings={setSettingsAnchor}
+        />
+        <div className="flex min-h-0 min-w-0">
+          {responsive.sidebarInline ? (
+            <>
+              <aside
+                aria-label={t("nav.connections")}
+                style={{ width: requestedSidebarWidth }}
+                className="min-h-0 shrink-0 overflow-hidden bg-panel"
+              >
+                {connectionNavigator}
+              </aside>
+              <ResizableSeparator
+                label={t("shell.resizeSidebar")}
+                value={requestedSidebarWidth}
+                min={MIN_SIDEBAR_WIDTH}
+                max={MAX_SIDEBAR_WIDTH}
+                defaultValue={DEFAULT_SIDEBAR_WIDTH}
+                direction="increase-right"
+                onChange={(width) =>
+                  useWorkspaceUiStore.getState().setSidebarWidth(width)
+                }
+                onCommit={() =>
+                  useWorkspaceUiStore.getState().bumpLayoutRevision()
+                }
+              />
+            </>
+          ) : null}
+
+          <section
+            data-testid="terminal-region"
+            style={{ minWidth: 560 }}
+            className="min-h-0 min-w-0 flex-1"
+          >
+            {terminalWorkspace}
+          </section>
+
+          {effectiveAgentWidth !== null ? (
+            <>
+              <ResizableSeparator
+                label={t("shell.resizeAgent")}
+                value={effectiveAgentWidth}
+                min={agentWidthBounds({
+                  viewportWidth,
+                  sidebarInline: responsive.sidebarInline,
+                  sidebarWidth: requestedSidebarWidth,
+                }).min}
+                max={agentWidthBounds({
+                  viewportWidth,
+                  sidebarInline: responsive.sidebarInline,
+                  sidebarWidth: requestedSidebarWidth,
+                }).max}
+                defaultValue={DEFAULT_AGENT_WIDTH}
+                direction="increase-left"
+                onChange={(width) =>
+                  useWorkspaceUiStore.getState().setAgentWidth(width)
+                }
+                onCommit={() =>
+                  useWorkspaceUiStore.getState().bumpLayoutRevision()
+                }
+              />
+              <aside
+                data-testid="agent-region"
+                aria-label={t("agent.title")}
+                style={{ width: effectiveAgentWidth }}
+                className="min-h-0 shrink-0 overflow-hidden bg-panel"
+              >
+                {agentWorkspace}
+              </aside>
+            </>
+          ) : (
+            <button
+              type="button"
+              aria-label={t("agent.expand")}
+              className="grid w-10 shrink-0 place-items-start border-l border-line bg-panel pt-3 text-ink-muted hover:bg-raised hover:text-ink"
+              onClick={() =>
+                useWorkspaceUiStore.getState().setAgentVisible(true)
+              }
+            >
+              <ShellIcon name="agent" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <StatusBar
+        runtimeState={runtimeState}
+        sshState={connectionState}
+        hostKeyState={hostKeyState}
+        ptySize={ptySize}
+        agentWidth={effectiveAgentWidth}
+        route={route}
+      />
+
+      <Dialog
+        open={responsive.sidebarDrawerAvailable && drawerOpen}
+        title={t("nav.connections")}
+        placement="left"
+        onClose={closeDrawer}
+      >
+        <div className="mt-3 min-h-0">{connectionNavigator}</div>
+        <div className="mt-4 flex justify-end">
+          <Button variant="secondary" onClick={closeDrawer}>
+            {t("common.close")}
+          </Button>
+        </div>
+      </Dialog>
+      <SettingsPopover
+        open={settingsAnchor !== null}
+        anchor={settingsAnchor}
+        onClose={() => setSettingsAnchor(null)}
+      />
+      {workspaceOverlay}
+    </main>
+  );
+}

@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/controls";
 import { EmptyState, StatusIndicator } from "../../components/ui/feedback";
 import { useTerminalUiStore } from "../../stores/terminal-ui-store";
 import { TerminalTab } from "./TerminalTab";
+import type { PtyOutputBuffer } from "./terminal-output-buffer";
 
 export type TerminalTabModel = {
   tabId: string;
@@ -12,12 +13,12 @@ export type TerminalTabModel = {
   ptySessionId: string;
   sshSessionId: string;
   connectionId: string;
-  output: Uint8Array[];
   state: "OPEN" | "CLOSED" | "DISCONNECTED";
 };
 
 type Props = {
   tabs: TerminalTabModel[];
+  outputBuffer: PtyOutputBuffer;
   runtimeReady: boolean;
   fitRequestKey: number;
   errorNotice?: ReactNode;
@@ -31,6 +32,7 @@ type Props = {
 
 export function TerminalWorkspace({
   tabs,
+  outputBuffer,
   runtimeReady,
   fitRequestKey,
   errorNotice,
@@ -130,11 +132,12 @@ export function TerminalWorkspace({
         {tabs.map((tab) => (
           <TerminalTab
             key={tab.tabId}
+            ptySessionId={tab.ptySessionId}
+            outputBuffer={outputBuffer}
             active={tab.tabId === activeTabId}
             enabled={runtimeReady && tab.state === "OPEN"}
             fitRequestKey={fitRequestKey}
             focusRequestKey={tab.tabId === activeTabId ? focusRevision : 0}
-            output={tab.output}
             onInput={(data) => onWrite(tab.ptySessionId, data)}
             onResize={(cols, rows) => onResize(tab.ptySessionId, cols, rows)}
             onFocusChange={onFocusChange}

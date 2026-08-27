@@ -37,6 +37,7 @@ const sshApi = vi.hoisted(() => ({
 const terminalTabMock = vi.hoisted(() => ({
   onInput: null as null | ((data: Uint8Array) => Promise<void>),
   onResize: null as null | ((cols: number, rows: number) => void),
+  renderCount: 0,
 }));
 
 vi.mock("./api/runtime", async (importOriginal) => ({
@@ -59,6 +60,7 @@ vi.mock("./features/terminal/TerminalTab", () => ({
     onInput: (data: Uint8Array) => Promise<void>;
     onResize: (cols: number, rows: number) => void;
   }) => {
+    terminalTabMock.renderCount += 1;
     terminalTabMock.onInput = onInput;
     terminalTabMock.onResize = onResize;
     return <div data-testid="terminal-tab" data-enabled={String(enabled)} />;
@@ -107,6 +109,34 @@ const status = (overrides: Partial<ConnectionStatus>): ConnectionStatus => ({
 
 const failedInspection = (errorCode: string) =>
   status({ state: "FAILED", error_code: errorCode });
+
+const openSavedProfile = async () => {
+  fireEvent.doubleClick(
+    await screen.findByRole("option", { name: /Test profile/i }),
+  );
+};
+
+const disconnectSavedProfile = async () => {
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: /Connection actions: Test profile/i,
+    }),
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /Disconnect/i }),
+  );
+};
+
+const editSavedProfile = async () => {
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: /Connection actions: Test profile/i,
+    }),
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: /Edit connection/i }),
+  );
+};
 const hostKeyRequired = status({
   state: "HOST_KEY_REQUIRED",
   host_key_candidate: {
@@ -160,6 +190,7 @@ describe("App connection orchestration", () => {
     Object.values(sshApi).forEach((mock) => mock.mockReset());
     terminalTabMock.onInput = null;
     terminalTabMock.onResize = null;
+    terminalTabMock.renderCount = 0;
     runtimeApi.getRuntimeStatus.mockResolvedValue(runtimeReadyStatus);
     runtimeApi.openApprovalWindow.mockResolvedValue(undefined);
     sshApi.subscribeSshEvents.mockResolvedValue(() => undefined);
@@ -229,9 +260,7 @@ describe("App connection orchestration", () => {
     sshApi.disconnectSsh.mockResolvedValue(status({ state: "DISCONNECTED" }));
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
 
     await waitFor(() =>
       expect(sshApi.disconnectSsh).toHaveBeenCalledWith("ssh-session-test"),
@@ -257,12 +286,8 @@ describe("App connection orchestration", () => {
     sshApi.disconnectSsh.mockImplementation(() => disconnectTask);
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Disconnect: Test profile/i }),
-    );
+    await openSavedProfile();
+    await disconnectSavedProfile();
     await act(async () =>
       rejectOpenPty({ code: "PTY_OPEN_FAILED", message: "open failed" }),
     );
@@ -296,9 +321,7 @@ describe("App connection orchestration", () => {
     });
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     const closeButton = await screen.findByRole("button", {
       name: /Close Test profile/i,
     });
@@ -339,9 +362,7 @@ describe("App connection orchestration", () => {
       .mockResolvedValueOnce(status({ state: "DISCONNECTED" }));
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: /Close Test profile/i }),
     );
@@ -372,9 +393,7 @@ describe("App connection orchestration", () => {
     sshApi.closePty.mockImplementation(() => new Promise(() => undefined));
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: /Close Test profile/i }),
     );
@@ -404,12 +423,8 @@ describe("App connection orchestration", () => {
     sshApi.disconnectSsh.mockImplementation(() => new Promise(() => undefined));
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Disconnect: Test profile/i }),
-    );
+    await openSavedProfile();
+    await disconnectSavedProfile();
 
     expect(screen.getByTestId("terminal-tab")).toHaveAttribute(
       "data-enabled",
@@ -445,9 +460,7 @@ describe("App connection orchestration", () => {
     sshApi.closePty.mockImplementation(() => new Promise(() => undefined));
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     const closeButton = await screen.findByRole("button", {
       name: /Close Test profile/i,
     });
@@ -471,6 +484,44 @@ describe("App connection orchestration", () => {
     await waitFor(() => expect(sshApi.closePty).toHaveBeenCalled());
     expect(sshApi.closePty).toHaveBeenCalledTimes(1);
     expect(sshApi.disconnectSsh).not.toHaveBeenCalled();
+  });
+
+  it("does not rerender the React terminal wrapper for PTY output", async () => {
+    let emitSshEvent!: (event: SshEvent) => void;
+    sshApi.subscribeSshEvents.mockImplementation(async (onEvent) => {
+      emitSshEvent = onEvent;
+      return () => undefined;
+    });
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByTestId("terminal-tab");
+    await waitFor(() => expect(emitSshEvent).toBeTypeOf("function"));
+    const renderCountBeforeOutput = terminalTabMock.renderCount;
+
+    act(() => {
+      emitSshEvent({
+        event: "ssh.pty.output",
+        pty_session_id: "pty-session-test",
+        stream_sequence: 1,
+        data_b64: "QQ==",
+      });
+    });
+
+    expect(terminalTabMock.renderCount).toBe(renderCountBeforeOutput);
   });
 
   it("shares one SSH disconnect when tab cleanup starts before Explorer disconnect", async () => {
@@ -498,15 +549,11 @@ describe("App connection orchestration", () => {
     sshApi.disconnectSsh.mockImplementation(() => disconnectTask);
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: /Close Test profile/i }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /Disconnect: Test profile/i }),
-    );
+    await disconnectSavedProfile();
     await act(async () => resolveClose({ state: "CLOSED" }));
 
     await waitFor(() => expect(sshApi.disconnectSsh).toHaveBeenCalled());
@@ -536,12 +583,8 @@ describe("App connection orchestration", () => {
     sshApi.disconnectSsh.mockImplementation(() => disconnectTask);
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Disconnect: Test profile/i }),
-    );
+    await openSavedProfile();
+    await disconnectSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: /Close Test profile/i }),
     );
@@ -575,9 +618,7 @@ describe("App connection orchestration", () => {
     });
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: /Close Test profile/i }),
     );
@@ -594,11 +635,11 @@ describe("App connection orchestration", () => {
     );
 
     render(<App />);
-    const connectButton = await screen.findByRole("button", {
-      name: /Connect: Test profile/i,
+    const connectionRow = await screen.findByRole("option", {
+      name: /Test profile/i,
     });
-    fireEvent.click(connectButton);
-    fireEvent.click(connectButton);
+    fireEvent.doubleClick(connectionRow);
+    fireEvent.doubleClick(connectionRow);
 
     expect(sshApi.inspectHostKey).toHaveBeenCalledTimes(1);
     resolveInspection(failedInspection("AUTH_FAILED"));
@@ -617,12 +658,8 @@ describe("App connection orchestration", () => {
     );
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: /Edit connection: Test profile/i }),
-    );
+    await openSavedProfile();
+    await editSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: "Save & Connect" }),
     );
@@ -645,6 +682,96 @@ describe("App connection orchestration", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: /Approval/i }))[0]);
 
     expect(await screen.findByText("APPROVAL_WINDOW_FAILED")).toBeInTheDocument();
+  });
+
+  it("places connection failures beside the selected navigator row with explicit recovery actions", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(failedInspection("AUTH_FAILED"));
+    render(<App />);
+
+    await openSavedProfile();
+
+    const errorCode = await screen.findByText("AUTH_FAILED");
+    const alert = errorCode.closest('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.closest("aside")).not.toBeNull();
+    expect(alert?.closest('[data-testid="terminal-region"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Edit connection" }),
+    ).toBeEnabled();
+  });
+
+  it("places terminal write failures inside the terminal workspace without removing xterm", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+    sshApi.writePty.mockRejectedValue({
+      code: "PTY_WRITE_FAILED",
+      message: "write failed",
+    });
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByTestId("terminal-tab");
+
+    await act(async () => {
+      await terminalTabMock.onInput!(new Uint8Array([65]));
+    });
+
+    const errorCode = await screen.findByText("PTY_WRITE_FAILED");
+    expect(
+      errorCode.closest('[data-testid="terminal-region"]'),
+    ).not.toBeNull();
+    expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
+  });
+
+  it("blocks runtime interactions while preserving rendered terminal UI", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+    runtimeApi.openApprovalWindow.mockRejectedValue({
+      code: "APPROVAL_WINDOW_FAILED",
+      message: "window failed",
+      details: { correlation_id: "corr-approval" },
+    });
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByTestId("terminal-tab");
+
+    fireEvent.click(
+      (await screen.findAllByRole("button", { name: /Approval/i }))[0],
+    );
+
+    const runtimeTitle = await screen.findByText("Runtime unavailable");
+    const runtimeAlert = runtimeTitle.closest('[role="alert"]');
+    expect(runtimeAlert).not.toBeNull();
+    expect(runtimeAlert).toHaveTextContent("Runtime unavailable");
+    expect(runtimeAlert).toHaveTextContent("APPROVAL_WINDOW_FAILED");
+    expect(runtimeAlert).toHaveTextContent("corr-approval");
+    expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "New connection" }),
+    ).toBeDisabled();
   });
 
   it("re-inspects and refreshes a stale Host Key replacement prompt", async () => {
@@ -675,9 +802,7 @@ describe("App connection orchestration", () => {
     });
 
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Connect: Test profile/i }),
-    );
+    await openSavedProfile();
     fireEvent.click(
       await screen.findByRole("button", { name: "Replace trusted key" }),
     );

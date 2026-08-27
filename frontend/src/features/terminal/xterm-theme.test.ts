@@ -7,14 +7,14 @@ describe("xterm theme", () => {
   it("reads CSS tokens and crashes when a token is missing", () => {
     const root = document.createElement("div");
     root.style.setProperty("--color-app", "#0b1017");
-    root.style.setProperty("--color-ink", "#e5edf5");
-    root.style.setProperty("--color-accent", "#4fd1bb");
-    root.style.setProperty("--color-accent-soft", "#173631");
+    root.style.setProperty("--color-ink", "#dce6ee");
+    root.style.setProperty("--color-accent", "#5fa8ff");
+    root.style.setProperty("--color-accent-soft", "#152a42");
     expect(createXtermTheme(root)).toEqual({
       background: "#0b1017",
-      foreground: "#e5edf5",
-      cursor: "#4fd1bb",
-      selectionBackground: "#173631",
+      foreground: "#dce6ee",
+      cursor: "#5fa8ff",
+      selectionBackground: "#152a42",
     });
     root.style.removeProperty("--color-accent");
     expect(() => createXtermTheme(root)).toThrow(

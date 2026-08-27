@@ -8,11 +8,17 @@ import { connectionErrorView } from "../connections/connection-state";
 export type ErrorNoticeProps = {
   error: SshCommandError;
   partialSuccess?: boolean;
+  onRetry?: () => void;
+  onEdit?: () => void;
+  onDismiss?: () => void;
 };
 
 export function ErrorNotice({
   error,
   partialSuccess = false,
+  onRetry,
+  onEdit,
+  onDismiss,
 }: ErrorNoticeProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -39,6 +45,21 @@ export function ErrorNotice({
         )}
       </strong>
       <p className="m-0 text-ink-muted">{t("errors.whatNext")}</p>
+      {onRetry || onEdit || onDismiss ? (
+        <div className="flex flex-wrap gap-2">
+          {onRetry ? <Button onClick={onRetry}>{t("errors.retry")}</Button> : null}
+          {onEdit ? (
+            <Button variant="secondary" onClick={onEdit}>
+              {t("errors.edit")}
+            </Button>
+          ) : null}
+          {onDismiss ? (
+            <Button variant="secondary" onClick={onDismiss}>
+              {t("common.close")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <details className="grid gap-2 text-ink-muted">
         <summary className="cursor-pointer font-medium text-ink">
           {t("errors.technicalDetails")}

@@ -6,6 +6,30 @@ import { resolveLocale } from "./locale";
 import { flattenResourceKeys, resources } from "./resources";
 
 describe("locale resolution", () => {
+  const requiredUiContract = {
+    en: {
+      "topbar.localEnvironment": "Local",
+      "activity.approval": "Approval",
+      "activity.settings": "Settings",
+      "activity.filesUnavailable": "Files are planned for M3",
+      "activity.sftpUnavailable": "SFTP is planned for M3",
+    },
+    "zh-CN": {
+      "topbar.localEnvironment": "本地",
+      "activity.approval": "审批",
+      "activity.settings": "设置",
+      "activity.filesUnavailable": "文件功能计划在 M3 提供",
+      "activity.sftpUnavailable": "SFTP 功能计划在 M3 提供",
+    },
+    "zh-TW": {
+      "topbar.localEnvironment": "本機",
+      "activity.approval": "審批",
+      "activity.settings": "設定",
+      "activity.filesUnavailable": "檔案功能預計於 M3 提供",
+      "activity.sftpUnavailable": "SFTP 功能預計於 M3 提供",
+    },
+  } as const;
+
   it.each([
     [["zh-TW"], "zh-TW"],
     [["zh-HK"], "zh-TW"],
@@ -27,6 +51,23 @@ describe("locale resolution", () => {
     expect(flattenResourceKeys(resources["zh-CN"].translation)).toEqual(canonical);
     expect(flattenResourceKeys(resources["zh-TW"].translation)).toEqual(canonical);
   });
+
+  it.each(Object.entries(requiredUiContract))(
+    "provides the exact new UI contract for %s",
+    (locale, expected) => {
+      const translation = resources[locale as keyof typeof resources].translation;
+      for (const [path, value] of Object.entries(expected)) {
+        const actual = path.split(".").reduce<unknown>(
+          (current, key) =>
+            typeof current === "object" && current !== null
+              ? (current as Record<string, unknown>)[key]
+              : undefined,
+          translation,
+        );
+        expect(actual).toBe(value);
+      }
+    },
+  );
 
   it("crashes on a missing production key instead of rendering the key", async () => {
     await i18nReady;

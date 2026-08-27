@@ -6,15 +6,28 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { i18n, i18nReady } from "../../i18n";
 import { useTerminalUiStore } from "../../stores/terminal-ui-store";
+import { PtyOutputBuffer } from "./terminal-output-buffer";
 import {
   TerminalWorkspace,
   type TerminalTabModel,
 } from "./TerminalWorkspace";
 
 vi.mock("./TerminalTab", () => ({
-  TerminalTab: ({ active, enabled }: { active: boolean; enabled: boolean }) => (
+  TerminalTab: ({
+    ptySessionId,
+    outputBuffer,
+    active,
+    enabled,
+  }: {
+    ptySessionId: string;
+    outputBuffer: PtyOutputBuffer;
+    active: boolean;
+    enabled: boolean;
+  }) => (
     <div
       data-testid="xterm"
+      data-pty-session-id={ptySessionId}
+      data-has-output-buffer={String(outputBuffer instanceof PtyOutputBuffer)}
       data-active={String(active)}
       data-enabled={String(enabled)}
     />
@@ -27,11 +40,13 @@ const tab = (id: string): TerminalTabModel => ({
   ptySessionId: `pty-${id}`,
   sshSessionId: `ssh-${id}`,
   connectionId: `connection-${id}`,
-  output: [],
   state: "OPEN",
 });
 
+const outputBuffer = new PtyOutputBuffer();
+
 const props = {
+  outputBuffer,
   runtimeReady: true,
   fitRequestKey: 0,
   onWrite: vi.fn().mockResolvedValue(undefined),
@@ -98,6 +113,18 @@ describe("TerminalWorkspace", () => {
       "min-h-0",
       "min-w-0",
       "flex-1",
+    );
+  });
+
+  it("passes the shared output buffer and PTY identity to each terminal", () => {
+    render(<TerminalWorkspace {...props} tabs={[tab("a")]} />);
+    expect(screen.getByTestId("xterm")).toHaveAttribute(
+      "data-pty-session-id",
+      "pty-a",
+    );
+    expect(screen.getByTestId("xterm")).toHaveAttribute(
+      "data-has-output-buffer",
+      "true",
     );
   });
 });

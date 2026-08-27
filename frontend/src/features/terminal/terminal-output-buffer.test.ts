@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   MAX_PENDING_PTY_OUTPUT_BYTES,
@@ -9,6 +9,12 @@ import {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+const chunk = (sequence: number, text: string) => ({
+  ptySessionId: "pty-1",
+  streamSequence: sequence,
+  data: encoder.encode(text),
+});
+
 function captureBufferError(action: () => void): PtyOutputBufferError {
   try {
     action();
@@ -16,108 +22,123 @@ function captureBufferError(action: () => void): PtyOutputBufferError {
     expect(error).toBeInstanceOf(PtyOutputBufferError);
     return error as PtyOutputBufferError;
   }
-
   throw new Error("Expected PtyOutputBufferError to be thrown.");
 }
 
 describe("PtyOutputBuffer", () => {
-  it("replays output that arrives before the PTY tab is registered", () => {
+  it("replays output that arrives before registration to the first subscriber", () => {
     const buffer = new PtyOutputBuffer();
+    buffer.ingest(chunk(1, "Debian GNU/Linux\r\n"));
+    expect(buffer.register("pty-1")).toEqual({ closed: false });
 
-    const delivery = buffer.ingest({
-      ptySessionId: "pty-1",
-      streamSequence: 1,
-      data: encoder.encode("Debian GNU/Linux\r\nroot@host:~# "),
-    });
-
-    expect(delivery).toBeNull();
-
-    const registration = buffer.register("pty-1");
-
-    expect(registration.initialOutput).toHaveLength(1);
-    expect(registration.closed).toBe(false);
-    expect(decoder.decode(registration.initialOutput[0])).toBe(
-      "Debian GNU/Linux\r\nroot@host:~# ",
+    const listener = vi.fn();
+    buffer.subscribe("pty-1", listener);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(decoder.decode(listener.mock.calls[0][0])).toBe(
+      "Debian GNU/Linux\r\n",
     );
   });
 
-  it("rejects a non-contiguous stream sequence without appending it", () => {
+  it("delivers registered output directly and replays history on remount", () => {
     const buffer = new PtyOutputBuffer();
-    buffer.ingest({
-      ptySessionId: "pty-1",
-      streamSequence: 1,
-      data: encoder.encode("first"),
-    });
+    buffer.register("pty-1");
+    const first = vi.fn();
+    const unsubscribe = buffer.subscribe("pty-1", first);
+    buffer.ingest(chunk(1, "first"));
+    buffer.ingest(chunk(2, "second"));
+    expect(first.mock.calls.map(([data]) => decoder.decode(data))).toEqual([
+      "first",
+      "second",
+    ]);
 
-    const error = captureBufferError(() =>
-      buffer.ingest({
-        ptySessionId: "pty-1",
-        streamSequence: 3,
-        data: encoder.encode("third"),
-      }),
-    );
-    expect(error.code).toBe("PTY_STREAM_SEQUENCE_INVALID");
-
-    const registrationError = captureBufferError(() =>
-      buffer.register("pty-1"),
-    );
-    expect(registrationError.code).toBe("PTY_STREAM_SEQUENCE_INVALID");
+    unsubscribe();
+    unsubscribe();
+    const remount = vi.fn();
+    buffer.subscribe("pty-1", remount);
+    expect(remount.mock.calls.map(([data]) => decoder.decode(data))).toEqual([
+      "first",
+      "second",
+    ]);
   });
 
-  it("rejects early output beyond the pending byte limit", () => {
+  it("rejects a second live subscriber and a subscription before registration", () => {
     const buffer = new PtyOutputBuffer();
-    buffer.ingest({
+    expect(
+      captureBufferError(() => buffer.subscribe("pty-1", vi.fn())).code,
+    ).toBe("PTY_STREAM_NOT_REGISTERED");
+
+    buffer.register("pty-1");
+    buffer.subscribe("pty-1", vi.fn());
+    expect(
+      captureBufferError(() => buffer.subscribe("pty-1", vi.fn())).code,
+    ).toBe("PTY_STREAM_ALREADY_SUBSCRIBED");
+  });
+
+  it("rejects a non-contiguous sequence and keeps the stream failed", () => {
+    const buffer = new PtyOutputBuffer();
+    buffer.ingest(chunk(1, "first"));
+    expect(
+      captureBufferError(() => buffer.ingest(chunk(3, "third"))).code,
+    ).toBe("PTY_STREAM_SEQUENCE_INVALID");
+    expect(
+      captureBufferError(() => buffer.register("pty-1")).code,
+    ).toBe("PTY_STREAM_SEQUENCE_INVALID");
+  });
+
+  it("applies the 1MiB limit only before registration", () => {
+    const pending = new PtyOutputBuffer();
+    pending.ingest({
       ptySessionId: "pty-1",
       streamSequence: 1,
       data: new Uint8Array(MAX_PENDING_PTY_OUTPUT_BYTES),
     });
+    expect(
+      captureBufferError(() =>
+        pending.ingest({
+          ptySessionId: "pty-1",
+          streamSequence: 2,
+          data: new Uint8Array([1]),
+        }),
+      ).code,
+    ).toBe("PTY_PENDING_OUTPUT_LIMIT_EXCEEDED");
 
-    const error = captureBufferError(() =>
-      buffer.ingest({
-        ptySessionId: "pty-1",
-        streamSequence: 2,
-        data: new Uint8Array([1]),
-      }),
-    );
-    expect(error.code).toBe("PTY_PENDING_OUTPUT_LIMIT_EXCEEDED");
-
-    const registrationError = captureBufferError(() =>
-      buffer.register("pty-1"),
-    );
-    expect(registrationError.code).toBe(
-      "PTY_PENDING_OUTPUT_LIMIT_EXCEEDED",
-    );
-  });
-
-  it("preserves a close event that arrives before registration", () => {
-    const buffer = new PtyOutputBuffer();
-    buffer.ingest({
+    const registered = new PtyOutputBuffer();
+    registered.register("pty-1");
+    registered.ingest({
       ptySessionId: "pty-1",
       streamSequence: 1,
-      data: encoder.encode("short-lived output"),
+      data: new Uint8Array(MAX_PENDING_PTY_OUTPUT_BYTES + 1),
     });
-
-    buffer.markClosed("pty-1");
-    const registration = buffer.register("pty-1");
-
-    expect(registration.closed).toBe(true);
-    expect(
-      registration.initialOutput.map((chunk) => decoder.decode(chunk)),
-    ).toEqual(["short-lived output"]);
   });
 
-  it("rejects output received after the stream was closed", () => {
+  it("preserves history when closed and rejects later output", () => {
     const buffer = new PtyOutputBuffer();
+    buffer.ingest(chunk(1, "short-lived output"));
     buffer.markClosed("pty-1");
-
-    const error = captureBufferError(() =>
-      buffer.ingest({
-        ptySessionId: "pty-1",
-        streamSequence: 1,
-        data: encoder.encode("late output"),
-      }),
+    expect(buffer.register("pty-1")).toEqual({ closed: true });
+    const listener = vi.fn();
+    buffer.subscribe("pty-1", listener);
+    expect(decoder.decode(listener.mock.calls[0][0])).toBe(
+      "short-lived output",
     );
+    expect(
+      captureBufferError(() => buffer.ingest(chunk(2, "late output"))).code,
+    ).toBe("PTY_STREAM_CLOSED");
+  });
 
-    expect(error.code).toBe("PTY_STREAM_CLOSED");
+  it("removes retained history on unregister and clear", () => {
+    const buffer = new PtyOutputBuffer();
+    buffer.register("pty-1");
+    buffer.ingest(chunk(1, "history"));
+    buffer.unregister("pty-1");
+    expect(
+      captureBufferError(() => buffer.subscribe("pty-1", vi.fn())).code,
+    ).toBe("PTY_STREAM_NOT_REGISTERED");
+
+    buffer.register("pty-1");
+    buffer.clear();
+    expect(
+      captureBufferError(() => buffer.subscribe("pty-1", vi.fn())).code,
+    ).toBe("PTY_STREAM_NOT_REGISTERED");
   });
 });

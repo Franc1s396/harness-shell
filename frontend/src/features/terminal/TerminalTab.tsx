@@ -3,33 +3,36 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
+import { PtyOutputBuffer } from "./terminal-output-buffer";
+import { TerminalResizeController } from "./terminal-resize-controller";
 import { createXtermTheme } from "./xterm-theme";
 
 type Props = {
+  ptySessionId: string;
+  outputBuffer: PtyOutputBuffer;
   active: boolean;
   enabled: boolean;
   fitRequestKey: number;
   focusRequestKey: number;
-  output: readonly Uint8Array[];
   onInput: (data: Uint8Array) => Promise<void>;
   onResize: (cols: number, rows: number) => void;
   onFocusChange: (focused: boolean) => void;
 };
 
 export function TerminalTab({
+  ptySessionId,
+  outputBuffer,
   active,
   enabled,
   fitRequestKey,
   focusRequestKey,
-  output,
   onInput,
   onResize,
   onFocusChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const writtenChunks = useRef(0);
+  const resizeControllerRef = useRef<TerminalResizeController | null>(null);
   const inputHandler = useRef(onInput);
   const resizeHandler = useRef(onResize);
   const resizeEnabled = useRef(enabled);
@@ -67,23 +70,31 @@ export function TerminalTab({
     terminal.loadAddon(fit);
     terminal.open(container);
     terminalRef.current = terminal;
-    fitRef.current = fit;
 
-    const resize = () => {
+    const resizeController = new TerminalResizeController({
+      fit: () => fit.fit(),
+      readSize: () => ({ cols: terminal.cols, rows: terminal.rows }),
+      isRemoteResizeEnabled: () => resizeEnabled.current,
+      onRemoteResize: ({ cols, rows }) => resizeHandler.current(cols, rows),
+      requestFrame: (callback) => window.requestAnimationFrame(callback),
+      cancelFrame: (handle) => window.cancelAnimationFrame(handle),
+    });
+    resizeControllerRef.current = resizeController;
+    const unsubscribeOutput = outputBuffer.subscribe(
+      ptySessionId,
+      (data) => terminal.write(data),
+    );
+    const requestResize = () => {
       if (
         !container.isConnected ||
         container.clientWidth === 0 ||
         container.clientHeight === 0
       ) return;
-      fit.fit();
-      if (!resizeEnabled.current) return;
-      if (terminal.cols >= 20 && terminal.cols <= 500 && terminal.rows >= 5 && terminal.rows <= 300) {
-        resizeHandler.current(terminal.cols, terminal.rows);
-      }
+      resizeController.request();
     };
-    const observer = new ResizeObserver(resize);
+    const observer = new ResizeObserver(requestResize);
     observer.observe(container);
-    resize();
+    requestResize();
     const focusIn = () => focusHandler.current(true);
     const focusOut = () => focusHandler.current(false);
     container.addEventListener("focusin", focusIn);
@@ -92,37 +103,27 @@ export function TerminalTab({
       observer.disconnect();
       container.removeEventListener("focusin", focusIn);
       container.removeEventListener("focusout", focusOut);
+      unsubscribeOutput();
+      resizeController.dispose();
       terminal.dispose();
       terminalRef.current = null;
-      fitRef.current = null;
-      writtenChunks.current = 0;
+      resizeControllerRef.current = null;
       inputGeneration.current += 1;
       inputInteractive.current = false;
       focusHandler.current(false);
     };
-  }, []);
+  }, [outputBuffer, ptySessionId]);
 
   useEffect(() => {
     const container = containerRef.current;
-    const terminal = terminalRef.current;
-    const fit = fitRef.current;
     if (
       !active ||
       !container ||
-      !terminal ||
-      !fit ||
       !container.isConnected ||
       container.clientWidth === 0 ||
       container.clientHeight === 0
     ) return;
-    fit.fit();
-    if (!enabled) return;
-    if (
-      terminal.cols >= 20 && terminal.cols <= 500 &&
-      terminal.rows >= 5 && terminal.rows <= 300
-    ) {
-      resizeHandler.current(terminal.cols, terminal.rows);
-    }
+    resizeControllerRef.current?.request();
   }, [active, enabled, fitRequestKey]);
 
   useEffect(() => {
@@ -155,15 +156,6 @@ export function TerminalTab({
       terminal.blur();
     };
   }, [active, enabled]);
-
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    for (let index = writtenChunks.current; index < output.length; index += 1) {
-      terminal.write(output[index]);
-    }
-    writtenChunks.current = output.length;
-  }, [output]);
 
   return (
     <div

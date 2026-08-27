@@ -7,6 +7,7 @@ export type DialogProps = {
   open: boolean;
   title: string;
   busy?: boolean;
+  placement?: "center" | "left";
   onClose: () => void;
   children: ReactNode;
 };
@@ -15,6 +16,7 @@ export function Dialog({
   open,
   title,
   busy = false,
+  placement = "center",
   onClose,
   children,
 }: DialogProps) {
@@ -76,7 +78,9 @@ export function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-6"
+      className={`fixed inset-0 z-50 grid bg-black/70 ${
+        placement === "left" ? "place-items-stretch justify-items-start" : "place-items-center p-6"
+      }`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
@@ -87,7 +91,11 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-full w-full max-w-2xl overflow-auto rounded-xl border border-line-strong bg-panel p-5 shadow-2xl"
+        className={
+          placement === "left"
+            ? "h-full w-[min(380px,calc(100vw-44px))] overflow-auto border-r border-line-strong bg-panel p-4 shadow-2xl"
+            : "max-h-full w-full max-w-2xl overflow-auto rounded-xl border border-line-strong bg-panel p-5 shadow-2xl"
+        }
       >
         <h2 id={titleId} className="m-0 text-lg font-semibold text-ink">
           {title}

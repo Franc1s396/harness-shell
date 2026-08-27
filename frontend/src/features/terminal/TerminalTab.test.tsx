@@ -11,6 +11,8 @@ const terminalMock = vi.hoisted(() => ({
   }>,
   fitInstances: [] as Array<{ fitCalls: number }>,
   resizeCallbacks: [] as ResizeObserverCallback[],
+  frames: new Map<number, FrameRequestCallback>(),
+  nextFrame: 1,
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
@@ -30,8 +32,8 @@ vi.mock("@xterm/addon-fit", () => ({
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     readonly writes: Uint8Array[] = [];
-    readonly cols = 80;
-    readonly rows = 24;
+    cols = 80;
+    rows = 24;
     private dataHandler: ((data: string) => void) | undefined;
 
     constructor() {
@@ -63,17 +65,71 @@ vi.mock("@xterm/xterm", () => ({
   },
 }));
 
+import { PtyOutputBuffer } from "./terminal-output-buffer";
 import { TerminalTab } from "./TerminalTab";
+
+const makeBuffer = (initial?: Uint8Array) => {
+  const outputBuffer = new PtyOutputBuffer();
+  if (initial) {
+    outputBuffer.ingest({
+      ptySessionId: "pty-1",
+      streamSequence: 1,
+      data: initial,
+    });
+  }
+  outputBuffer.register("pty-1");
+  return outputBuffer;
+};
+
+const renderTab = ({
+  outputBuffer = makeBuffer(),
+  active = true,
+  enabled = true,
+  fitRequestKey = 0,
+  onInput = () => Promise.resolve(),
+  onResize = () => undefined,
+}: {
+  outputBuffer?: PtyOutputBuffer;
+  active?: boolean;
+  enabled?: boolean;
+  fitRequestKey?: number;
+  onInput?: (data: Uint8Array) => Promise<void>;
+  onResize?: (cols: number, rows: number) => void;
+} = {}) =>
+  render(
+    <TerminalTab
+      ptySessionId="pty-1"
+      outputBuffer={outputBuffer}
+      active={active}
+      enabled={enabled}
+      fitRequestKey={fitRequestKey}
+      focusRequestKey={0}
+      onInput={onInput}
+      onResize={onResize}
+      onFocusChange={() => undefined}
+    />,
+  );
+
+const flushNextFrame = () => {
+  const entry = terminalMock.frames.entries().next().value as
+    | [number, FrameRequestCallback]
+    | undefined;
+  if (!entry) throw new Error("No animation frame is pending.");
+  terminalMock.frames.delete(entry[0]);
+  act(() => entry[1](performance.now()));
+};
 
 describe("TerminalTab", () => {
   beforeEach(() => {
     terminalMock.instances.length = 0;
     terminalMock.fitInstances.length = 0;
     terminalMock.resizeCallbacks.length = 0;
+    terminalMock.frames.clear();
+    terminalMock.nextFrame = 1;
     document.documentElement.style.setProperty("--color-app", "#0b1017");
-    document.documentElement.style.setProperty("--color-ink", "#d8e2ef");
-    document.documentElement.style.setProperty("--color-accent", "#66d9c8");
-    document.documentElement.style.setProperty("--color-accent-soft", "#27445a");
+    document.documentElement.style.setProperty("--color-ink", "#dce6ee");
+    document.documentElement.style.setProperty("--color-accent", "#5fa8ff");
+    document.documentElement.style.setProperty("--color-accent-soft", "#152a42");
     Object.defineProperty(HTMLElement.prototype, "clientWidth", {
       configurable: true,
       get: () => 800,
@@ -90,193 +146,130 @@ describe("TerminalTab", () => {
       unobserve() {}
       disconnect() {}
     } as typeof ResizeObserver;
+    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      const handle = terminalMock.nextFrame++;
+      terminalMock.frames.set(handle, callback);
+      return handle;
+    });
+    window.cancelAnimationFrame = vi.fn((handle: number) => {
+      terminalMock.frames.delete(handle);
+    });
   });
 
-  it("replays existing output when StrictMode recreates the xterm instance", () => {
+  it("replays retained history when StrictMode recreates xterm", () => {
     const banner = new TextEncoder().encode("Debian GNU/Linux\r\nroot@host:~# ");
-
+    const outputBuffer = makeBuffer(banner);
     render(
       <StrictMode>
         <TerminalTab
+          ptySessionId="pty-1"
+          outputBuffer={outputBuffer}
           active
           enabled
           fitRequestKey={0}
           focusRequestKey={0}
-          output={[banner]}
           onInput={() => Promise.resolve()}
           onResize={() => undefined}
           onFocusChange={() => undefined}
         />
       </StrictMode>,
     );
-
     expect(terminalMock.instances).toHaveLength(2);
     expect(terminalMock.instances[1].writes).toEqual([banner]);
   });
 
-  it("forwards user input and appends the resulting remote output", async () => {
+  it("forwards input unchanged and receives output without a React rerender", async () => {
     const encoder = new TextEncoder();
     const prompt = encoder.encode("root@host:~# ");
-    const response = encoder.encode(
-      "echo HARNESS_UI_OK\r\nHARNESS_UI_OK\r\nroot@host:~# ",
-    );
+    const response = encoder.encode("echo OK\r\nOK\r\nroot@host:~# ");
+    const outputBuffer = makeBuffer(prompt);
     const onInput = vi.fn(() => Promise.resolve());
-    const view = render(
-      <StrictMode>
-        <TerminalTab
-          active
-          enabled
-          fitRequestKey={0}
-          focusRequestKey={0}
-          output={[prompt]}
-          onInput={onInput}
-          onResize={() => undefined}
-          onFocusChange={() => undefined}
-        />
-      </StrictMode>,
-    );
+    renderTab({ outputBuffer, onInput });
 
+    act(() => terminalMock.instances[0].emitData("echo OK\r"));
+    await waitFor(() =>
+      expect(onInput).toHaveBeenCalledWith(encoder.encode("echo OK\r")),
+    );
     act(() => {
-      terminalMock.instances[1].emitData("echo HARNESS_UI_OK\r");
+      outputBuffer.ingest({
+        ptySessionId: "pty-1",
+        streamSequence: 2,
+        data: response,
+      });
     });
-
-    await waitFor(() => {
-      expect(onInput).toHaveBeenCalledWith(
-        encoder.encode("echo HARNESS_UI_OK\r"),
-      );
-    });
-
-    view.rerender(
-      <StrictMode>
-        <TerminalTab
-          active
-          enabled
-          fitRequestKey={0}
-          focusRequestKey={0}
-          output={[prompt, response]}
-          onInput={onInput}
-          onResize={() => undefined}
-          onFocusChange={() => undefined}
-        />
-      </StrictMode>,
-    );
-
-    expect(terminalMock.instances[1].writes).toEqual([prompt, response]);
+    expect(terminalMock.instances).toHaveLength(1);
+    expect(terminalMock.instances[0].writes).toEqual([prompt, response]);
   });
 
-  it("does not resize the remote PTY while the tab is disabled", () => {
+  it("coalesces ten observer notifications into one local fit and remote resize", () => {
     const onResize = vi.fn();
-    render(
-      <TerminalTab
-        active
-        enabled={false}
-        fitRequestKey={1}
-        focusRequestKey={0}
-        output={[]}
-        onInput={() => Promise.resolve()}
-        onResize={onResize}
-        onFocusChange={() => undefined}
-      />,
-    );
+    renderTab({ onResize });
+    flushNextFrame();
+    terminalMock.fitInstances[0].fitCalls = 0;
+    onResize.mockClear();
+    (terminalMock.instances[0] as unknown as { cols: number }).cols = 100;
+    for (let index = 0; index < 10; index += 1) {
+      act(() => terminalMock.resizeCallbacks[0]([], {} as ResizeObserver));
+    }
+    expect(terminalMock.frames.size).toBe(1);
+    flushNextFrame();
+    expect(terminalMock.fitInstances[0].fitCalls).toBe(1);
+    expect(onResize).toHaveBeenCalledTimes(1);
+    expect(onResize).toHaveBeenCalledWith(100, 24);
+  });
 
+  it("fits locally without resizing the remote PTY while disabled", () => {
+    const onResize = vi.fn();
+    renderTab({ enabled: false, onResize });
+    flushNextFrame();
+    expect(terminalMock.fitInstances[0].fitCalls).toBe(1);
     expect(onResize).not.toHaveBeenCalled();
   });
 
-  it("fits locally when a disabled tab's container is resized", () => {
+  it("routes fitRequestKey through the same coalesced controller", () => {
     const onResize = vi.fn();
-    render(
-      <TerminalTab
-        active
-        enabled={false}
-        fitRequestKey={0}
-        focusRequestKey={0}
-        output={[]}
-        onInput={() => Promise.resolve()}
-        onResize={onResize}
-        onFocusChange={() => undefined}
-      />,
-    );
-
-    expect(terminalMock.fitInstances).toHaveLength(1);
-    const baselineFitCalls = terminalMock.fitInstances[0].fitCalls;
-
-    act(() => {
-      terminalMock.resizeCallbacks[0]([], {} as ResizeObserver);
-    });
-
-    expect(terminalMock.fitInstances[0].fitCalls).toBe(baselineFitCalls + 1);
-    expect(onResize).not.toHaveBeenCalled();
-  });
-
-  it("fits locally when a disabled tab receives a fit request", () => {
-    const onResize = vi.fn();
-    const view = render(
-      <TerminalTab
-        active
-        enabled={false}
-        fitRequestKey={0}
-        focusRequestKey={0}
-        output={[]}
-        onInput={() => Promise.resolve()}
-        onResize={onResize}
-        onFocusChange={() => undefined}
-      />,
-    );
-
-    const baselineFitCalls = terminalMock.fitInstances[0].fitCalls;
-
+    const outputBuffer = makeBuffer();
+    const view = renderTab({ outputBuffer, onResize });
+    flushNextFrame();
+    onResize.mockClear();
     view.rerender(
       <TerminalTab
-        active
-        enabled={false}
-        fitRequestKey={1}
-        focusRequestKey={0}
-        output={[]}
-        onInput={() => Promise.resolve()}
-        onResize={onResize}
-        onFocusChange={() => undefined}
-      />,
-    );
-
-    expect(terminalMock.fitInstances[0].fitCalls).toBe(baselineFitCalls + 1);
-    expect(onResize).not.toHaveBeenCalled();
-  });
-
-  it("does not resize remote PTY after the tab becomes disabled", () => {
-    const onResize = vi.fn();
-    const view = render(
-      <TerminalTab
+        ptySessionId="pty-1"
+        outputBuffer={outputBuffer}
         active
         enabled
-        fitRequestKey={0}
+        fitRequestKey={1}
         focusRequestKey={0}
-        output={[]}
         onInput={() => Promise.resolve()}
         onResize={onResize}
         onFocusChange={() => undefined}
       />,
     );
-    expect(onResize).toHaveBeenCalled();
-    onResize.mockClear();
+    flushNextFrame();
+    expect(terminalMock.fitInstances[0].fitCalls).toBe(2);
+    expect(onResize).not.toHaveBeenCalled();
+  });
 
+  it("does not resize after the tab becomes disabled", () => {
+    const onResize = vi.fn();
+    const outputBuffer = makeBuffer();
+    const view = renderTab({ outputBuffer, onResize });
+    flushNextFrame();
+    onResize.mockClear();
     view.rerender(
       <TerminalTab
+        ptySessionId="pty-1"
+        outputBuffer={outputBuffer}
         active
         enabled={false}
-        fitRequestKey={0}
+        fitRequestKey={1}
         focusRequestKey={0}
-        output={[]}
         onInput={() => Promise.resolve()}
         onResize={onResize}
         onFocusChange={() => undefined}
       />,
     );
-    const baselineFitCalls = terminalMock.fitInstances[0].fitCalls;
-    act(() => {
-      terminalMock.resizeCallbacks[0]([], {} as ResizeObserver);
-    });
-
-    expect(terminalMock.fitInstances[0].fitCalls).toBe(baselineFitCalls + 1);
+    flushNextFrame();
     expect(onResize).not.toHaveBeenCalled();
   });
 
@@ -288,37 +281,40 @@ describe("TerminalTab", () => {
         () => new Promise<void>((resolve) => { resolveFirst = resolve; }),
       )
       .mockResolvedValue(undefined);
-    const view = render(
-      <TerminalTab
-        active
-        enabled
-        fitRequestKey={0}
-        focusRequestKey={0}
-        output={[]}
-        onInput={onInput}
-        onResize={() => undefined}
-        onFocusChange={() => undefined}
-      />,
-    );
-    act(() => {
-      terminalMock.instances[0].emitData("x".repeat(32_769));
-    });
+    const outputBuffer = makeBuffer();
+    const view = renderTab({ outputBuffer, onInput });
+    act(() => terminalMock.instances[0].emitData("x".repeat(32_769)));
     await waitFor(() => expect(onInput).toHaveBeenCalledTimes(1));
-
     view.rerender(
       <TerminalTab
+        ptySessionId="pty-1"
+        outputBuffer={outputBuffer}
         active
         enabled={false}
         fitRequestKey={0}
         focusRequestKey={0}
-        output={[]}
         onInput={onInput}
         onResize={() => undefined}
         onFocusChange={() => undefined}
       />,
     );
     await act(async () => resolveFirst());
-
     expect(onInput).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards control sequences through xterm onData", async () => {
+    const onInput = vi.fn((_data: Uint8Array) => Promise.resolve());
+    renderTab({ onInput });
+    act(() => {
+      terminalMock.instances[0].emitData("\u000b");
+      terminalMock.instances[0].emitData("\u0010");
+      terminalMock.instances[0].emitData("\t");
+    });
+    await waitFor(() => expect(onInput).toHaveBeenCalledTimes(3));
+    expect(onInput.mock.calls.map(([data]) => [...data])).toEqual([
+      [11],
+      [16],
+      [9],
+    ]);
   });
 });
