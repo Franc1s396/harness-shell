@@ -1,8 +1,10 @@
 use std::{
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
+
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::sidecar::RuntimeStatus;
 
@@ -14,7 +16,7 @@ pub enum RuntimeControl {
 #[derive(Clone)]
 pub struct RuntimeStateHandle {
     status: Arc<Mutex<RuntimeStatus>>,
-    control: Arc<Mutex<Option<Sender<RuntimeControl>>>>,
+    control: Arc<Mutex<Option<UnboundedSender<RuntimeControl>>>>,
 }
 
 impl RuntimeStateHandle {
@@ -36,7 +38,7 @@ impl RuntimeStateHandle {
         *self.status.lock().expect("runtime status lock poisoned") = status;
     }
 
-    pub(crate) fn attach_control(&self, sender: Sender<RuntimeControl>) {
+    pub(crate) fn attach_control(&self, sender: UnboundedSender<RuntimeControl>) {
         *self.control.lock().expect("runtime control lock poisoned") = Some(sender);
     }
 
@@ -60,5 +62,27 @@ impl RuntimeStateHandle {
             thread::sleep(Duration::from_millis(25));
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_request_wakes_async_control_receiver() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("build runtime")
+            .block_on(async {
+                let state = RuntimeStateHandle::new(RuntimeStatus::starting("test"));
+                let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+                state.attach_control(sender);
+
+                state.request_shutdown();
+
+                assert_eq!(receiver.recv().await, Some(RuntimeControl::Shutdown));
+            });
     }
 }

@@ -4,7 +4,7 @@ pub mod protocol;
 pub mod sidecar;
 pub mod vault;
 
-use std::{fs, sync::mpsc, time::Duration};
+use std::{fs, time::Duration};
 
 use app_state::RuntimeStateHandle;
 use commands::{
@@ -58,7 +58,7 @@ pub fn run() {
             app.manage(VaultState::new(vault));
 
             let state = RuntimeStateHandle::new(RuntimeStatus::starting("desktop"));
-            let (control_sender, control_receiver) = mpsc::channel();
+            let (control_sender, control_receiver) = tokio::sync::mpsc::unbounded_channel();
             state.attach_control(control_sender);
             app.manage(state.clone());
             let (runtime_broker, broker_commands) = runtime_broker_channel();

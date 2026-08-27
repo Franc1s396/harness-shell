@@ -1,8 +1,8 @@
 use std::{
     collections::{HashSet, VecDeque},
     env,
+    future::Future,
     path::{Path, PathBuf},
-    sync::mpsc::Receiver as ControlReceiver,
     time::Duration,
 };
 
@@ -14,7 +14,7 @@ use tauri_plugin_shell::{
     ShellExt,
 };
 use time::OffsetDateTime;
-use tokio::sync::mpsc::Receiver as BrokerReceiver;
+use tokio::sync::mpsc::{Receiver as BrokerReceiver, UnboundedReceiver as ControlReceiver};
 use tokio::time::Instant;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -40,7 +40,6 @@ const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(15);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
-const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProcessError {
@@ -70,6 +69,34 @@ pub enum ProcessError {
     SupervisorStopped,
     #[error("application shutdown was requested during Sidecar startup")]
     StartupShutdownRequested,
+}
+
+enum RuntimeWake {
+    Control(Option<RuntimeControl>),
+    Command(Option<RuntimeCommand>),
+    Output(Result<SidecarOutput, ProcessError>),
+    HeartbeatDue,
+    HeartbeatTimedOut,
+}
+
+async fn wait_for_runtime_wake<F>(
+    control: &mut ControlReceiver<RuntimeControl>,
+    broker_commands: &mut BrokerReceiver<RuntimeCommand>,
+    sidecar_output: F,
+    next_heartbeat: Instant,
+    heartbeat_deadline: Instant,
+    control_open: bool,
+) -> RuntimeWake
+where
+    F: Future<Output = Result<SidecarOutput, ProcessError>>,
+{
+    tokio::select! {
+        control = control.recv(), if control_open => RuntimeWake::Control(control),
+        command = broker_commands.recv() => RuntimeWake::Command(command),
+        output = sidecar_output => RuntimeWake::Output(output),
+        _ = tokio::time::sleep_until(next_heartbeat) => RuntimeWake::HeartbeatDue,
+        _ = tokio::time::sleep_until(heartbeat_deadline) => RuntimeWake::HeartbeatTimedOut,
+    }
 }
 
 pub async fn supervise_runtime<R: Runtime>(
@@ -210,24 +237,40 @@ pub async fn supervise_runtime<R: Runtime>(
     let mut last_valid_pong = Instant::now();
     let mut pending_pings: HashSet<Uuid> = HashSet::new();
     let mut pending_replies = PendingReplies::new();
+    let mut control_open = true;
 
     loop {
-        if matches!(control.try_recv(), Ok(RuntimeControl::Shutdown)) {
-            pending_replies.fail_all(BrokerError::Closed);
-            return shutdown_runtime(
-                &app,
-                &mut process,
-                &mut supervisor,
-                &state,
-                next_outbound_sequence,
-                &mut next_inbound_sequence,
-                &mut pending_pings,
-                &mut pending_replies,
-            )
-            .await;
-        }
-        while let Ok(command) = broker_commands.try_recv() {
-            match command {
+        let wake = wait_for_runtime_wake(
+            &mut control,
+            &mut broker_commands,
+            process.next_output(),
+            next_heartbeat,
+            last_valid_pong + HEARTBEAT_TIMEOUT,
+            control_open,
+        )
+        .await;
+
+        match wake {
+            RuntimeWake::Control(Some(RuntimeControl::Shutdown))
+            | RuntimeWake::Command(Some(RuntimeCommand::Shutdown))
+            | RuntimeWake::Command(None) => {
+                pending_replies.fail_all(BrokerError::Closed);
+                return shutdown_runtime(
+                    &app,
+                    &mut process,
+                    &mut supervisor,
+                    &state,
+                    next_outbound_sequence,
+                    &mut next_inbound_sequence,
+                    &mut pending_pings,
+                    &mut pending_replies,
+                )
+                .await;
+            }
+            RuntimeWake::Control(None) => {
+                control_open = false;
+            }
+            RuntimeWake::Command(Some(command)) => match command {
                 RuntimeCommand::Request {
                     request_id,
                     request,
@@ -268,42 +311,29 @@ pub async fn supervise_runtime<R: Runtime>(
                     next_outbound_sequence += 1;
                 }
                 RuntimeCommand::Shutdown => {
-                    pending_replies.fail_all(BrokerError::Closed);
-                    return shutdown_runtime(
-                        &app,
-                        &mut process,
-                        &mut supervisor,
-                        &state,
-                        next_outbound_sequence,
-                        &mut next_inbound_sequence,
-                        &mut pending_pings,
-                        &mut pending_replies,
-                    )
-                    .await;
+                    unreachable!("shutdown handled before command dispatch")
                 }
+            },
+            RuntimeWake::HeartbeatDue => {
+                let heartbeat = heartbeat_frame(next_outbound_sequence);
+                pending_pings.insert(heartbeat.request_id);
+                if let Err(error) = process.write_frame(&heartbeat) {
+                    publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                    process.kill()?;
+                    return Err(error);
+                }
+                next_outbound_sequence += 1;
+                next_heartbeat += HEARTBEAT_INTERVAL;
             }
-        }
-        if let Some(transition) =
-            apply_heartbeat_timeout(&mut supervisor, last_valid_pong, Instant::now())
-        {
-            publish(&state, transition);
-            process.kill()?;
-            return Err(ProcessError::SupervisorStopped);
-        }
-        if Instant::now() >= next_heartbeat {
-            let heartbeat = heartbeat_frame(next_outbound_sequence);
-            pending_pings.insert(heartbeat.request_id);
-            if let Err(error) = process.write_frame(&heartbeat) {
-                publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
+            RuntimeWake::HeartbeatTimedOut => {
+                let transition =
+                    apply_heartbeat_timeout(&mut supervisor, last_valid_pong, Instant::now())
+                        .expect("heartbeat deadline wake must produce a transition");
+                publish(&state, transition);
                 process.kill()?;
-                return Err(error);
+                return Err(ProcessError::SupervisorStopped);
             }
-            next_outbound_sequence += 1;
-            next_heartbeat += HEARTBEAT_INTERVAL;
-        }
-
-        match process.next_output(CONTROL_POLL_INTERVAL).await {
-            Ok(SidecarOutput::Frame(frame)) => {
+            RuntimeWake::Output(Ok(SidecarOutput::Frame(frame))) => {
                 if frame.sequence != next_inbound_sequence {
                     publish(
                         &state,
@@ -352,7 +382,7 @@ pub async fn supervise_runtime<R: Runtime>(
                     return Err(ProcessError::InvalidFrame("unsolicited runtime frame"));
                 }
             }
-            Ok(SidecarOutput::Terminated { code }) => {
+            RuntimeWake::Output(Ok(SidecarOutput::Terminated { code })) => {
                 pending_replies.fail_all(BrokerError::Closed);
                 publish(
                     &state,
@@ -360,8 +390,7 @@ pub async fn supervise_runtime<R: Runtime>(
                 );
                 return Err(ProcessError::Exited { code });
             }
-            Err(ProcessError::Timeout) => {}
-            Err(error) => {
+            RuntimeWake::Output(Err(error)) => {
                 pending_replies.fail_all(BrokerError::Protocol);
                 publish_error_if_active(
                     &state,
@@ -416,18 +445,25 @@ async fn next_startup_output(
     timeout: Duration,
 ) -> Result<SidecarOutput, ProcessError> {
     let deadline = Instant::now() + timeout;
+    let mut control_open = true;
     loop {
-        if matches!(control.try_recv(), Ok(RuntimeControl::Shutdown)) {
-            return Err(ProcessError::StartupShutdownRequested);
-        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(ProcessError::Timeout);
         }
-        let poll = remaining.min(CONTROL_POLL_INTERVAL);
-        match process.next_output(poll).await {
-            Err(ProcessError::Timeout) => continue,
-            output => return output,
+        tokio::select! {
+            biased;
+            control = control.recv(), if control_open => match control {
+                Some(RuntimeControl::Shutdown) => {
+                    return Err(ProcessError::StartupShutdownRequested);
+                }
+                None => {
+                    control_open = false;
+                }
+            },
+            output = tokio::time::timeout(remaining, process.next_output()) => {
+                return output.map_err(|_| ProcessError::Timeout)?;
+            }
         }
     }
 }
@@ -458,69 +494,72 @@ async fn shutdown_runtime<R: Runtime>(
 
     while Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        match process.next_output(remaining).await {
-            Ok(SidecarOutput::Frame(frame)) => {
-                if frame.sequence != *next_inbound_sequence {
-                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                    if let Err(kill_error) = process.kill() {
-                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
-                    }
-                    return Err(ProcessError::InvalidFrame("shutdown response"));
-                }
-                *next_inbound_sequence += 1;
-                if frame.request_id == request_id
-                    && frame.message_type == MessageType::Response
-                    && frame.payload == object(json!({"result": "stopping"}))
-                {
-                    acknowledged = true;
-                    continue;
-                }
-                if pending_pings.remove(&frame.request_id) {
-                    if let Err(error) = validate_pong(&frame, frame.request_id) {
+        match tokio::time::timeout(remaining, process.next_output()).await {
+            Err(_) => break,
+            Ok(output) => match output {
+                Ok(SidecarOutput::Frame(frame)) => {
+                    if frame.sequence != *next_inbound_sequence {
                         publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
                         if let Err(kill_error) = process.kill() {
                             log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
                         }
-                        return Err(error);
+                        return Err(ProcessError::InvalidFrame("shutdown response"));
                     }
-                } else if frame.message_type == MessageType::Event {
-                    if validate_runtime_event(&frame.payload).is_err()
-                        || app.emit_to("main", "ssh://event", &frame.payload).is_err()
+                    *next_inbound_sequence += 1;
+                    if frame.request_id == request_id
+                        && frame.message_type == MessageType::Response
+                        && frame.payload == object(json!({"result": "stopping"}))
                     {
+                        acknowledged = true;
+                        continue;
+                    }
+                    if pending_pings.remove(&frame.request_id) {
+                        if let Err(error) = validate_pong(&frame, frame.request_id) {
+                            publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                            if let Err(kill_error) = process.kill() {
+                                log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                            }
+                            return Err(error);
+                        }
+                    } else if frame.message_type == MessageType::Event {
+                        if validate_runtime_event(&frame.payload).is_err()
+                            || app.emit_to("main", "ssh://event", &frame.payload).is_err()
+                        {
+                            publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                            process.kill()?;
+                            return Err(ProcessError::InvalidFrame("shutdown event"));
+                        }
+                    } else if pending_replies.contains(frame.request_id) {
+                        pending_replies
+                            .complete(frame)
+                            .map_err(|_| ProcessError::InvalidFrame("shutdown broker response"))?;
+                    } else {
                         publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
                         process.kill()?;
-                        return Err(ProcessError::InvalidFrame("shutdown event"));
+                        return Err(ProcessError::InvalidFrame("shutdown response"));
                     }
-                } else if pending_replies.contains(frame.request_id) {
-                    pending_replies
-                        .complete(frame)
-                        .map_err(|_| ProcessError::InvalidFrame("shutdown broker response"))?;
-                } else {
+                }
+                Ok(SidecarOutput::Terminated { code }) => {
+                    if !acknowledged || code != Some(0) {
+                        publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
+                        return Err(ProcessError::Exited { code });
+                    }
+                    publish(
+                        state,
+                        supervisor.transition(SupervisorEvent::ProcessExited { code }),
+                    );
+                    pending_replies.fail_all(BrokerError::Closed);
+                    return Ok(());
+                }
+                Err(ProcessError::Timeout) => break,
+                Err(error) => {
                     publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                    process.kill()?;
-                    return Err(ProcessError::InvalidFrame("shutdown response"));
+                    if let Err(kill_error) = process.kill() {
+                        log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
+                    }
+                    return Err(error);
                 }
-            }
-            Ok(SidecarOutput::Terminated { code }) => {
-                if !acknowledged || code != Some(0) {
-                    publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                    return Err(ProcessError::Exited { code });
-                }
-                publish(
-                    state,
-                    supervisor.transition(SupervisorEvent::ProcessExited { code }),
-                );
-                pending_replies.fail_all(BrokerError::Closed);
-                return Ok(());
-            }
-            Err(ProcessError::Timeout) => break,
-            Err(error) => {
-                publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
-                if let Err(kill_error) = process.kill() {
-                    log::error!(target: "harness_shell::sidecar", "secondary cleanup failed: {kill_error}");
-                }
-                return Err(error);
-            }
+            },
         }
     }
 
@@ -652,20 +691,16 @@ impl SidecarProcess {
         Ok(())
     }
 
-    pub async fn next_output(&mut self, wait: Duration) -> Result<SidecarOutput, ProcessError> {
+    pub async fn next_output(&mut self) -> Result<SidecarOutput, ProcessError> {
         if let Some(frame) = self.pending_frames.pop_front() {
             return Ok(SidecarOutput::Frame(frame));
         }
 
-        let deadline = Instant::now() + wait;
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(ProcessError::Timeout);
-            }
-            let event = tokio::time::timeout(remaining, self.events.recv())
+            let event = self
+                .events
+                .recv()
                 .await
-                .map_err(|_| ProcessError::Timeout)?
                 .ok_or(ProcessError::EventChannelClosed)?;
             match event {
                 CommandEvent::Stdout(bytes) => {
@@ -1017,4 +1052,107 @@ fn publish_error_if_active(
 ) {
     let event = supervisor_event_for_process_error(error, fallback);
     publish(state, supervisor.transition(event));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broker_command_wakes_ready_runtime_without_polling_delay() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("build paused-time runtime")
+            .block_on(async {
+                tokio::time::pause();
+                let (_control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+                let (broker_tx, mut broker_rx) = tokio::sync::mpsc::channel(1);
+                let started_at = Instant::now();
+                let waiter = tokio::spawn(async move {
+                    wait_for_runtime_wake(
+                        &mut control_rx,
+                        &mut broker_rx,
+                        std::future::pending(),
+                        started_at + HEARTBEAT_INTERVAL,
+                        started_at + HEARTBEAT_TIMEOUT,
+                        true,
+                    )
+                    .await
+                });
+
+                tokio::task::yield_now().await;
+                broker_tx
+                    .send(RuntimeCommand::Shutdown)
+                    .await
+                    .expect("send broker shutdown");
+
+                let wake = waiter.await.expect("runtime wake task");
+                assert!(matches!(
+                    wake,
+                    RuntimeWake::Command(Some(RuntimeCommand::Shutdown))
+                ));
+                assert_eq!(Instant::now(), started_at);
+            });
+    }
+
+    #[test]
+    fn sidecar_output_wakes_ready_runtime_without_polling_delay() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("build paused-time runtime")
+            .block_on(async {
+                tokio::time::pause();
+                let (_control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+                let (_broker_tx, mut broker_rx) = tokio::sync::mpsc::channel(1);
+                let started_at = Instant::now();
+
+                let wake = wait_for_runtime_wake(
+                    &mut control_rx,
+                    &mut broker_rx,
+                    std::future::ready(Err(ProcessError::EventChannelClosed)),
+                    started_at + HEARTBEAT_INTERVAL,
+                    started_at + HEARTBEAT_TIMEOUT,
+                    true,
+                )
+                .await;
+
+                assert!(matches!(
+                    wake,
+                    RuntimeWake::Output(Err(ProcessError::EventChannelClosed))
+                ));
+                assert_eq!(Instant::now(), started_at);
+            });
+    }
+
+    #[test]
+    fn heartbeat_deadline_wakes_runtime_within_timer_precision() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("build paused-time runtime")
+            .block_on(async {
+                tokio::time::pause();
+                let (_control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+                let (_broker_tx, mut broker_rx) = tokio::sync::mpsc::channel(1);
+                let started_at = Instant::now();
+
+                let wake = wait_for_runtime_wake(
+                    &mut control_rx,
+                    &mut broker_rx,
+                    std::future::pending(),
+                    started_at + HEARTBEAT_TIMEOUT + HEARTBEAT_INTERVAL,
+                    started_at + HEARTBEAT_TIMEOUT,
+                    true,
+                )
+                .await;
+
+                assert!(matches!(wake, RuntimeWake::HeartbeatTimedOut));
+                let woke_at = Instant::now();
+                let deadline = started_at + HEARTBEAT_TIMEOUT;
+                assert!(woke_at >= deadline);
+                assert!(woke_at <= deadline + Duration::from_millis(1));
+            });
+    }
 }
