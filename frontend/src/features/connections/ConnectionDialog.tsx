@@ -246,12 +246,12 @@ export function ConnectionDialog({
             ))}
           </div>
 
-          {activeTab === "basic" ? (
-            <div
-              id="connection-panel-basic"
-              role="tabpanel"
-              className="grid grid-cols-2 gap-4"
-            >
+          <div
+            id="connection-panel-basic"
+            role="tabpanel"
+            hidden={activeTab !== "basic"}
+            className="grid grid-cols-2 gap-4"
+          >
               <FormField
                 id="connection-display-name"
                 label={t("connections.displayName")}
@@ -307,15 +307,14 @@ export function ConnectionDialog({
                   onChange={(event) => updateValue("port", event.target.value)}
                 />
               </FormField>
-            </div>
-          ) : null}
+          </div>
 
-          {activeTab === "authentication" ? (
-            <div
-              id="connection-panel-authentication"
-              role="tabpanel"
-              className="grid gap-4"
-            >
+          <div
+            id="connection-panel-authentication"
+            role="tabpanel"
+            hidden={activeTab !== "authentication"}
+            className="grid gap-4"
+          >
               <FormField
                 id="connection-username"
                 label={t("connections.username")}
@@ -408,15 +407,14 @@ export function ConnectionDialog({
                   </FormField>
                 </div>
               )}
-            </div>
-          ) : null}
+          </div>
 
-          {activeTab === "advanced" ? (
-            <div
-              id="connection-panel-advanced"
-              role="tabpanel"
-              className="grid gap-4"
-            >
+          <div
+            id="connection-panel-advanced"
+            role="tabpanel"
+            hidden={activeTab !== "advanced"}
+            className="grid gap-4"
+          >
               <SelectField
                 id="connection-proxy-jump"
                 label={t("connections.proxyJump")}
@@ -454,8 +452,7 @@ export function ConnectionDialog({
                 />
                 {t("connections.favorite")}
               </label>
-            </div>
-          ) : null}
+          </div>
 
           {operationError ? (
             <p role="alert" className="m-0 text-sm text-danger">

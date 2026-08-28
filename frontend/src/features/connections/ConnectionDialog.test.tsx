@@ -182,4 +182,92 @@ describe("ConnectionDialog", () => {
 
     expect(newPassword.value).toBe("NEW_SECRET");
   });
+
+  it("preserves an unsaved password while switching to Advanced", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConnectionDialog
+        open
+        connection={null}
+        connections={[]}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    fillRequired();
+    fireEvent.click(screen.getByRole("tab", { name: "Advanced" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(vault.storeSshPassword).toHaveBeenCalledWith("SECRET_MARKER"),
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential_id: "cred-new",
+        favorite: true,
+      }),
+      "save",
+    );
+  });
+
+  it("preserves an unsaved private-key passphrase while switching to Advanced", async () => {
+    vault.importPrivateKey.mockResolvedValue({
+      credential_id: "key-new",
+      kind: "ssh_private_key",
+    });
+    vault.storePrivateKeyPassphrase.mockResolvedValue({
+      credential_id: "passphrase-new",
+      kind: "ssh_private_key_passphrase",
+    });
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ConnectionDialog
+        open
+        connection={null}
+        connections={[]}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Connection name"), {
+      target: { value: "Key profile" },
+    });
+    fireEvent.change(screen.getByLabelText("Host"), {
+      target: { value: "target.example" },
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Authentication" }));
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "targetuser" },
+    });
+    fireEvent.change(screen.getByLabelText("Authentication method"), {
+      target: { value: "private_key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Private key" }));
+    await waitFor(() => expect(vault.importPrivateKey).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText("Passphrase"), {
+      target: { value: "PASSPHRASE_MARKER" },
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Advanced" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(vault.storePrivateKeyPassphrase).toHaveBeenCalledWith(
+        "PASSPHRASE_MARKER",
+      ),
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential_id: "key-new",
+        passphrase_credential_id: "passphrase-new",
+      }),
+      "save",
+    );
+  });
 });

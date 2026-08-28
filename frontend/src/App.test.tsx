@@ -291,6 +291,91 @@ describe("App connection orchestration", () => {
     expect(screen.getByText("AUTH_FAILED")).toBeInTheDocument();
   });
 
+  it("projects the trusted Host Key state after confirmation connects", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(hostKeyRequired);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+
+    render(<App />);
+    await openSavedProfile();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Trust and connect" }),
+    );
+
+    await screen.findByTestId("terminal-tab");
+    expect(screen.getByRole("contentinfo")).toHaveTextContent(
+      "Host Key: trusted",
+    );
+  });
+
+  it("prompts for the target Host Key after trusting a ProxyJump Host Key", async () => {
+    const proxyProfile: ConnectionProfile = {
+      ...savedProfile,
+      proxy_jump_id: "jump-connection-test",
+    };
+    const jumpHostKeyRequired = status({
+      connection_id: "jump-connection-test",
+      state: "HOST_KEY_REQUIRED",
+      host_key_candidate: {
+        connection_id: "jump-connection-test",
+        host: "127.0.0.1",
+        port: 2222,
+        key_algorithm: "ssh-ed25519",
+        fingerprint_sha256: "SHA256:jump",
+        public_key_openssh_b64: "AAAAJUMP",
+      },
+    });
+    const targetHostKeyRequired = status({
+      state: "HOST_KEY_REQUIRED",
+      host_key_candidate: {
+        ...hostKeyRequired.host_key_candidate!,
+        fingerprint_sha256: "SHA256:target",
+      },
+    });
+    sshApi.listConnections.mockReset().mockResolvedValue([proxyProfile]);
+    sshApi.inspectHostKey
+      .mockResolvedValueOnce(jumpHostKeyRequired)
+      .mockResolvedValueOnce(targetHostKeyRequired);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-test" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-test",
+      ssh_session_id: "ssh-session-test",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+
+    render(<App />);
+    await openSavedProfile();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Trust and connect" }),
+    );
+
+    expect(await screen.findByText("SHA256:target")).toBeInTheDocument();
+    expect(sshApi.inspectHostKey).toHaveBeenCalledTimes(2);
+    expect(sshApi.connectSsh).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Trust and connect" }),
+    );
+    await screen.findByTestId("terminal-tab");
+    expect(sshApi.confirmHostKey).toHaveBeenCalledTimes(2);
+    expect(sshApi.connectSsh).toHaveBeenCalledTimes(1);
+  });
+
   it("disconnects SSH when opening the PTY fails", async () => {
     sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
     sshApi.inspectHostKey.mockResolvedValue(trustedInspection);

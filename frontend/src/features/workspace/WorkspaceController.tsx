@@ -427,6 +427,11 @@ export function WorkspaceController() {
     if (status.state !== "READY" || !status.session_id) {
       throw sessionNotReadyError(status);
     }
+    // The successful connect result is authoritative for the persisted Host Key.
+    setConnectionChecks((checks) => ({
+      ...checks,
+      [profile.connection_id]: status,
+    }));
     const sshSessionId = status.session_id;
     if (!sessionIsCurrent(tabId, generation)) {
       await executeCleanup(
@@ -745,6 +750,28 @@ export function WorkspaceController() {
           (item) => item.connection_id === prompt.connectionId,
         );
       if (!profile) throw profileNotFoundError();
+      if (prompt.candidate.connection_id !== prompt.connectionId) {
+        const inspection = await inspectHostKey(prompt.connectionId);
+        setConnectionChecks((checks) => ({
+          ...checks,
+          [prompt.connectionId]: inspection,
+        }));
+        if (inspection.host_key_candidate) {
+          replaceSession(prompt.tabId, (session) => ({
+            ...session,
+            state: "HOST_KEY_REQUIRED",
+          }));
+          setHostKeyPrompt({
+            ...prompt,
+            candidate: inspection.host_key_candidate,
+            trustedFingerprint: inspection.trusted_fingerprint_sha256,
+          });
+          return;
+        }
+        if (inspection.state === "FAILED") {
+          throw hostKeyInspectionError(inspection);
+        }
+      }
       await establishSession(
         prompt.tabId,
         prompt.generation,
