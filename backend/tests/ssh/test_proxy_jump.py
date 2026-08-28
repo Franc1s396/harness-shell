@@ -16,6 +16,8 @@ from harness_shell_sidecar.storage import RuntimeDatabase
 
 
 class FakeConnection:
+    """记录 ProxyJump 目标或跳板关闭顺序的连接替身。"""
+
     def __init__(
         self,
         name: str,
@@ -23,17 +25,23 @@ class FakeConnection:
         *,
         fail_wait_closed: bool = False,
     ) -> None:
-        self.name = name
-        self.close_order = close_order
-        self.fail_wait_closed = fail_wait_closed
-        self.closed = False
-        self.waited = False
+        """绑定连接名称、共享顺序列表及可选关闭失败。"""
+
+        self.name = name  # 区分 jump 与 target 的可读名称。
+        self.close_order = close_order  # 共享的 close 调用顺序记录。
+        self.fail_wait_closed = fail_wait_closed  # 是否在等待关闭时注入异常。
+        self.closed = False  # close 是否被调用。
+        self.waited = False  # wait_closed 是否被等待。
 
     def close(self) -> None:
+        """记录关闭状态和当前连接名称。"""
+
         self.closed = True
         self.close_order.append(self.name)
 
     async def wait_closed(self) -> None:
+        """记录等待动作，并按配置注入关闭失败。"""
+
         self.waited = True
         if self.fail_wait_closed:
             raise OSError(f"{self.name} close failed")
@@ -41,15 +49,26 @@ class FakeConnection:
 
 @dataclass
 class ProxyConnector:
+    """模拟两段 ProxyJump 连接并验证端点、认证和 tunnel 选项。"""
+
+    #: 跳板端点实际返回的 Host Key。
     jump_key: object
+    #: 目标端点实际返回的 Host Key。
     target_key: object
+    #: 每次 connector 调用的完整端点与选项记录。
     calls: list[dict] = field(default_factory=list)
+    #: 已成功创建、可供关闭断言的连接替身。
     connections: list[FakeConnection] = field(default_factory=list)
+    #: 实际携带密码进入认证的端点调用记录。
     auth_calls: list[tuple[str, str, str]] = field(default_factory=list)
+    #: target 与 jump 的共享关闭顺序记录。
     close_order: list[str] = field(default_factory=list)
+    #: 是否让目标连接在 wait_closed 时失败。
     fail_target_close: bool = False
 
     async def __call__(self, host: str, port: int, **options):
+        """验证连接选项、执行 Host Key 回调并返回命名连接替身。"""
+
         call = {"host": host, "port": port, **options}
         self.calls.append(call)
         if host == "jump.example":
@@ -84,6 +103,8 @@ class ProxyConnector:
         return connection
 
     def calls_for(self, host: str) -> list[dict]:
+        """筛选指定端点的 connector 调用记录。"""
+
         return [call for call in self.calls if call["host"] == host]
 
 

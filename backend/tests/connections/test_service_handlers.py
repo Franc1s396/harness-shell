@@ -11,20 +11,33 @@ from harness_shell_sidecar.runtime import SidecarService
 
 
 class MemoryTransport:
+    """用 asyncio Queue 模拟 Sidecar 双向传输的测试替身。"""
+
     def __init__(self) -> None:
+        """创建彼此独立的入站帧队列和出站帧队列。"""
+
+        # 测试注入的入站批次。
         self.input: asyncio.Queue[list[FrameEnvelope] | None] = asyncio.Queue()
-        self.output: asyncio.Queue[FrameEnvelope] = asyncio.Queue()
+        self.output: asyncio.Queue[FrameEnvelope] = asyncio.Queue()  # 服务发出的帧。
 
     def start(self) -> None:
+        """模拟无需实际启动资源的传输启动。"""
+
         pass
 
     async def read(self) -> list[FrameEnvelope] | None:
+        """等待测试向入站队列提供下一批帧或 EOF。"""
+
         return await self.input.get()
 
     async def send(self, frame: FrameEnvelope) -> None:
+        """把服务响应保存到测试可观察的出站队列。"""
+
         await self.output.put(frame)
 
     async def close(self) -> None:
+        """模拟无需释放实际资源的传输关闭。"""
+
         pass
 
 

@@ -18,31 +18,51 @@ from harness_shell_sidecar.telemetry import build_local_tracer_provider
 
 
 class FakeConnection:
+    """记录 close 与 wait_closed 调用的最小连接或 channel 替身。"""
+
     def __init__(self) -> None:
-        self.closed = False
-        self.waited = False
+        """初始化尚未关闭且尚未等待的状态。"""
+
+        self.closed = False  # close 是否被调用。
+        self.waited = False  # wait_closed 是否被等待。
 
     def close(self) -> None:
+        """记录收到关闭请求。"""
+
         self.closed = True
 
     async def wait_closed(self) -> None:
+        """记录调用方等待了关闭完成。"""
+
         self.waited = True
 
 
 class FailingChildChannel(FakeConnection):
+    """在 wait_closed 阶段失败的子 channel 替身。"""
+
     async def wait_closed(self) -> None:
+        """记录等待后注入关闭异常。"""
+
         self.waited = True
         raise OSError("child close failed")
 
 
 @dataclass
 class FakeConnector:
+    """按顺序注入连接失败，之后返回通过 Host Key 校验的连接。"""
+
+    #: 模拟远端返回并交给 Client 校验的 Host Key。
     host_key: object
+    #: 每次调用优先弹出的预设异常。
     failures: list[Exception]
+    #: connector 累计调用次数。
     attempts: int = 0
+    #: 最近一次成功创建的连接替身。
     connection: FakeConnection | None = None
 
     async def __call__(self, host: str, port: int, **options):
+        """记录尝试、注入预设失败或返回新的已验证连接。"""
+
         self.attempts += 1
         if self.failures:
             raise self.failures.pop(0)

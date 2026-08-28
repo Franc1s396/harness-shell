@@ -12,44 +12,68 @@ from harness_shell_sidecar.terminal.manager import PtyManager, PtyManagerError
 
 
 class FakeReader:
+    """从 Queue 返回测试注入二进制 chunk 的异步流替身。"""
+
     def __init__(self) -> None:
-        self.queue: asyncio.Queue[bytes] = asyncio.Queue()
+        """创建空的 chunk 队列。"""
+
+        self.queue: asyncio.Queue[bytes] = asyncio.Queue()  # 等待读取的数据。
 
     async def read(self, size: int) -> bytes:
+        """等待并返回下一段数据。"""
+
         return await self.queue.get()
 
     async def feed(self, value: bytes) -> None:
+        """向读取端注入下一段数据或 EOF。"""
+
         await self.queue.put(value)
 
 
 class FakeWriter:
+    """记录 PTY 输入和 EOF 的同步写端替身。"""
+
     def __init__(self) -> None:
-        self.writes: list[bytes] = []
-        self.eof = False
+        """初始化空写入记录和未发送 EOF 状态。"""
+
+        self.writes: list[bytes] = []  # 按顺序接收到的输入字节。
+        self.eof = False  # write_eof 是否被调用。
 
     def write(self, value: bytes) -> None:
+        """记录一段 PTY 输入。"""
+
         self.writes.append(value)
 
     def write_eof(self) -> None:
+        """记录调用方请求优雅关闭输入流。"""
+
         self.eof = True
 
 
 class FakeProcess:
+    """可控制输出、退出状态和关闭时机的 PTY 进程替身。"""
+
     def __init__(self) -> None:
-        self.stdin = FakeWriter()
-        self.stdout = FakeReader()
-        self.stderr = FakeReader()
-        self.exit_status = None
-        self.exit_signal = None
-        self.closed = False
-        self.waited = False
-        self.sizes: list[tuple[int, int]] = []
-        self._closed = asyncio.Event()
+        """创建独立流、生命周期标记及终端尺寸记录。"""
+
+        self.stdin = FakeWriter()  # PTY 输入写端。
+        self.stdout = FakeReader()  # PTY 标准输出。
+        self.stderr = FakeReader()  # PTY 标准错误。
+        self.exit_status = None  # 可由 finish 设置的退出码。
+        self.exit_signal = None  # 可由 finish 设置的退出信号。
+        self.closed = False  # close 是否被调用。
+        self.waited = False  # wait_closed 是否完成。
+        self.sizes: list[tuple[int, int]] = []  # 应用过的终端尺寸。
+        self._closed = asyncio.Event()  # 控制 wait_closed 完成。
 
     def change_terminal_size(self, cols: int, rows: int) -> None:
+        """记录一次终端尺寸调整。"""
+
         self.sizes.append((cols, rows))
 
     def close(self) -> None:
+        """幂等关闭进程、结束输出流并唤醒等待者。"""
+
         if self.closed:
             return
         self.closed = True
@@ -58,12 +82,16 @@ class FakeProcess:
         self._closed.set()
 
     async def wait_closed(self) -> None:
+        """等待关闭事件并记录收敛已完成。"""
+
         await self._closed.wait()
         self.waited = True
 
     async def finish(
         self, *, exit_status: int | None = 0, exit_signal: str | None = None
     ) -> None:
+        """模拟远端进程自然结束并关闭两个输出流。"""
+
         self.exit_status = exit_status
         self.exit_signal = exit_signal
         await self.stdout.feed(b"")
@@ -73,19 +101,30 @@ class FakeProcess:
 
 @dataclass
 class FakeConnection:
+    """返回固定 PTY 进程并记录创建选项的 SSH 连接替身。"""
+
+    #: create_process 返回的固定进程。
     process: FakeProcess
 
     def __post_init__(self) -> None:
-        self.options: dict | None = None
+        """初始化尚未调用 create_process 的状态。"""
+
+        self.options: dict | None = None  # 最近一次 PTY 创建选项。
 
     async def create_process(self, **options):
+        """记录 PTY 创建选项并返回固定进程。"""
+
         self.options = options
         return self.process
 
     def close(self) -> None:
+        """模拟无需额外动作的 SSH 主连接关闭。"""
+
         pass
 
     async def wait_closed(self) -> None:
+        """模拟 SSH 主连接已立即完成关闭。"""
+
         pass
 
 

@@ -17,42 +17,66 @@ from harness_shell_sidecar.runtime import RequestDispatcher, SidecarService
 
 
 class MemoryTransport:
+    """记录启动/关闭状态的内存 Sidecar 传输替身。"""
+
     def __init__(self) -> None:
-        self.input: asyncio.Queue[list[FrameEnvelope] | None] = asyncio.Queue()
-        self.output: asyncio.Queue[FrameEnvelope] = asyncio.Queue()
-        self.started = False
-        self.closed = False
+        """创建空队列及尚未启动、尚未关闭的生命周期状态。"""
+
+        self.input: asyncio.Queue[list[FrameEnvelope] | None] = asyncio.Queue()  # 入站批次。
+        self.output: asyncio.Queue[FrameEnvelope] = asyncio.Queue()  # 出站帧。
+        self.started = False  # start 是否被调用。
+        self.closed = False  # close 是否被调用。
 
     def start(self) -> None:
+        """记录服务已启动传输。"""
+
         self.started = True
 
     async def read(self) -> list[FrameEnvelope] | None:
+        """等待测试注入下一批帧或 EOF。"""
+
         return await self.input.get()
 
     async def send(self, frame: FrameEnvelope) -> None:
+        """保存服务发出的协议帧。"""
+
         await self.output.put(frame)
 
     async def close(self) -> None:
+        """记录服务已关闭传输。"""
+
         self.closed = True
 
 
 class CleanupProbe:
+    """记录 close_all 调用并可注入清理失败的测试探针。"""
+
     def __init__(self, *, fail: bool = False) -> None:
-        self.closed = False
-        self.fail = fail
+        """配置探针是否在记录关闭后抛出预期异常。"""
+
+        self.closed = False  # close_all 是否被调用。
+        self.fail = fail  # 是否注入清理失败。
 
     async def close_all(self) -> None:
+        """记录清理，并按配置抛出 OSError。"""
+
         self.closed = True
         if self.fail:
             raise OSError("PTY cleanup failed")
 
 
 class FailingCloseDispatcher(RequestDispatcher):
+    """总是在 close 阶段失败的 RequestDispatcher 测试替身。"""
+
     def __init__(self) -> None:
+        """初始化真实分发器状态和关闭调用标记。"""
+
         super().__init__()
-        self.closed = False
+        self.closed = False  # close 是否被调用。
 
     async def close(self) -> None:
+        """记录关闭调用后注入清理失败。"""
+
         self.closed = True
         raise OSError("dispatcher cleanup failed")
 

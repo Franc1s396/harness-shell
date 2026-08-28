@@ -11,7 +11,11 @@ from harness_shell_sidecar.runtime.windows_job import attach_required_job
 
 
 class JsonLogFormatter(logging.Formatter):
+    """将 Sidecar 日志格式化为写入 stderr 的单行 JSON。"""
+
     def format(self, record: logging.LogRecord) -> str:
+        """把一条标准日志记录转换为稳定、可机器解析的 JSON 文本。"""
+
         timestamp = datetime.fromtimestamp(record.created, timezone.utc).isoformat(
             timespec="milliseconds"
         )

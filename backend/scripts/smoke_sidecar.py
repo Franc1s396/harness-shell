@@ -23,37 +23,67 @@ JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
 
 
 class IoCounters(ctypes.Structure):
+    """映射 Windows JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION 的 I/O 计数。"""
+
+    #: ctypes 按 Windows API 声明顺序布局的字段列表。
     _fields_ = [
+        # 已完成的读取操作次数。
         ("read_operations", ctypes.c_uint64),
+        # 已完成的写入操作次数。
         ("write_operations", ctypes.c_uint64),
+        # 既非读取也非写入的操作次数。
         ("other_operations", ctypes.c_uint64),
+        # 已传输的读取字节数。
         ("read_bytes", ctypes.c_uint64),
+        # 已传输的写入字节数。
         ("write_bytes", ctypes.c_uint64),
+        # 其他 I/O 操作传输的字节数。
         ("other_bytes", ctypes.c_uint64),
     ]
 
 
 class BasicLimitInformation(ctypes.Structure):
+    """映射 Windows JOBOBJECT_BASIC_LIMIT_INFORMATION 结构。"""
+
+    #: ctypes 按 Windows API ABI 顺序布局的基本限制字段。
     _fields_ = [
+        # 单进程用户态 CPU 时间上限。
         ("per_process_user_time_limit", ctypes.c_int64),
+        # 整个 Job 的用户态 CPU 时间上限。
         ("per_job_user_time_limit", ctypes.c_int64),
+        # 指示哪些 Job 限制生效的位标志。
         ("limit_flags", ctypes.c_uint32),
+        # 进程最小工作集大小。
         ("minimum_working_set_size", ctypes.c_size_t),
+        # 进程最大工作集大小。
         ("maximum_working_set_size", ctypes.c_size_t),
+        # Job 允许的活动进程数。
         ("active_process_limit", ctypes.c_uint32),
+        # 允许进程运行的 CPU 亲和性掩码。
         ("affinity", ctypes.c_size_t),
+        # 分配给进程的优先级类别。
         ("priority_class", ctypes.c_uint32),
+        # Job 中进程的调度等级。
         ("scheduling_class", ctypes.c_uint32),
     ]
 
 
 class ExtendedLimitInformation(ctypes.Structure):
+    """映射 Windows JOBOBJECT_EXTENDED_LIMIT_INFORMATION 结构。"""
+
+    #: ctypes 按 Windows API ABI 顺序布局的扩展限制字段。
     _fields_ = [
+        # 基础 Job 限制。
         ("basic_limit_information", BasicLimitInformation),
+        # Job 累计 I/O 计数。
         ("io_info", IoCounters),
+        # 单进程内存上限。
         ("process_memory_limit", ctypes.c_size_t),
+        # 整个 Job 的内存上限。
         ("job_memory_limit", ctypes.c_size_t),
+        # Job 中单进程峰值内存用量。
         ("peak_process_memory_used", ctypes.c_size_t),
+        # Job 全部进程峰值内存用量。
         ("peak_job_memory_used", ctypes.c_size_t),
     ]
 

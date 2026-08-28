@@ -19,40 +19,61 @@ PtyEventListener = Callable[[dict], Awaitable[None]]
 
 
 class PtyManagerError(RuntimeError):
+    """携带稳定错误码的 PTY 生命周期异常。"""
+
     def __init__(self, error_code: str) -> None:
+        """保存可映射到 IPC 错误响应的失败类别。"""
+
         super().__init__(error_code)
-        self.error_code = error_code
+        self.error_code = error_code  # 面向调用方的稳定错误码。
 
 
 @dataclass(slots=True)
 class _PtyState:
+    """PtyManager 内部拥有的可变 PTY 资源与事件序号状态。"""
+
+    #: 对外公开的严格 PTY 会话快照。
     session: PtySession
+    #: 拥有当前 channel 的 SSH 主会话。
     owner: SshSession
+    #: AsyncSSH 创建的二进制 PTY 进程 channel。
     process: Any
+    #: 分别排空 stdout 和 stderr 的后台任务。
     readers: tuple[asyncio.Task[None], ...]
+    #: 等待读取任务和进程结束并发布关闭事件的后台任务。
     monitor: asyncio.Task[None] | None
+    #: PTY 完成全部收敛后置位的同步事件。
     closed: asyncio.Event
+    #: 下一条 PTY 输出事件使用的单调递增序号。
     next_sequence: int = 1
 
 
 class PtyManager:
+    """在已验证 SSH 会话上管理二进制安全的交互式 PTY channel。"""
+
     def __init__(
         self,
         ssh_sessions: SshSessionRegistry,
         *,
         event_listener: PtyEventListener,
     ) -> None:
-        self._ssh_sessions = ssh_sessions
-        self._event_listener = event_listener
-        self._sessions: dict[UUID, _PtyState] = {}
+        """绑定 SSH 所有权注册表和唯一 PTY 事件发布回调。"""
+
+        self._ssh_sessions = ssh_sessions  # 定位主连接并登记子 channel。
+        self._event_listener = event_listener  # 发布有序输出与关闭事件。
+        self._sessions: dict[UUID, _PtyState] = {}  # 活动 PTY 的内部状态索引。
 
     def get(self, pty_session_id: UUID) -> PtySession | None:
+        """返回 PTY 会话快照；不存在或已清理时返回 None。"""
+
         state = self._sessions.get(pty_session_id)
         return None if state is None else state.session
 
     async def open(
         self, ssh_session_id: UUID, *, cols: int, rows: int
     ) -> PtySession:
+        """创建二进制 PTY channel，并启动双流读取与关闭监控任务。"""
+
         owner = self._ssh_sessions.get(ssh_session_id)
         if owner is None:
             raise PtyManagerError("SSH_SESSION_NOT_FOUND")
@@ -89,6 +110,8 @@ class PtyManager:
         return session
 
     async def write(self, pty_session_id: UUID, data: bytes) -> None:
+        """把一段有大小上限的二进制输入写入活动 PTY。"""
+
         state = self._require_open(pty_session_id)
         if not data or len(data) > MAX_PTY_CHUNK_BYTES:
             raise PtyManagerError("PTY_INPUT_SIZE_INVALID")
@@ -97,6 +120,8 @@ class PtyManager:
     async def resize(
         self, pty_session_id: UUID, *, cols: int, rows: int
     ) -> PtySession:
+        """校验并应用新的终端尺寸，同时更新公开会话快照。"""
+
         state = self._require_open(pty_session_id)
         updated = state.session.model_copy(update={"cols": cols, "rows": rows})
         updated = PtySession.model_validate(updated.model_dump())
@@ -105,6 +130,8 @@ class PtyManager:
         return updated
 
     async def close(self, pty_session_id: UUID) -> PtySession:
+        """先发送 EOF 等待优雅关闭，超时后强制关闭并等待收敛。"""
+
         state = self._require_open(pty_session_id)
         state.process.stdin.write_eof()
         try:
@@ -116,6 +143,8 @@ class PtyManager:
         return state.session.model_copy(update={"state": "CLOSED"})
 
     async def close_all(self) -> None:
+        """关闭全部 OPEN PTY，并等待已在关闭中的会话收敛。"""
+
         for state in list(self._sessions.values()):
             if state.session.state == "OPEN":
                 await self.close(state.session.pty_session_id)
@@ -123,12 +152,16 @@ class PtyManager:
                 await state.closed.wait()
 
     def _require_open(self, pty_session_id: UUID) -> _PtyState:
+        """返回活动内部状态，不存在或非 OPEN 时抛出稳定错误。"""
+
         state = self._sessions.get(pty_session_id)
         if state is None or state.session.state != "OPEN":
             raise PtyManagerError("PTY_SESSION_NOT_FOUND")
         return state
 
     async def _read_stream(self, state: _PtyState, stream) -> None:
+        """读取单个二进制流并按大小上限发布有序 Base64 输出事件。"""
+
         while True:
             data = await stream.read(MAX_PTY_CHUNK_BYTES)
             if not data:
@@ -149,6 +182,8 @@ class PtyManager:
                 )
 
     async def _monitor(self, state: _PtyState) -> None:
+        """等待 PTY 结束、发布关闭事件，并从双重所有权索引清理资源。"""
+
         try:
             await asyncio.gather(*state.readers)
             await state.process.wait_closed()

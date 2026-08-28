@@ -17,20 +17,33 @@ from harness_shell_sidecar.storage import RuntimeDatabase
 
 @dataclass
 class AuthProbe:
+    """统计测试 SSH Server 实际进入密码认证的次数。"""
+
+    #: validate_password 被调用的次数。
     calls: int = 0
 
 
 class PasswordServer(asyncssh.SSHServer):
+    """只接受固定测试账号并记录认证调用的 AsyncSSH Server。"""
+
     def __init__(self, probe: AuthProbe) -> None:
-        self._probe = probe
+        """绑定跨连接共享的认证计数探针。"""
+
+        self._probe = probe  # 用于证明 Host Key 失败发生在认证之前。
 
     def begin_auth(self, username: str) -> bool:
+        """要求客户端进入用户认证阶段。"""
+
         return True
 
     def password_auth_supported(self) -> bool:
+        """声明测试 Server 支持密码认证。"""
+
         return True
 
     def validate_password(self, username: str, password: str) -> bool:
+        """记录认证调用并仅接受固定测试用户名和密码。"""
+
         self._probe.calls += 1
         return username == "deploy" and password == "secret"
 

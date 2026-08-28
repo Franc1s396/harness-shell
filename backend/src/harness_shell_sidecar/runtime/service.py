@@ -40,35 +40,47 @@ LOGGER = logging.getLogger("harness_shell_sidecar.runtime")
 
 
 class SidecarService:
+    """协调传输、协议状态机、业务分发器及所有运行时资源的顶层服务。"""
+
     def __init__(
         self,
         transport: StdioTransport,
         router: Router | None = None,
         dispatcher: RequestDispatcher | None = None,
     ) -> None:
-        self._transport = transport
-        self._database: RuntimeDatabase | None = None
+        """注入可测试组件，并初始化尚未握手的资源占位状态。"""
+
+        self._transport = transport  # Sidecar 私有 stdin/stdout 帧传输。
+        self._database: RuntimeDatabase | None = None  # 当前运行时 SQLite 数据库。
+        # 连接配置和 Host Key 的持久化入口。
         self._connection_repository: ConnectionRepository | None = None
-        self._ssh_runtime: SshRuntime | None = None
-        self._pty_manager: PtyManager | None = None
+        self._ssh_runtime: SshRuntime | None = None  # SSH 连接与会话生命周期管理器。
+        self._pty_manager: PtyManager | None = None  # 交互式 PTY channel 管理器。
+        # 持有运行时数据加密 Key 的认证加密记录仓储。
         self._record_store: EncryptedRecordStore | None = None
-        self._artifact_store: ArtifactStore | None = None
-        self._remote_executor: RemoteExecutor | None = None
-        self._remote_sftp: RemoteSftp | None = None
-        self._audit_ledger: AuditLedger | None = None
-        self._trace_provider = None
-        self._tracer = None
-        self._ready_recorded = False
-        self._correlation_id = uuid4()
+        self._artifact_store: ArtifactStore | None = None  # 远端输出 Artifact 仓储。
+        self._remote_executor: RemoteExecutor | None = None  # 有界远端命令执行器。
+        self._remote_sftp: RemoteSftp | None = None  # 只读 SFTP 操作入口。
+        self._audit_ledger: AuditLedger | None = None  # HMAC 链式审计账本。
+        self._trace_provider = None  # 仅写本地数据库的 OpenTelemetry Provider。
+        self._tracer = None  # 当前运行时模块使用的 Tracer。
+        self._ready_recorded = False  # 防止 ready 审计与 Span 被重复写入。
+        self._correlation_id = uuid4()  # 关联当前 Sidecar 进程生命周期的标识符。
+        # 协议状态机；默认把敏感 initialize 负载交给本服务建立资源。
         self._router = router or Router(initializer=self._initialize_runtime)
-        self._dispatcher = dispatcher or RequestDispatcher()
+        self._dispatcher = dispatcher or RequestDispatcher()  # 有界应用请求分发器。
+        # 与主帧读取循环并行执行的业务请求任务集合。
         self._application_tasks: set[asyncio.Task[None]] = set()
 
     @classmethod
     def for_stdio(cls) -> SidecarService:
+        """使用当前进程的二进制 stdin/stdout 创建生产服务实例。"""
+
         return cls(StdioTransport(sys.stdin.buffer, sys.stdout.buffer))
 
     async def run(self) -> int:
+        """运行帧读取、路由和资源收敛循环，并返回稳定进程退出码。"""
+
         self._transport.start()
         exit_code = 0
         try:
@@ -182,17 +194,23 @@ class SidecarService:
         return exit_code
 
     def _is_application_request(self, frame: FrameEnvelope) -> bool:
+        """判断请求 method 是否属于已注册的并行业务处理器。"""
+
         return (
             frame.message_type is MessageType.REQUEST
             and self._dispatcher.handles(frame.payload.get("method"))
         )
 
     def _start_application_request(self, frame: FrameEnvelope) -> None:
+        """启动业务请求任务并在完成时从跟踪集合移除。"""
+
         task = asyncio.create_task(self._dispatch_application_request(frame))
         self._application_tasks.add(task)
         task.add_done_callback(self._application_tasks.discard)
 
     async def _dispatch_application_request(self, frame: FrameEnvelope) -> None:
+        """执行应用处理器并把所有预期或意外失败转换为协议响应。"""
+
         try:
             result = await self._dispatcher.dispatch(frame)
             response = self._router.application_response(
@@ -221,6 +239,8 @@ class SidecarService:
         await self._transport.send(response)
 
     async def _handle_cancel(self, frame: FrameEnvelope) -> FrameEnvelope:
+        """校验取消负载并通知分发器中的活动请求协作式停止。"""
+
         try:
             target = self._router.cancel_target(frame)
         except (ValueError, TypeError, AttributeError):
@@ -248,6 +268,8 @@ class SidecarService:
         )
 
     def _initialize_runtime(self, payload: InitializeRequestPayload) -> None:
+        """按 fail-closed 顺序打开、校验并发布全部运行时资源。"""
+
         if self._database is not None:
             raise RuntimeError("runtime storage is already initialized")
 
@@ -336,6 +358,8 @@ class SidecarService:
         self._tracer = tracer
 
     def _record_ready(self) -> None:
+        """在首次进入 READY 后写入一次审计事件和本地 Span。"""
+
         if self._ready_recorded:
             return
         if self._audit_ledger is None or self._tracer is None:
@@ -348,6 +372,8 @@ class SidecarService:
         self._ready_recorded = True
 
     async def _publish_connection_status(self, status) -> None:
+        """把 SSH 连接状态模型发布为无请求关联的应用事件。"""
+
         await self._transport.send(
             self._router.application_event(
                 {
@@ -358,9 +384,13 @@ class SidecarService:
         )
 
     async def _publish_pty_event(self, event: dict) -> None:
+        """把 PTY 输出或关闭信息发布为应用事件。"""
+
         await self._transport.send(self._router.application_event(event))
 
     def _close_runtime(self) -> None:
+        """记录终态、刷新遥测、清零 Key 并关闭数据库，保留首个错误。"""
+
         first_error: BaseException | None = None
 
         def remember(error: BaseException) -> None:

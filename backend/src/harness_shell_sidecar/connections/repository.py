@@ -18,16 +18,26 @@ from .models import (
 
 
 class ConnectionRepositoryError(RuntimeError):
+    """携带稳定业务错误码的连接仓储异常。"""
+
     def __init__(self, error_code: str, message: str) -> None:
+        """保存对外错误码，同时沿用异常消息供日志与调试使用。"""
+
         super().__init__(message)
-        self.error_code = error_code
+        self.error_code = error_code  # 可安全映射到 IPC 错误响应的稳定代码。
 
 
 class ConnectionRepository:
+    """在运行时 SQLite 数据库中管理连接配置与 Host Key 历史。"""
+
     def __init__(self, database: RuntimeDatabase) -> None:
-        self._database = database
+        """绑定由运行时统一拥有生命周期的数据库连接。"""
+
+        self._database = database  # 当前 Sidecar 运行实例的数据库访问入口。
 
     def create(self, value: ConnectionProfileInput) -> ConnectionProfile:
+        """校验 ProxyJump 后创建连接配置并回读持久化结果。"""
+
         connection_id = uuid4()
         now = _utc_now()
         self._validate_proxy(value.proxy_jump_id, connection_id)
@@ -51,6 +61,8 @@ class ConnectionRepository:
     def update(
         self, connection_id: UUID, value: ConnectionProfileInput
     ) -> ConnectionProfile:
+        """以完整新配置替换已有连接，并保留创建时间。"""
+
         current = self.get(connection_id)
         if current is None:
             raise ConnectionRepositoryError(
@@ -89,6 +101,8 @@ class ConnectionRepository:
         return updated
 
     def get(self, connection_id: UUID) -> ConnectionProfile | None:
+        """按唯一标识符读取连接配置；不存在时返回 None。"""
+
         row = self._database.execute(
             _PROFILE_SELECT + " WHERE connection_id = ?",
             (str(connection_id),),
@@ -96,6 +110,8 @@ class ConnectionRepository:
         return None if row is None else _profile_from_row(row)
 
     def list(self) -> list[ConnectionProfile]:
+        """按收藏、分组和显示名称的稳定顺序列出所有连接。"""
+
         rows = self._database.execute(
             _PROFILE_SELECT
             + " ORDER BY favorite DESC, group_name IS NULL, group_name, display_name, connection_id"
@@ -103,6 +119,8 @@ class ConnectionRepository:
         return [_profile_from_row(row) for row in rows]
 
     def delete(self, connection_id: UUID) -> bool:
+        """删除未被 ProxyJump 引用的连接，并返回是否实际删除。"""
+
         try:
             cursor = self._database.execute(
                 "DELETE FROM connection_profiles WHERE connection_id = ?",
@@ -115,6 +133,8 @@ class ConnectionRepository:
         return cursor.rowcount == 1
 
     def trust_first_host_key(self, candidate: HostKeyCandidate) -> HostKeyRecord:
+        """为尚未建立信任的连接持久化首个活动 Host Key。"""
+
         self._validate_candidate_endpoint(candidate)
         if self.active_host_key(candidate.connection_id) is not None:
             raise ConnectionRepositoryError(
@@ -129,6 +149,8 @@ class ConnectionRepository:
         candidate: HostKeyCandidate,
         expected_old_fingerprint: str,
     ) -> HostKeyRecord:
+        """在单一事务内校验旧指纹、停用旧记录并插入替代记录。"""
+
         self._validate_candidate_endpoint(candidate)
         connection = self._database.connection
         connection.execute("BEGIN IMMEDIATE")
@@ -159,6 +181,8 @@ class ConnectionRepository:
             raise
 
     def active_host_key(self, connection_id: UUID) -> HostKeyRecord | None:
+        """返回连接当前生效的 Host Key；尚未信任时返回 None。"""
+
         row = self._database.execute(
             """
             SELECT host_key_id, connection_id, key_algorithm,
@@ -174,6 +198,8 @@ class ConnectionRepository:
     def _validate_proxy(
         self, proxy_jump_id: UUID | None, connection_id: UUID
     ) -> None:
+        """禁止自引用、不存在的跳板以及多层 ProxyJump 链。"""
+
         if proxy_jump_id is None:
             return
         if proxy_jump_id == connection_id:
@@ -191,6 +217,8 @@ class ConnectionRepository:
             )
 
     def _validate_candidate_endpoint(self, candidate: HostKeyCandidate) -> None:
+        """确保 Host Key 候选值来自目标连接声明的同一端点。"""
+
         profile = self.get(candidate.connection_id)
         if profile is None:
             raise ConnectionRepositoryError(
@@ -202,6 +230,8 @@ class ConnectionRepository:
             )
 
     def _insert_host_key(self, record: HostKeyRecord) -> None:
+        """插入 Host Key 记录，并将约束冲突转换为稳定业务错误。"""
+
         try:
             self._database.execute(
                 """

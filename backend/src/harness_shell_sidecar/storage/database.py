@@ -25,13 +25,19 @@ class StorageSelfCheckFailed(RuntimeError):
 
 
 class RuntimeDatabase:
+    """负责 SQLite 安全配置、顺序迁移、自检与关闭的运行时数据库。"""
+
     def __init__(self, path: Path, connection: sqlite3.Connection) -> None:
-        self.path = path
-        self.connection = connection
-        self._closed = False
+        """封装已打开但尚需由 open 完成配置和验证的 SQLite 连接。"""
+
+        self.path = path  # 当前运行实例数据库文件的绝对路径。
+        self.connection = connection  # 供同一运行时各仓储共享的底层连接。
+        self._closed = False  # 防止关闭后继续执行 SQL 或重复 checkpoint。
 
     @classmethod
     def open(cls, path: Path) -> RuntimeDatabase:
+        """创建数据库、执行全部迁移和自检，任一步失败即关闭连接。"""
+
         if not path.is_absolute():
             raise StorageSelfCheckFailed("runtime database path must be absolute")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,11 +55,15 @@ class RuntimeDatabase:
     def execute(
         self, statement: str, parameters: tuple | dict = ()
     ) -> sqlite3.Cursor:
+        """在未关闭的共享连接上执行一条参数化 SQL。"""
+
         if self._closed:
             raise StorageSelfCheckFailed("runtime database is closed")
         return self.connection.execute(statement, parameters)
 
     def close(self) -> None:
+        """截断 WAL 后关闭连接；该操作可安全重复调用。"""
+
         if self._closed:
             return
         try:
@@ -63,6 +73,8 @@ class RuntimeDatabase:
             self._closed = True
 
     def _configure(self) -> None:
+        """启用并验证 WAL、FULL 同步、外键和 busy timeout 安全配置。"""
+
         journal_mode = self.connection.execute(
             "PRAGMA journal_mode = WAL"
         ).fetchone()[0]
@@ -80,6 +92,8 @@ class RuntimeDatabase:
             raise StorageSelfCheckFailed("SQLite busy timeout is unavailable")
 
     def _migrate(self) -> None:
+        """仅从空库或受支持的连续版本执行内置顺序迁移。"""
+
         tables = self._table_names()
         if "schema_migrations" not in tables:
             if tables:
@@ -120,6 +134,8 @@ class RuntimeDatabase:
             )
 
     def _self_check(self) -> None:
+        """验证 SQLite 完整性、必需表、关键列和唯一索引。"""
+
         integrity = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             raise StorageSelfCheckFailed("SQLite integrity check failed")
@@ -157,6 +173,8 @@ class RuntimeDatabase:
             )
 
     def _table_names(self) -> set[str]:
+        """返回全部非 SQLite 内部表名。"""
+
         return {
             row[0]
             for row in self.connection.execute(

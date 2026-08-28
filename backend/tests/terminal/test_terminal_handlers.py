@@ -13,10 +13,16 @@ from harness_shell_sidecar.terminal.handlers import register_terminal_handlers
 
 
 class FakeManager:
+    """仅记录 PTY 写入调用的最小 Manager 替身。"""
+
     def __init__(self) -> None:
-        self.writes: list[tuple[object, bytes]] = []
+        """创建空的 PTY 写入调用记录。"""
+
+        self.writes: list[tuple[object, bytes]] = []  # 会话 ID 与解码后数据。
 
     async def write(self, pty_session_id, data: bytes) -> None:
+        """记录 Handler 传递的会话 ID 与二进制正文。"""
+
         self.writes.append((pty_session_id, data))
 
 

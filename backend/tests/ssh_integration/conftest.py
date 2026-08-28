@@ -35,18 +35,33 @@ def pytest_collection_modifyitems(items) -> None:
 
 @dataclass(frozen=True)
 class LabConfig:
+    """从本地 SSH lab 清单与秘密文件加载的只读测试配置。"""
+
+    #: 跳板容器可访问主机。
     jump_host: str
+    #: 跳板 SSH 映射端口。
     jump_port: int
+    #: 跳板登录用户名。
     jump_username: str
+    #: 跳板测试密码。
     jump_password: str
+    #: 启动脚本记录的跳板 Host Key 指纹。
     jump_host_fingerprint: str
+    #: 目标容器可访问主机。
     target_host: str
+    #: 目标 SSH 映射端口。
     target_port: int
+    #: 目标登录用户名。
     target_username: str
+    #: 目标测试密码。
     target_password: str
+    #: 启动脚本记录的目标 Host Key 指纹。
     target_host_fingerprint: str
+    #: 无口令测试私钥路径。
     unencrypted_private_key_path: Path
+    #: 带口令测试私钥路径。
     encrypted_private_key_path: Path
+    #: 加密测试私钥的口令。
     private_key_passphrase: str
 
 
@@ -76,16 +91,21 @@ def lab() -> LabConfig:
 
 
 class RuntimeContext:
+    """拥有单个 SSH 集成测试所需全部本地运行时资源的夹具上下文。"""
+
     def __init__(self, path: Path) -> None:
-        self.database = RuntimeDatabase.open(path.resolve())
-        self.records = EncryptedRecordStore(self.database, b"m" * 32)
-        self.artifacts = ArtifactStore(self.database, self.records)
-        self.repository = ConnectionRepository(self.database)
-        self.audit = AuditLedger(self.database, b"a" * 32)
+        """创建隔离数据库、加密仓储、审计、Trace 和 SSH Runtime。"""
+
+        self.database = RuntimeDatabase.open(path.resolve())  # 本测试隔离数据库。
+        self.records = EncryptedRecordStore(self.database, b"m" * 32)  # 加密记录仓储。
+        self.artifacts = ArtifactStore(self.database, self.records)  # 远端输出仓储。
+        self.repository = ConnectionRepository(self.database)  # 连接与 Host Key 仓储。
+        self.audit = AuditLedger(self.database, b"a" * 32)  # 测试审计链。
+        # 仅写当前测试数据库的 Trace Provider。
         self.trace_provider = build_local_tracer_provider(
             LocalTraceStore(self.database)
         )
-        self.runtime = SshRuntime(
+        self.runtime = SshRuntime(  # 连接真实 SSH lab 的运行时。
             self.repository,
             audit_ledger=self.audit,
             tracer=self.trace_provider.get_tracer("harness_shell_sidecar.ssh_integration"),
@@ -101,6 +121,8 @@ class RuntimeContext:
         auth_kind: str = "password",
         proxy_jump_id=None,
     ):
+        """在隔离仓储中创建一条测试连接配置。"""
+
         return self.repository.create(
             ConnectionProfileInput(
                 display_name=name,
@@ -117,6 +139,8 @@ class RuntimeContext:
         )
 
     async def close(self) -> None:
+        """按依赖顺序关闭 SSH、遥测、Key 与数据库资源。"""
+
         await self.runtime.close_all()
         self.trace_provider.force_flush()
         self.trace_provider.shutdown()

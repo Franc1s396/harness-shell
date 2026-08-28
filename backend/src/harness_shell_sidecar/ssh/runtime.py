@@ -29,6 +29,8 @@ StatusListener = Callable[[ConnectionStatus], Awaitable[None]]
 
 
 class SshRuntime:
+    """执行 Host Key 验证、认证、ProxyJump 和会话生命周期的 SSH 控制面。"""
+
     def __init__(
         self,
         repository: ConnectionRepository,
@@ -38,12 +40,14 @@ class SshRuntime:
         tracer: Any = None,
         status_listener: StatusListener | None = None,
     ) -> None:
-        self._repository = repository
-        self._connector = connector
-        self._audit_ledger = audit_ledger
-        self._tracer = tracer
-        self._status_listener = status_listener
-        self.sessions = SshSessionRegistry()
+        """注入持久化与可观测性依赖，并创建空会话注册表。"""
+
+        self._repository = repository  # 读取连接配置和受信任 Host Key。
+        self._connector = connector  # AsyncSSH 连接工厂；测试可替换为 Fake。
+        self._audit_ledger = audit_ledger  # 可选的链式 SSH 尝试审计入口。
+        self._tracer = tracer  # 可选的本地 OpenTelemetry Tracer。
+        self._status_listener = status_listener  # 向桌面端发布状态事件的回调。
+        self.sessions = SshSessionRegistry()  # 对 PTY/exec/SFTP 暴露的活动会话。
 
     async def inspect_host_key(
         self,
@@ -55,6 +59,8 @@ class SshRuntime:
         expected_jump_profile_updated_at: datetime | None = None,
         jump_connection_id: UUID | None = None,
     ) -> ConnectionStatus:
+        """检查目标或跳板 Host Key，且不保留任何认证会话。"""
+
         correlation_id = uuid4()
         profile = self._profile(connection_id, correlation_id)
         if profile.proxy_jump_id is None:
@@ -89,6 +95,8 @@ class SshRuntime:
     async def _inspect_profile(
         self, profile, correlation_id: UUID, *, tunnel=None
     ) -> ConnectionStatus:
+        """通过专用 Client 截获 Profile 端点的 Host Key 并生成安全状态。"""
+
         options = {
             "username": profile.username,
             "client_factory": lambda: InspectHostKeyClient(
@@ -160,6 +168,8 @@ class SshRuntime:
         expected_jump_profile_updated_at: datetime | None = None,
         jump_connection_id: UUID | None = None,
     ) -> ConnectionStatus:
+        """验证配置快照与 Host Key 后，在最多两次尝试内建立 SSH 会话。"""
+
         correlation_id = uuid4()
         profile = self._profile(connection_id, correlation_id)
         if (
@@ -265,6 +275,8 @@ class SshRuntime:
         jump_private_key,
         jump_passphrase,
     ) -> ConnectionStatus:
+        """验证跳板和目标两个端点后建立单层 ProxyJump 会话。"""
+
         active_jump_key = self._repository.active_host_key(jump.connection_id)
         if active_jump_key is None:
             return await self._inspect_profile(jump, correlation_id)
@@ -377,6 +389,8 @@ class SshRuntime:
         raise AssertionError("bounded proxy connect loop must return or raise")
 
     async def disconnect(self, session_id: UUID) -> ConnectionStatus:
+        """发布关闭状态，收敛指定会话全部资源，再发布已断开状态。"""
+
         session = self.sessions.get(session_id)
         if session is None:
             raise SshRuntimeError(
@@ -402,9 +416,13 @@ class SshRuntime:
         return status
 
     async def close_all(self) -> None:
+        """关闭注册表中的全部 SSH 会话及其子 channel。"""
+
         await self.sessions.close_all()
 
     def _profile(self, connection_id: UUID, correlation_id: UUID):
+        """读取必需连接配置，并把缺失转换为结构化 SSH 错误。"""
+
         profile = self._repository.get(connection_id)
         if profile is None:
             raise SshRuntimeError(
@@ -424,6 +442,8 @@ class SshRuntime:
         *,
         expected_connection_id: UUID | None = None,
     ):
+        """解析并校验单层跳板配置及调用方持有的版本快照。"""
+
         jump = self._profile(profile.proxy_jump_id, correlation_id)
         if (
             expected_connection_id is not None
@@ -464,6 +484,8 @@ class SshRuntime:
         node: str,
         tunnel=None,
     ):
+        """仅用精确匹配的 Host Key 和显式认证选项打开 AsyncSSH 连接。"""
+
         options = {
             "username": profile.username,
             "client_factory": lambda: VerifiedHostKeyClient(
@@ -504,11 +526,15 @@ class SshRuntime:
 
     @staticmethod
     async def _close_connection(connection) -> None:
+        """发起连接关闭并等待 AsyncSSH 完成底层资源释放。"""
+
         connection.close()
         await connection.wait_closed()
 
     @staticmethod
     def _matches(active, candidate) -> bool:
+        """比较 Host Key 算法、指纹和公钥正文是否全部一致。"""
+
         return (
             active.key_algorithm == candidate.key_algorithm
             and active.fingerprint_sha256 == candidate.fingerprint_sha256
@@ -527,6 +553,8 @@ class SshRuntime:
         candidate=None,
         trusted_fingerprint_sha256: str | None = None,
     ) -> ConnectionStatus:
+        """集中构造字段完整且严格校验的公开连接状态。"""
+
         return ConnectionStatus(
             connection_id=connection_id,
             state=state,
@@ -539,12 +567,16 @@ class SshRuntime:
         )
 
     async def _emit(self, status: ConnectionStatus) -> None:
+        """在配置监听器时异步发布一条连接状态。"""
+
         if self._status_listener is not None:
             await self._status_listener(status)
 
     async def _emit_error(
         self, connection_id: UUID, error: SshRuntimeError
     ) -> None:
+        """把结构化 SSH 异常转换为 FAILED 连接状态并发布。"""
+
         await self._emit(
             self._status(
                 connection_id,
@@ -564,6 +596,8 @@ class SshRuntime:
         outcome: str,
         error_code: str | None,
     ) -> None:
+        """将一次有界连接尝试同时写入本地 Span 和 HMAC 审计链。"""
+
         span_context = (
             self._tracer.start_as_current_span("ssh.connect.attempt")
             if self._tracer is not None

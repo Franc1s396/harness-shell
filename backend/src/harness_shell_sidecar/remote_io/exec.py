@@ -17,28 +17,44 @@ READ_CHUNK_BYTES = 64 * 1024
 
 
 class RemoteExecError(RuntimeError):
+    """携带稳定错误码和已捕获部分结果的远端执行异常。"""
+
     def __init__(self, error_code: str, result: RemoteExecResult) -> None:
+        """保存失败类别以及可供审计的结构化执行结果。"""
+
         super().__init__(error_code)
-        self.error_code = error_code
-        self.result = result
+        self.error_code = error_code  # 面向调用方的稳定失败类别。
+        self.result = result  # 包含失败前已捕获输出的结构化结果。
 
 
 @dataclass(slots=True)
 class _Capture:
+    """跟踪单个远端输出流的有限内存捕获状态。"""
+
+    #: 在进程硬上限内实际保留的输出字节。
     payload: bytearray = field(default_factory=bytearray)
+    #: 从流中观测到的总字节数，包括未保留的截断部分。
     observed: int = 0
+    #: 是否正常读到流末尾。
     complete: bool = False
+    #: 是否因超过进程级硬上限而主动关闭进程。
     hard_limit_exceeded: bool = False
 
 
 class RemoteExecutor:
+    """在独立 SSH channel 中执行有界命令并加密保存输出。"""
+
     def __init__(
         self, ssh_sessions: SshSessionRegistry, artifacts: ArtifactStore
     ) -> None:
-        self._ssh_sessions = ssh_sessions
-        self._artifacts = artifacts
+        """绑定 SSH 会话注册表和输出 Artifact 仓储。"""
+
+        self._ssh_sessions = ssh_sessions  # 查找并跟踪命令所属的 SSH 会话。
+        self._artifacts = artifacts  # 持久化 stdout/stderr 的加密内容。
 
     async def run(self, request: RemoteExecRequest) -> RemoteExecResult:
+        """在统一 deadline 内执行命令、排空输出并返回有界结果。"""
+
         owner = self._ssh_sessions.get(request.ssh_session_id)
         if owner is None:
             raise RuntimeError("SSH_SESSION_NOT_FOUND")
@@ -140,6 +156,8 @@ class RemoteExecutor:
         timeout: bool,
         cancelled: bool,
     ) -> RemoteExecResult:
+        """为命令尚未成功启动的超时或取消构造空的不完整结果。"""
+
         stdout = self._artifacts.put(
             b"",
             media_type="application/octet-stream",
@@ -167,6 +185,8 @@ class RemoteExecutor:
 
     @staticmethod
     async def _drain(process, stream, capture: _Capture) -> None:
+        """持续读取一个二进制流，达到硬上限时关闭远端进程。"""
+
         while True:
             chunk = await stream.read(READ_CHUNK_BYTES)
             if not chunk:

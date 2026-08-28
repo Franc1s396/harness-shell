@@ -15,10 +15,16 @@ from harness_shell_sidecar.storage import LocalTraceStore, SpanRecord
 
 
 class LocalSpanExporter(SpanExporter):
+    """将 OpenTelemetry Span 仅导出到本地 SQLite 的同步 Exporter。"""
+
     def __init__(self, store: LocalTraceStore) -> None:
-        self._store = store
+        """绑定已执行属性 allowlist 的本地 Trace Store。"""
+
+        self._store = store  # 唯一 Span 输出目标，不进行网络发送。
 
     def export(self, spans: tuple[ReadableSpan, ...]) -> SpanExportResult:
+        """逐条转换和写入 Span，并按 SDK 约定返回成功或失败状态。"""
+
         try:
             for span in spans:
                 self._store.write(_to_record(span))
@@ -27,6 +33,8 @@ class LocalSpanExporter(SpanExporter):
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
+        """完成 Exporter 关闭；Store 生命周期由 RuntimeDatabase 管理。"""
+
         return None
 
 
@@ -60,4 +68,3 @@ def _ns_timestamp(value: int | None) -> str:
     return datetime.fromtimestamp(value / 1_000_000_000, timezone.utc).isoformat(
         timespec="microseconds"
     ).replace("+00:00", "Z")
-

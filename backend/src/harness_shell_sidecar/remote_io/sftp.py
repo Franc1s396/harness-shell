@@ -27,17 +27,23 @@ T = TypeVar("T")
 
 
 class RemoteSftpError(RuntimeError):
-    pass
+    """远端只读 SFTP 操作违反约束或无法完成时抛出的异常。"""
 
 
 class RemoteSftp:
+    """通过短生命周期独立 channel 提供严格只读的有界 SFTP 操作。"""
+
     def __init__(
         self, ssh_sessions: SshSessionRegistry, artifacts: ArtifactStore
     ) -> None:
-        self._ssh_sessions = ssh_sessions
-        self._artifacts = artifacts
+        """绑定 SSH 会话注册表和远端读取结果的 Artifact 仓储。"""
+
+        self._ssh_sessions = ssh_sessions  # 用于定位已验证的 SSH 主连接。
+        self._artifacts = artifacts  # 加密保存读取到的远端文件字节。
 
     async def lstat(self, ssh_session_id: UUID, path: str) -> RemoteStat:
+        """不跟随符号链接地读取远端绝对路径元数据。"""
+
         path = _validate_path(path)
 
         async def operation(client):
@@ -48,6 +54,8 @@ class RemoteSftp:
     async def listdir(
         self, ssh_session_id: UUID, path: str, max_entries: int
     ) -> RemoteListResult:
+        """在显式条目预算内枚举远端目录。"""
+
         path = _validate_path(path)
         if not 1 <= max_entries <= MAX_LIST_ENTRIES:
             raise ValueError("max_entries must be between 1 and 1000")
@@ -74,6 +82,8 @@ class RemoteSftp:
         offset: int,
         length: int,
     ) -> RemoteReadRangeResult:
+        """读取普通文件的有界字节区间，并将内容保存为加密 Artifact。"""
+
         path = _validate_path(path)
         if offset < 0:
             raise ValueError("offset must not be negative")
@@ -105,6 +115,8 @@ class RemoteSftp:
         return await self._with_client(ssh_session_id, operation)
 
     async def sha256(self, ssh_session_id: UUID, path: str) -> RemoteHashResult:
+        """分块读取普通文件并计算完整 SHA-256 摘要。"""
+
         path = _validate_path(path)
 
         async def operation(client):
@@ -132,6 +144,8 @@ class RemoteSftp:
     async def _with_client(
         self, ssh_session_id: UUID, operation: Callable[[object], Awaitable[T]]
     ) -> T:
+        """在独立 SFTP channel 上执行操作，并保证 channel 被关闭和移除。"""
+
         owner = self._ssh_sessions.get(ssh_session_id)
         if owner is None:
             raise RemoteSftpError("SSH_SESSION_NOT_FOUND")

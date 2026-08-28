@@ -16,22 +16,34 @@ from harness_shell_sidecar.storage import EncryptedRecordStore, RuntimeDatabase
 
 
 class FakeFile:
+    """支持异步上下文、seek 和 read 的内存远端文件替身。"""
+
     def __init__(self, payload: bytes) -> None:
-        self.payload = payload
-        self.offset = 0
-        self.closed = False
-        self.read_sizes: list[int] = []
+        """保存不可变正文并把游标置于文件开头。"""
+
+        self.payload = payload  # 模拟远端文件的完整内容。
+        self.offset = 0  # 下一次读取的字节偏移量。
+        self.closed = False  # 是否退出异步上下文。
+        self.read_sizes: list[int] = []  # 每次 read 请求的大小。
 
     async def __aenter__(self):
+        """进入异步文件上下文并返回自身。"""
+
         return self
 
     async def __aexit__(self, exc_type, exc, traceback) -> None:
+        """记录远端文件句柄已关闭。"""
+
         self.closed = True
 
     async def seek(self, offset: int) -> None:
+        """把内存读取游标移动到指定偏移。"""
+
         self.offset = offset
 
     async def read(self, size: int) -> bytes:
+        """从当前游标返回最多 size 字节并推进游标。"""
+
         self.read_sizes.append(size)
         value = self.payload[self.offset : self.offset + size]
         self.offset += len(value)
@@ -40,47 +52,71 @@ class FakeFile:
 
 @dataclass
 class FakeName:
+    """模拟 AsyncSSH scandir 返回的名称与属性组合。"""
+
+    #: 目录项名称。
     filename: str
+    #: 目录项的远端 stat 属性替身。
     attrs: object
 
 
 class FakeSftpClient:
+    """记录只读 SFTP 调用并返回内存文件的 Client 替身。"""
+
     def __init__(self, payload: bytes, *, symlink: bool = False) -> None:
+        """创建普通文件或符号链接属性及空调用记录。"""
+
         mode = stat.S_IFLNK | 0o777 if symlink else stat.S_IFREG | 0o644
-        self.attrs = SimpleNamespace(
+        self.attrs = SimpleNamespace(  # 所有测试路径共用的远端属性。
             size=len(payload), permissions=mode, mtime=123, mtime_ns=None
         )
-        self.payload = payload
-        self.lstat_calls: list[str] = []
-        self.open_calls: list[tuple[str, str]] = []
-        self.exited = False
-        self.waited = False
+        self.payload = payload  # open 返回的内存文件内容。
+        self.lstat_calls: list[str] = []  # lstat 查询路径。
+        self.open_calls: list[tuple[str, str]] = []  # 文件打开路径与模式。
+        self.exited = False  # exit 是否被调用。
+        self.waited = False  # wait_closed 是否被等待。
 
     async def lstat(self, path: str):
+        """记录路径并返回预设属性。"""
+
         self.lstat_calls.append(path)
         return self.attrs
 
     async def open(self, path: str, mode: str):
+        """记录打开参数并返回新的内存文件句柄。"""
+
         self.open_calls.append((path, mode))
         return FakeFile(self.payload)
 
     async def scandir(self, path: str):
+        """异步产生三个具有相同属性的目录项。"""
+
         for index in range(3):
             yield FakeName(f"item-{index}", self.attrs)
 
     def exit(self) -> None:
+        """记录 Client 已收到关闭请求。"""
+
         self.exited = True
 
     async def wait_closed(self) -> None:
+        """记录调用方等待了 Client 关闭。"""
+
         self.waited = True
 
 
 class FakeConnection:
+    """每次调用返回下一个独立 SFTP Client 的 SSH 连接替身。"""
+
     def __init__(self, clients: list[FakeSftpClient]) -> None:
-        self.clients = list(clients)
-        self.opened: list[FakeSftpClient] = []
+        """复制待返回 Client 列表并初始化已打开记录。"""
+
+        self.clients = list(clients)  # 尚未被分配的 Client。
+        self.opened: list[FakeSftpClient] = []  # 已按调用顺序返回的 Client。
 
     async def start_sftp_client(self):
+        """返回下一个 Client，并记录 channel 隔离证据。"""
+
         client = self.clients.pop(0)
         self.opened.append(client)
         return client

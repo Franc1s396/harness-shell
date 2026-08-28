@@ -17,20 +17,33 @@ from .repository import ConnectionRepository, ConnectionRepositoryError
 
 
 class _EmptyParams(BaseModel):
+    """表示不接受任何业务参数的严格请求体。"""
+
+    #: 拒绝调用方传入任何未声明参数。
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class _ConnectionIdParams(BaseModel):
+    """仅按连接标识符定位连接的请求参数。"""
+
+    #: 对 IPC 请求参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 目标连接配置的唯一标识符。
     connection_id: UUID
 
 
 class _ConnectionUpdateParams(ConnectionProfileInput):
+    """连接更新请求中“目标标识符 + 完整新配置”的组合。"""
+
+    #: 要被更新的连接配置标识符。
     connection_id: UUID
 
 
 class _HostKeyReplaceParams(HostKeyCandidate):
+    """替换 Host Key 时携带的候选值与并发保护条件。"""
+
+    #: 调用方预期当前仍生效的旧指纹，用于避免覆盖并发变化。
     expected_old_fingerprint: str
 
 

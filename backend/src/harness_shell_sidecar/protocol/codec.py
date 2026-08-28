@@ -21,9 +21,14 @@ class FrameDecoder:
     """Incrementally decode complete frames from arbitrary byte chunks."""
 
     def __init__(self) -> None:
+        """创建一个尚未接收任何协议字节的增量解码器。"""
+
+        # 保存尚不足以组成完整帧的跨 chunk 字节。
         self._buffer = bytearray()
 
     def feed(self, chunk: bytes) -> list[FrameEnvelope]:
+        """追加字节并返回本次能够完整解码出的所有协议帧。"""
+
         self._buffer.extend(chunk)
         frames: list[FrameEnvelope] = []
 
@@ -60,6 +65,8 @@ class FrameDecoder:
 
     @staticmethod
     def _parse_header(header: bytes) -> int:
+        """严格解析单行 Content-Length 帧头并返回正文长度。"""
+
         lines = header.split(b"\r\n")
         if len(lines) != 1 or not lines[0].startswith(_CONTENT_LENGTH_PREFIX):
             raise ProtocolViolation(
@@ -74,8 +81,9 @@ class FrameDecoder:
 
     @staticmethod
     def _parse_body(body: bytes) -> FrameEnvelope:
+        """把 UTF-8 JSON 正文校验为唯一允许的 v1 信封模型。"""
+
         try:
             return FrameEnvelope.model_validate_json(body)
         except (ValidationError, UnicodeDecodeError, ValueError) as exc:
             raise ProtocolViolation("frame payload is not a valid v1 envelope") from exc
-

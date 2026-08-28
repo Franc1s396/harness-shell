@@ -15,15 +15,19 @@ from .models import ArtifactReference
 
 
 class ArtifactIntegrityError(RuntimeError):
-    pass
+    """Artifact 元数据、密文或完整性校验不一致时抛出的异常。"""
 
 
 class ArtifactStore:
+    """以不可变元数据和认证加密记录持久化远端输出。"""
+
     def __init__(
         self, database: RuntimeDatabase, record_store: EncryptedRecordStore
     ) -> None:
-        self._database = database
-        self._records = record_store
+        """绑定元数据库与负责加解密负载的记录仓储。"""
+
+        self._database = database  # 保存摘要、大小和敏感级别等明文元数据。
+        self._records = record_store  # 保存经过认证加密的 Artifact 正文。
 
     def put(
         self,
@@ -34,6 +38,8 @@ class ArtifactStore:
         complete: bool,
         artifact_id: UUID | None = None,
     ) -> ArtifactReference:
+        """原子写入新的加密 Artifact，并返回不可变引用。"""
+
         artifact_id = artifact_id or uuid4()
         record_id = str(artifact_id)
         digest = hashlib.sha256(payload).hexdigest()
@@ -92,6 +98,8 @@ class ArtifactStore:
         )
 
     def get(self, artifact_id: UUID) -> bytes:
+        """读取并同时验证密文认证、摘要和长度后返回明文。"""
+
         reference = self.reference(artifact_id)
         try:
             record = self._records.get("artifact", str(artifact_id))
@@ -108,6 +116,8 @@ class ArtifactStore:
         return record.payload
 
     def reference(self, artifact_id: UUID) -> ArtifactReference:
+        """读取 Artifact 元数据并重建不包含正文的引用。"""
+
         row = self._database.execute(
             """
             SELECT sha256, byte_count, media_type, sensitivity, complete
@@ -129,6 +139,8 @@ class ArtifactStore:
         )
 
     def self_check(self) -> None:
+        """验证元数据与密文一一对应，并逐项执行完整性校验。"""
+
         metadata_ids = {
             row[0]
             for row in self._database.execute(

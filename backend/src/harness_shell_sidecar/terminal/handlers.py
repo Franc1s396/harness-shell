@@ -18,31 +18,52 @@ from .models import PtyCols, PtyRows
 
 
 class _OpenParams(BaseModel):
+    """在已有 SSH 会话上打开 PTY 的请求参数。"""
+
+    #: 对 IPC 参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 承载新 PTY channel 的活动 SSH 会话标识符。
     ssh_session_id: UUID
+    #: 初始终端列数。
     cols: PtyCols
+    #: 初始终端行数。
     rows: PtyRows
 
 
 class _WriteParams(BaseModel):
+    """向活动 PTY 写入一段二进制输入的请求参数。"""
+
+    #: 对 IPC 参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 接收输入的 PTY 会话标识符。
     pty_session_id: UUID
+    #: 1..32768 字节输入的标准 Base64 编码。
     data_b64: str
 
 
 class _ResizeParams(BaseModel):
+    """调整活动 PTY 终端尺寸的请求参数。"""
+
+    #: 对 IPC 参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 要调整尺寸的 PTY 会话标识符。
     pty_session_id: UUID
+    #: 更新后的终端列数。
     cols: PtyCols
+    #: 更新后的终端行数。
     rows: PtyRows
 
 
 class _CloseParams(BaseModel):
+    """关闭单个 PTY 会话的请求参数。"""
+
+    #: 对 IPC 参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 要关闭的 PTY 会话标识符。
     pty_session_id: UUID
 
 

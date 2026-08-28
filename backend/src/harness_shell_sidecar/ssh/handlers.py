@@ -24,24 +24,43 @@ from .errors import ConnectionStatus, SshRuntimeError
 
 
 class _SshRuntimeProtocol(Protocol):
+    """SSH dispatcher handlers 依赖的最小运行时接口。"""
+
     async def inspect_host_key(
         self, connection_id: UUID, **secrets
-    ) -> ConnectionStatus: ...
+    ) -> ConnectionStatus:
+        """检查目标端点 Host Key，但不建立可复用登录会话。"""
 
-    async def connect(self, connection_id: UUID, **secrets) -> ConnectionStatus: ...
+        ...
 
-    async def disconnect(self, session_id: UUID) -> ConnectionStatus: ...
+    async def connect(self, connection_id: UUID, **secrets) -> ConnectionStatus:
+        """使用瞬时凭据建立并注册 SSH 会话。"""
+
+        ...
+
+    async def disconnect(self, session_id: UUID) -> ConnectionStatus:
+        """关闭指定 SSH 会话及其全部子 channel。"""
+
+        ...
 
 
 class _AuthenticationParams(BaseModel):
+    """IPC 请求中互斥的 Base64 认证秘密字段。"""
+
+    #: 拒绝额外字段和类型隐式转换。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 密码认证秘密的标准 Base64 编码。
     password_b64: str | None = None
+    #: 私钥文件字节的标准 Base64 编码。
     private_key_b64: str | None = None
+    #: 私钥口令字节的标准 Base64 编码。
     passphrase_b64: str | None = None
 
     @model_validator(mode="after")
     def require_one_authentication_kind(self) -> _AuthenticationParams:
+        """要求密码与私钥二选一，并限制口令只能配合私钥。"""
+
         if (self.password_b64 is None) == (self.private_key_b64 is None):
             raise ValueError("exactly one authentication secret is required")
         if self.private_key_b64 is None and self.passphrase_b64 is not None:
@@ -50,28 +69,47 @@ class _AuthenticationParams(BaseModel):
 
 
 class _JumpAuthenticationParams(_AuthenticationParams):
+    """ProxyJump 连接的身份、版本快照与认证秘密。"""
+
+    #: 跳板连接配置标识符。
     connection_id: UUID
+    #: 调用方读取跳板配置时看到的更新时间，用于拒绝陈旧秘密。
     profile_updated_at: AwareDatetime
 
 
 class _InspectParams(BaseModel):
+    """Host Key 检查请求参数及可选跳板认证。"""
+
+    #: 对 IPC 参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 要检查 Host Key 的目标连接配置标识符。
     connection_id: UUID
+    #: 通过 ProxyJump 检查时提供的跳板瞬时认证信息。
     jump: _JumpAuthenticationParams | None = None
 
 
 class _SessionIdParams(BaseModel):
+    """仅定位一个活动 SSH 会话的请求参数。"""
+
+    #: 对 IPC 参数执行严格结构校验。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 要断开的 SSH 会话标识符。
     ssh_session_id: UUID
 
 
 class _ConnectParams(_AuthenticationParams):
+    """目标连接的版本快照、认证秘密及可选跳板信息。"""
+
+    #: 明确保持严格参数校验配置。
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    #: 要建立会话的目标连接配置标识符。
     connection_id: UUID
+    #: 调用方读取目标配置时看到的更新时间，用于拒绝陈旧秘密。
     profile_updated_at: AwareDatetime
+    #: 可选的 ProxyJump 连接及其瞬时认证信息。
     jump: _JumpAuthenticationParams | None = None
 
 

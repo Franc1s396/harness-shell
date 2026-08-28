@@ -28,24 +28,34 @@ def frame(method: str, params: dict, *, secret: bool = False) -> FrameEnvelope:
 
 
 class FakeRuntime:
+    """捕获 Handler 解码后秘密并返回固定 SSH 状态的运行时替身。"""
+
     def __init__(self) -> None:
-        self.captured_secrets: list[bytearray] = []
+        """初始化空的瞬时秘密引用列表。"""
+
+        self.captured_secrets: list[bytearray] = []  # 用于断言 finally 已原地清零。
 
     async def inspect_host_key(
         self, connection_id: UUID, **secrets
     ) -> ConnectionStatus:
+        """捕获跳板秘密并返回需要确认 Host Key 的状态。"""
+
         self.captured_secrets = [
             value for value in secrets.values() if isinstance(value, bytearray)
         ]
         return status(connection_id, "HOST_KEY_REQUIRED")
 
     async def connect(self, connection_id: UUID, **secrets) -> ConnectionStatus:
+        """捕获目标与跳板秘密并返回 READY 状态。"""
+
         self.captured_secrets = [
             value for value in secrets.values() if isinstance(value, bytearray)
         ]
         return status(connection_id, "READY", session_id=uuid4())
 
     async def disconnect(self, session_id: UUID) -> ConnectionStatus:
+        """返回固定已断开状态。"""
+
         return status(uuid4(), "DISCONNECTED")
 
 
@@ -167,9 +177,13 @@ def test_proxy_jump_host_key_inspection_requires_secret_frame() -> None:
 
 def test_ssh_errors_keep_only_structured_safe_details() -> None:
     class FailingRuntime(FakeRuntime):
+        """Host Key 检查总是抛出结构化错误的运行时替身。"""
+
         async def inspect_host_key(
             self, connection_id: UUID, **secrets
         ) -> ConnectionStatus:
+            """注入不包含底层秘密的 HOST_KEY_CHANGED 失败。"""
+
             raise SshRuntimeError(
                 "HOST_KEY_CHANGED",
                 node="host_key",

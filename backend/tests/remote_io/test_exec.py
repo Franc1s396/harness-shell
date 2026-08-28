@@ -17,49 +17,77 @@ from harness_shell_sidecar.storage import EncryptedRecordStore, RuntimeDatabase
 
 
 class FakeReader:
+    """按预设顺序返回二进制 chunk 的异步流替身。"""
+
     def __init__(self, chunks: list[bytes]) -> None:
-        self.chunks = list(chunks)
+        """复制 chunk 列表，避免测试读取修改调用方数据。"""
+
+        self.chunks = list(chunks)  # 尚未被 read 消费的 chunk。
 
     async def read(self, size: int) -> bytes:
+        """返回下一个 chunk，耗尽后模拟 EOF。"""
+
         await asyncio.sleep(0)
         return self.chunks.pop(0) if self.chunks else b""
 
 
 class HangingReader:
+    """永不自行完成读取、用于触发执行超时的流替身。"""
+
     async def read(self, size: int) -> bytes:
+        """永久等待，除非外部任务取消。"""
+
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
 
 
 class FakeProcess:
+    """暴露独立 stdout/stderr 和可观察关闭状态的进程替身。"""
+
     def __init__(self, stdout: list[bytes], stderr: list[bytes]) -> None:
-        self.stdout = FakeReader(stdout)
-        self.stderr = FakeReader(stderr)
-        self.exit_status = 0
-        self.exit_signal = None
-        self.closed = False
-        self.waited = False
+        """使用预设输出创建一个默认正常退出的进程。"""
+
+        self.stdout = FakeReader(stdout)  # 标准输出流替身。
+        self.stderr = FakeReader(stderr)  # 标准错误流替身。
+        self.exit_status = 0  # 模拟正常退出码。
+        self.exit_signal = None  # 正常退出时没有终止信号。
+        self.closed = False  # close 是否被调用。
+        self.waited = False  # wait_closed 是否被等待。
 
     def close(self) -> None:
+        """记录执行器主动关闭了进程。"""
+
         self.closed = True
 
     async def wait_closed(self) -> None:
+        """记录执行器等待了进程资源收敛。"""
+
         self.waited = True
 
 
 class HangingProcess(FakeProcess):
+    """stdout 与 stderr 均永久阻塞的超时场景进程。"""
+
     def __init__(self) -> None:
+        """以不会自然到达 EOF 的读取器替换两个输出流。"""
+
         super().__init__([], [])
-        self.stdout = HangingReader()
-        self.stderr = HangingReader()
+        self.stdout = HangingReader()  # 永不自然结束的标准输出。
+        self.stderr = HangingReader()  # 永不自然结束的标准错误。
 
 
 class FakeConnection:
+    """返回固定进程并记录 create_process 参数的 SSH 连接替身。"""
+
     def __init__(self, process: FakeProcess) -> None:
-        self.process = process
-        self.calls: list[dict] = []
+        """保存唯一待返回进程并初始化调用记录。"""
+
+        self.process = process  # 每次 create_process 返回的进程。
+        self.calls: list[dict] = []  # create_process 的命令和选项记录。
 
     async def create_process(self, command: str, **options):
+        """记录二进制 channel 选项并返回固定进程。"""
+
         self.calls.append({"command": command, **options})
         return self.process
 
