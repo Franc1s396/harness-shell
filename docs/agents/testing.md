@@ -62,7 +62,7 @@
 ## 长期约束
 
 - `scripts/verify-m1.ps1` 当前执行工具链检查、Python tests、Sidecar package、Rust tests、Web build 和 `tauri info`。
-- `scripts/verify-m2.ps1` 先运行 M1，再运行 SSH Lab topology/keygen、Python unit/contract、真实 SSH integration、cleanup 和 runtime evidence 检查。M2 仍要求历史 `artifact_metadata` 与通用 `encrypted_records` schema 存在，但已删除的 Agent/Artifact runtime 不再产生业务行，因此 M2 行证据只要求 audit、trace 与 Vault；人工 SFTP 门禁另行要求 encrypted operation 行证据。
+- `scripts/verify-m2.ps1` 先运行 M1，再运行 SSH Lab topology/keygen/startup-readiness/shell-line-ending contracts、Python unit/contract、真实 SSH integration、cleanup 和 runtime evidence 检查。Startup readiness 对 Compose 成功但 `ps -q` 暂时无输出的状态使用同一个 90 秒 deadline 条件等待；Compose 查询失败或 deadline 耗尽仍立即显式失败。Linux 容器入口脚本由根 `.gitattributes` 固定为 LF，并由字节级契约测试阻止 CRLF shebang。M2 仍要求历史 `artifact_metadata` 与通用 `encrypted_records` schema 存在，但已删除的 Agent/Artifact runtime 不再产生业务行，因此 M2 行证据只要求 audit、trace 与 Vault；人工 SFTP 门禁另行要求 encrypted operation 行证据。
 - `scripts/verify-manual-sftp.ps1` 先回归 M2，再运行 focused manual-SFTP Python、packaged Sidecar/Rust all-target、Frontend test/build、Direct/ProxyJump OpenSSH manual-SFTP 与 PTY isolation，并扫描 container log、typed event、SQLite/evidence 中的 credential/local-path/file-content marker；任何阶段失败都不得打印总成功标志。
 - 旧 Agent exec/SFTP/Artifact 单元与 SSH integration 测试已经随运行时删除；用户手动 SFTP 由独立 manual-SFTP gate 和桌面清单验收，不构成 Agent SFTP 证据。
 - 私有 manual SFTP runtime/coordinator 的 Rust/Python contract、command/capability contract、typed frontend/controller 与 workspace 交互测试已覆盖本地实现、wire 行为、42-command 注册、main-only permission、进入 Activity 时固定 Session binding、Rust canonical snapshot/TxF、本地 download-part recovery、disconnect/exit lifecycle、单项 action matrix、lazy tree、非持久化状态、确认/键盘/焦点和 900×600 响应式边界。实现完成不等于统一自动门禁或 Tauri Desktop 已验收；这些测试与 Web build 也不能替代 SSH Lab 或真实 host 验收。

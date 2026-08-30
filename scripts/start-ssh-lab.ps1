@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'ssh-lab-readiness.ps1')
+
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $labRoot = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'tests\ssh_lab'))
 $runtimeRoot = [IO.Path]::GetFullPath((Join-Path $labRoot '.runtime'))
@@ -121,10 +123,18 @@ try {
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     $jumpContainerId = $null
     foreach ($service in @('jump', 'target')) {
-        $containerId = (& docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-m2 ps -q $service).Trim()
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
-            throw "SSH lab container was not created: $service"
-        }
+        $containerId = Wait-SshLabContainerId `
+            -Service $service `
+            -Deadline $deadline `
+            -QueryContainerId {
+                param([string]$QueryService)
+                $queryOutput = @(& docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-m2 ps -q $QueryService)
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Unable to inspect SSH lab container: $QueryService"
+                }
+                if ($queryOutput.Count -eq 0) { return $null }
+                return ($queryOutput -join "`n").Trim()
+            }
         if ($service -eq 'jump') { $jumpContainerId = $containerId }
         do {
             $health = (& docker.exe inspect --format '{{.State.Health.Status}}' $containerId).Trim()

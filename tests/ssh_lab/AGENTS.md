@@ -15,6 +15,7 @@
 - Secret marker 扫描、runtime database evidence 检查和 cleanup 都是 M2 gate 的组成部分；不得跳过失败阶段后报告总门禁成功。
 - 启停脚本必须显式检查 Docker/Compose、容器端口、真实 TCP 可达性和资源清理，不能只依据 Compose config 或 health 声称可用。
 - PowerShell 调用 `ssh-keygen.exe` 时保留经过测试的空 passphrase 参数语义，不恢复会在 Windows PowerShell 5.1 丢失空参数的写法。
+- Linux 容器运行的 `*.sh` 必须保持 LF 行尾；根 `.gitattributes` 固定 checkout 规则，字节级契约测试阻止 CRLF shebang 进入 SSH Lab。
 - 测试完成或失败后清理 container、network、临时环境变量和本地进程；不要删除 `.runtime` 之外的用户文件。
 - SSH Lab 通过只证明当前 checkout 对选定 containerized OpenSSH 行为，不是 production host、Provider、Agent Workflow、审批、sudo 或远程写验收。
 - 任务结束前检查 Protocol、Testing 和本局部规则是否因拓扑、证据或命令变化需要同步更新，并报告结果。

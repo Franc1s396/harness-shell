@@ -61,6 +61,10 @@ Write-Output '[7/8] OpenSSH lab integration tests'
 if ($LASTEXITCODE -ne 0) { throw 'OpenSSH lab Compose topology regression failed' }
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $workspaceRoot 'tests\ssh_lab\test-keygen-arguments.ps1')
 if ($LASTEXITCODE -ne 0) { throw 'OpenSSH key generation argument regression failed' }
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $workspaceRoot 'tests\ssh_lab\test-startup-readiness.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'OpenSSH lab startup readiness regression failed' }
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $workspaceRoot 'tests\ssh_lab\test-shell-line-endings.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'OpenSSH lab shell line-ending regression failed' }
 $labStarted = $false
 try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-ssh-lab.ps1')
