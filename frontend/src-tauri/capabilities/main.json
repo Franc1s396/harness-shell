@@ -8,6 +8,7 @@
     "credentials",
     "connections",
     "terminal",
+    "sftp",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:event:allow-listen",

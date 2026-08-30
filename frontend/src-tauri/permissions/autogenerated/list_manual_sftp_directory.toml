@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-manual-sftp-directory"
+description = "Enables the list_manual_sftp_directory command without any pre-configured scope."
+commands.allow = ["list_manual_sftp_directory"]
+
+[[permission]]
+identifier = "deny-list-manual-sftp-directory"
+description = "Denies the list_manual_sftp_directory command without any pre-configured scope."
+commands.deny = ["list_manual_sftp_directory"]

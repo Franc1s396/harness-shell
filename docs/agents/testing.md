@@ -1,0 +1,135 @@
+# Testing Guide
+
+## 何时必须读取
+
+出现以下任一情况时必须读取本文档：
+
+- 新增或修改 Frontend、Rust、Python 测试；
+- 修改 Sidecar 打包、Tauri build、SSH Lab 或验证脚本；
+- 准备报告“通过”“完成”“已修复”或某个里程碑验收；
+- 改变生成物、测试证据、桌面人工验收或生产验收边界。
+
+涉及 SSH Lab 时还必须读取 `tests/ssh_lab/AGENTS.md`；涉及协议或 secret marker 时读取 [Protocol & Security Guide](protocol-security.md)。
+
+## 范围与职责
+
+本仓库将验证分为七个证据层级：
+
+1. Focused unit/contract test：证明一个小范围行为或契约。
+2. Subsystem suite：Python、Frontend 或 Rust 某一子系统回归。
+3. Packaged Sidecar/Rust contract：证明实际 `.exe` 与 Rust 启动、Vault、Protocol、Supervisor 契约。
+4. M1 automated gate：证明本地桌面基础设施的自动化范围。
+5. M2 automated gate：证明当前 Windows checkout 加 containerized OpenSSH Lab 的自动化范围。
+6. Tauri desktop manual acceptance：证明真实窗口、输入、焦点、Runtime 投影和进程清理等观察行为。
+7. Production host/deployment/migration acceptance：必须在目标环境单独执行，不由前六层自动推导。
+
+结论只能覆盖实际执行且保存证据的层级。
+
+## 当前源码真源
+
+- Frontend 测试与脚本：[frontend/package.json](../../frontend/package.json)、[frontend/src/](../../frontend/src/)
+- Rust contract tests：[frontend/src-tauri/tests/](../../frontend/src-tauri/tests/)
+- Python 测试配置：[backend/pyproject.toml](../../backend/pyproject.toml)
+- Python tests：[backend/tests/](../../backend/tests/)
+- Sidecar build：[backend/scripts/build_sidecar.ps1](../../backend/scripts/build_sidecar.ps1)
+- M1 gate：[scripts/verify-m1.ps1](../../scripts/verify-m1.ps1)
+- M2 gate：[scripts/verify-m2.ps1](../../scripts/verify-m2.ps1)
+- SSH Lab：[tests/ssh_lab/](../../tests/ssh_lab/)
+- M1 acceptance：[docs/testing/m1-acceptance.md](../testing/m1-acceptance.md)
+- M2 acceptance：[docs/testing/m2-acceptance.md](../testing/m2-acceptance.md)
+- 生成物排除：[.gitignore](../../.gitignore)
+
+## 项目结构规范
+
+- Frontend test 与被测模块相邻，使用 `*.test.ts` / `*.test.tsx`。
+- Python test 按领域位于 `backend/tests/<domain>/`；真实 OpenSSH 流程集中在 `ssh_integration/`。
+- Rust 跨模块契约位于 `frontend/src-tauri/tests/`，文件名清楚标识被验证边界。
+- 用户手动 SFTP coordinator 契约位于 `frontend/src-tauri/tests/manual_sftp_coordinator_contract.rs`；覆盖 actor/lifecycle/gate、mutation/recovery、真实 Broker frame 的多 chunk upload/download、typed progress、取消边界、future-drop detached cleanup 必须阻塞 shutdown drain，以及 journal/local-commit fail-closed matrix。
+- SSH Lab 的 Dockerfile、Compose、入口、配置和检查脚本位于 `tests/ssh_lab/`；运行凭据与证据只在 `.runtime/`。
+- 仓库级门禁脚本位于 `scripts/`，不得在文档中复制实现逻辑形成第二真源。
+- 人工验收记录位于 `docs/testing/`，必须记录环境、时间、构建、观察证据、未执行项和边界。
+
+## 代码规范
+
+- 测试名描述条件与结果，不写 `test_happy_path` 等失去业务含义的名称。
+- 回归测试先证明原问题会失败，再验证修复后的最小正确行为。
+- 失败路径断言 error code、状态和副作用不存在；不得只断言“抛了异常”。
+- 时间、并发和生命周期测试使用可控 clock/event/channel，避免依赖长时间 `sleep` 和竞态碰运气。
+- Secret test 使用唯一 marker 并扫描所有规定介质；不得在测试输出中打印实际 credential。
+- Fake/Stub 只模拟明确契约，不因实现方便绕过真实边界；测试辅助 Python 遵循 [Python Style Guide](python-style.md)。
+- 验证脚本遇到缺失依赖、端口、证据或阶段失败时直接停止，不跳过后继续报告总门禁成功。
+
+## 长期约束
+
+- `scripts/verify-m1.ps1` 当前执行工具链检查、Python tests、Sidecar package、Rust tests、Web build 和 `tauri info`。
+- `scripts/verify-m2.ps1` 先运行 M1，再运行 SSH Lab topology/keygen、Python unit/contract、真实 SSH integration、cleanup 和 runtime evidence 检查。M2 仍要求历史 `artifact_metadata` 与通用 `encrypted_records` schema 存在，但已删除的 Agent/Artifact runtime 不再产生业务行，因此 M2 行证据只要求 audit、trace 与 Vault；人工 SFTP 门禁另行要求 encrypted operation 行证据。
+- `scripts/verify-manual-sftp.ps1` 先回归 M2，再运行 focused manual-SFTP Python、packaged Sidecar/Rust all-target、Frontend test/build、Direct/ProxyJump OpenSSH manual-SFTP 与 PTY isolation，并扫描 container log、typed event、SQLite/evidence 中的 credential/local-path/file-content marker；任何阶段失败都不得打印总成功标志。
+- 旧 Agent exec/SFTP/Artifact 单元与 SSH integration 测试已经随运行时删除；用户手动 SFTP 由独立 manual-SFTP gate 和桌面清单验收，不构成 Agent SFTP 证据。
+- 私有 manual SFTP runtime/coordinator 的 Rust/Python contract、command/capability contract、typed frontend/controller 与 workspace 交互测试已覆盖本地实现、wire 行为、42-command 注册、main-only permission、进入 Activity 时固定 Session binding、Rust canonical snapshot/TxF、本地 download-part recovery、disconnect/exit lifecycle、单项 action matrix、lazy tree、非持久化状态、确认/键盘/焦点和 900×600 响应式边界。实现完成不等于统一自动门禁或 Tauri Desktop 已验收；这些测试与 Web build 也不能替代 SSH Lab 或真实 host 验收。
+- Connection profile 版本回归必须覆盖 v2→v3 migration、固定时钟下连续更新仍逐次 `+1`、`2^53-1` 耗尽不写入、目标/ProxyJump 陈旧版本在网络 I/O 前失败，以及 Rust 只发送数字 `profile_version` 的跨语言契约。
+- M2 成功标志必须是脚本最终明确输出：`M2 automated gate passed: local Windows checkout plus containerized OpenSSH lab only.`
+- Manual SFTP gate 的唯一总成功标志必须在 cleanup 与 evidence scan 完成后输出：`Manual SFTP automated gate passed: local Windows checkout plus containerized OpenSSH lab only.`
+- SSH Lab 的 `jump` 同时连接 `ssh_ingress` 与内部 `ssh_lab`，只将 `127.0.0.1:2222` 暴露到 host；`target` 仅连接 internal `ssh_lab`。
+- 容器 SSH integration 直接经过 Python runtime，不证明凭据经过桌面 Core/Vault，也不证明 Provider、Agent Workflow、审批、sudo 或远程写路径。
+- 自动测试不能替代 Tauri Desktop 的真实焦点、窗口、xterm 输入、Runtime 刷新和进程清理验收。
+- 当前 M2 手工记录完成只证明该 checkout 与选定 local/container hosts，仍不是 production-host acceptance。
+
+生成物和本地状态不得提交：
+
+- Python `.venv/`、`__pycache__/`、`.pytest_cache/`、coverage、`backend/build/`、`backend/dist/`
+- Frontend `node_modules/`、`dist/`、TypeScript build info
+- Rust `target/`
+- `frontend/src-tauri/binaries/*.exe` 与 Tauri generated schemas
+- `tests/ssh_lab/.runtime/`
+- `.env*`（保留显式允许的 `.env.example`）、日志和临时文件
+
+## 项目命令
+
+Python subsystem，从仓库根运行：
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Frontend subsystem：
+
+```powershell
+cd ..\frontend
+npm run test
+npm run build
+```
+
+Rust 与仓库门禁，从 `frontend/` 返回仓库根：
+
+```powershell
+cd ..
+cargo test --manifest-path frontend\src-tauri\Cargo.toml --all-targets
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m2.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-manual-sftp.ps1
+```
+
+M2 会创建并清理容器、生成 credential 和证据，要求 Docker Desktop、Docker Compose v2、Python 3.12.13、Node/npm、Rust MSVC 工具链、WebView2 和 Windows OpenSSH `ssh-keygen.exe`。
+
+## 验证要求
+
+- 选择最小足够测试开始，再依据变更风险逐层扩大；不得用无关大门禁掩盖缺失的 focused regression。
+- 报告每条实际运行的命令、退出码和关键计数；未运行的阶段明确标为未验证。
+- Sidecar package 只有 build script 和 smoke test 真正成功后才能报告已打包。
+- `verify-m1.ps1` 通过只说明其六阶段自动范围；人工桌面安全检查未完成时不得宣称 M1 桌面验收完成。
+- `verify-m2.ps1` 通过只说明 local Windows checkout + containerized OpenSSH Lab；人工 Desktop matrix 另行记录。
+- UI 行为由用户截图、复现和“验证通过”可作为对应桌面范围证据，但必须保存具体观察与未覆盖项。
+- 完成前运行 `git diff --check`，审查 `git status --short`，确认未误改或纳入生成物；未获授权不执行 Git 写操作。
+
+## 何时需要更新本文档
+
+以下变化必须同步更新本文档：
+
+- 新增、删除或重命名 test suite、acceptance checklist 或验证脚本；
+- M1/M2 阶段、成功标志、依赖、命令或证据范围改变；
+- SSH Lab 拓扑、端口、credential/evidence 位置或 cleanup 改变；
+- Sidecar/Frontend/Rust 构建产物或 `.gitignore` 边界改变；
+- 引入 CI、lint、formatter、type checker、生产验收或迁移门禁。
+
+单个测试用例内部重构未改变测试入口和证据边界时无需更新，但必须执行 AGENTS 影响检查。

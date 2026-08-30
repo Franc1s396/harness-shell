@@ -12,21 +12,18 @@ describe("locale resolution", () => {
       "activity.approval": "Approval",
       "activity.settings": "Settings",
       "activity.filesUnavailable": "Files are planned for M3",
-      "activity.sftpUnavailable": "SFTP is planned for M3",
     },
     "zh-CN": {
       "topbar.localEnvironment": "本地",
       "activity.approval": "审批",
       "activity.settings": "设置",
       "activity.filesUnavailable": "文件功能计划在 M3 提供",
-      "activity.sftpUnavailable": "SFTP 功能计划在 M3 提供",
     },
     "zh-TW": {
       "topbar.localEnvironment": "本機",
       "activity.approval": "審批",
       "activity.settings": "設定",
       "activity.filesUnavailable": "檔案功能預計於 M3 提供",
-      "activity.sftpUnavailable": "SFTP 功能預計於 M3 提供",
     },
   } as const;
 

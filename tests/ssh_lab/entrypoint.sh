@@ -19,4 +19,9 @@ printf 'harness-shell-%s-utf8-中文-🙂\n' "$LAB_NODE" > "/home/$SSH_USER/data
 ln -sfn "/home/$SSH_USER/data.txt" "/home/$SSH_USER/data-link"
 chown "$SSH_USER:$SSH_USER" "/home/$SSH_USER/data.txt" "/home/$SSH_USER/data-link"
 
+# These fixtures exercise explicit permission and cross-filesystem failures
+# without changing the two-node network topology or exposing the target host.
+install -d -m 0555 -o root -g root /srv/harness-sftp-denied
+install -d -m 0755 -o "$SSH_USER" -g "$SSH_USER" /srv/harness-sftp-cross-device
+
 exec /usr/sbin/sshd -D -e

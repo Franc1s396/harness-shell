@@ -28,6 +28,7 @@ export type ConnectionProfileInput = {
 
 export type ConnectionProfile = ConnectionProfileInput & {
   connection_id: string;
+  version: number;
   created_at: string;
   updated_at: string;
 };

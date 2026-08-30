@@ -155,9 +155,9 @@ def connect(runtime: SshRuntime, target, jump):
     return runtime.connect(
         target.connection_id,
         password=b"target-secret",
-        expected_profile_updated_at=target.updated_at,
+        expected_profile_version=target.version,
         jump_password=b"jump-secret",
-        expected_jump_profile_updated_at=jump.updated_at,
+        expected_jump_profile_version=jump.version,
     )
 
 

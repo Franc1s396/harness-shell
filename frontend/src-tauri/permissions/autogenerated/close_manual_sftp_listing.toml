@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-close-manual-sftp-listing"
+description = "Enables the close_manual_sftp_listing command without any pre-configured scope."
+commands.allow = ["close_manual_sftp_listing"]
+
+[[permission]]
+identifier = "deny-close-manual-sftp-listing"
+description = "Denies the close_manual_sftp_listing command without any pre-configured scope."
+commands.deny = ["close_manual_sftp_listing"]

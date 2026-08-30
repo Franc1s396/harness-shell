@@ -22,6 +22,7 @@ vi.mock("../../api/ssh", async (importOriginal) => ({
 
 const existing: ConnectionProfile = {
   connection_id: "c1",
+  version: 1,
   display_name: "Prod",
   group_name: null,
   host: "prod.example",

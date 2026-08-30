@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-execute-manual-sftp-download"
+description = "Enables the execute_manual_sftp_download command without any pre-configured scope."
+commands.allow = ["execute_manual_sftp_download"]
+
+[[permission]]
+identifier = "deny-execute-manual-sftp-download"
+description = "Denies the execute_manual_sftp_download command without any pre-configured scope."
+commands.deny = ["execute_manual_sftp_download"]

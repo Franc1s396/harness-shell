@@ -5,6 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::protocol::{FrameEnvelope, Sensitivity};
+use crate::sftp::{events::parse_manual_sftp_progress, models::MutationProgressProjection};
 
 pub const BROKER_CAPACITY: usize = 32;
 
@@ -185,9 +186,61 @@ pub fn runtime_broker_channel() -> (RuntimeBrokerHandle, mpsc::Receiver<RuntimeC
     (RuntimeBrokerHandle { sender }, receiver)
 }
 
-pub fn validate_runtime_event(payload: &Map<String, Value>) -> Result<(), BrokerError> {
-    match payload.get("event").and_then(Value::as_str) {
-        Some("ssh.connection.status" | "ssh.pty.output" | "ssh.pty.closed") => Ok(()),
-        _ => Err(BrokerError::UnknownEvent),
+#[derive(Clone, Debug, PartialEq)]
+pub enum RuntimeEventRoute {
+    Ssh(Value),
+    ManualSftpOperation(MutationProgressProjection),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeEventProjection {
+    pub webview_event: &'static str,
+    pub payload: Value,
+}
+
+pub fn project_runtime_event(
+    payload: &Map<String, Value>,
+) -> Result<RuntimeEventProjection, BrokerError> {
+    let route = match payload.get("event").and_then(Value::as_str) {
+        Some("ssh.connection.status" | "ssh.pty.output" | "ssh.pty.closed") => {
+            RuntimeEventRoute::Ssh(Value::Object(payload.clone()))
+        }
+        Some("manual_sftp.operation.progress") => RuntimeEventRoute::ManualSftpOperation(
+            parse_manual_sftp_progress(payload).map_err(|_| BrokerError::Protocol)?,
+        ),
+        _ => return Err(BrokerError::UnknownEvent),
+    };
+
+    match route {
+        RuntimeEventRoute::Ssh(payload) => Ok(RuntimeEventProjection {
+            webview_event: "ssh://event",
+            payload,
+        }),
+        RuntimeEventRoute::ManualSftpOperation(progress) => Ok(RuntimeEventProjection {
+            webview_event: "manual-sftp://operation-state",
+            payload: serde_json::to_value(progress).map_err(|_| BrokerError::Protocol)?,
+        }),
     }
+}
+
+/// Strictly project one allowlisted runtime event and treat WebView delivery as observation only.
+pub fn emit_runtime_event_projection<E>(
+    payload: &Map<String, Value>,
+    emit: impl FnOnce(&RuntimeEventProjection) -> Result<(), E>,
+) -> Result<(), BrokerError> {
+    let projection = project_runtime_event(payload)?;
+    if emit(&projection).is_err() {
+        // Keep diagnostics bounded and payload-free: projection succeeded, so delivery failure
+        // cannot change the Sidecar operation result or terminate the protocol owner.
+        log::warn!(
+            target: "harness_shell::sidecar",
+            "runtime event projection delivery failed: event={}",
+            projection.webview_event
+        );
+    }
+    Ok(())
+}
+
+pub fn validate_runtime_event(payload: &Map<String, Value>) -> Result<(), BrokerError> {
+    project_runtime_event(payload).map(|_| ())
 }

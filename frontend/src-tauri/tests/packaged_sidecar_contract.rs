@@ -206,7 +206,7 @@ fn application_request(sequence: u64, payload: serde_json::Value) -> FrameEnvelo
 }
 
 #[test]
-fn ready_contract_requires_all_m2_runtime_features() {
+fn ready_contract_requires_schema_three_manual_sftp_features() {
     let ready = FrameEnvelope {
         protocol_version: 1,
         message_type: MessageType::Event,
@@ -220,7 +220,7 @@ fn ready_contract_requires_all_m2_runtime_features() {
             "event": "sidecar.ready",
             "capabilities": {
                 "protocol_versions": [1],
-                "storage_schema_version": 2,
+                "storage_schema_version": 3,
                 "features": ["connection_profiles", "host_key_store"]
             }
         })
@@ -250,9 +250,9 @@ fn ready_contract_requires_all_m2_runtime_features() {
         "host_key_store",
         "ssh_runtime",
         "pty",
-        "agent_readonly_io"
+        "manual_sftp"
     ]);
-    validate_ready_frame(&ready_with_pty).expect("all M2 runtime features must be accepted");
+    validate_ready_frame(&ready_with_pty).expect("all required runtime features must be accepted");
 }
 
 #[test]

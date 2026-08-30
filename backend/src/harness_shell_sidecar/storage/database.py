@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 REQUIRED_TABLES = frozenset(
     {
         "schema_migrations",
@@ -108,26 +108,37 @@ class RuntimeDatabase:
             except sqlite3.DatabaseError as exc:
                 raise StorageSelfCheckFailed("schema v1 migration failed") from exc
 
-        versions = [
-            row[0]
-            for row in self.connection.execute(
-                "SELECT version FROM schema_migrations ORDER BY version"
-            ).fetchall()
-        ]
-        if versions == [1]:
+        versions = self._schema_versions()
+        if (
+            not versions
+            or versions != list(range(1, versions[-1] + 1))
+            or versions[-1] > SCHEMA_VERSION
+        ):
+            raise StorageSelfCheckFailed(
+                f"unsupported schema versions: {versions!r}"
+            )
+
+        migration_names = {
+            2: "002_m2.sql",
+            3: "003_connection_profile_version.sql",
+        }
+        for next_version in range(versions[-1] + 1, SCHEMA_VERSION + 1):
             migration = (
-                Path(__file__).parent / "migrations" / "002_m2.sql"
+                Path(__file__).parent
+                / "migrations"
+                / migration_names[next_version]
             ).read_text(encoding="utf-8")
             try:
                 self.connection.executescript(migration)
             except sqlite3.DatabaseError as exc:
-                raise StorageSelfCheckFailed("schema v2 migration failed") from exc
-            versions = [
-                row[0]
-                for row in self.connection.execute(
-                    "SELECT version FROM schema_migrations ORDER BY version"
-                ).fetchall()
-            ]
+                raise StorageSelfCheckFailed(
+                    f"schema v{next_version} migration failed"
+                ) from exc
+            versions = self._schema_versions()
+            if versions != list(range(1, next_version + 1)):
+                raise StorageSelfCheckFailed(
+                    f"unsupported schema versions: {versions!r}"
+                )
         if versions != list(range(1, SCHEMA_VERSION + 1)):
             raise StorageSelfCheckFailed(
                 f"unsupported schema versions: {versions!r}"
@@ -171,6 +182,43 @@ class RuntimeDatabase:
             raise StorageSelfCheckFailed(
                 "schema v2 is missing the active host-key index"
             )
+        profile_columns = {
+            row[1]: row
+            for row in self.connection.execute(
+                "PRAGMA table_info(connection_profiles)"
+            ).fetchall()
+        }
+        version_column = profile_columns.get("version")
+        if (
+            version_column is None
+            or str(version_column[2]).upper() != "INTEGER"
+            or version_column[3] != 1
+            or str(version_column[4]) != "1"
+        ):
+            raise StorageSelfCheckFailed(
+                "connection_profiles version schema does not match version 3"
+            )
+        invalid_version = self.connection.execute(
+            """
+            SELECT 1 FROM connection_profiles
+            WHERE version < 1 OR version > 9007199254740991
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_version is not None:
+            raise StorageSelfCheckFailed(
+                "connection_profiles contains an invalid version"
+            )
+
+    def _schema_versions(self) -> list[int]:
+        """按升序返回已经持久化的全部连续 schema 版本。"""
+
+        return [
+            row[0]
+            for row in self.connection.execute(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        ]
 
     def _table_names(self) -> set[str]:
         """返回全部非 SQLite 内部表名。"""

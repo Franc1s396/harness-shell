@@ -6,21 +6,18 @@ import asyncio
 import base64
 import binascii
 import json
-from typing import Protocol
+from typing import Annotated, Protocol
 from uuid import UUID
 
-from pydantic import (
-    AwareDatetime,
-    BaseModel,
-    ConfigDict,
-    ValidationError,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from harness_shell_sidecar.protocol import FrameEnvelope, Sensitivity
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
 
 from .errors import ConnectionStatus, SshRuntimeError
+
+
+ProfileVersion = Annotated[int, Field(ge=1, le=2**53 - 1, strict=True)]
 
 
 class _SshRuntimeProtocol(Protocol):
@@ -73,8 +70,8 @@ class _JumpAuthenticationParams(_AuthenticationParams):
 
     #: 跳板连接配置标识符。
     connection_id: UUID
-    #: 调用方读取跳板配置时看到的更新时间，用于拒绝陈旧秘密。
-    profile_updated_at: AwareDatetime
+    #: 调用方读取跳板配置时看到的单调版本号，用于拒绝陈旧秘密。
+    profile_version: ProfileVersion
 
 
 class _InspectParams(BaseModel):
@@ -107,8 +104,8 @@ class _ConnectParams(_AuthenticationParams):
 
     #: 要建立会话的目标连接配置标识符。
     connection_id: UUID
-    #: 调用方读取目标配置时看到的更新时间，用于拒绝陈旧秘密。
-    profile_updated_at: AwareDatetime
+    #: 调用方读取目标配置时看到的单调版本号，用于拒绝陈旧秘密。
+    profile_version: ProfileVersion
     #: 可选的 ProxyJump 连接及其瞬时认证信息。
     jump: _JumpAuthenticationParams | None = None
 
@@ -147,8 +144,8 @@ def register_ssh_handlers(
                 jump_password=jump_password,
                 jump_private_key=jump_private_key,
                 jump_passphrase=jump_passphrase,
-                expected_jump_profile_updated_at=(
-                    None if params.jump is None else params.jump.profile_updated_at
+                expected_jump_profile_version=(
+                    None if params.jump is None else params.jump.profile_version
                 ),
             )
         except SshRuntimeError as exc:
@@ -186,15 +183,15 @@ def register_ssh_handlers(
                 password=password,
                 private_key=private_key,
                 passphrase=passphrase,
-                expected_profile_updated_at=params.profile_updated_at,
+                expected_profile_version=params.profile_version,
                 jump_connection_id=(
                     None if params.jump is None else params.jump.connection_id
                 ),
                 jump_password=jump_password,
                 jump_private_key=jump_private_key,
                 jump_passphrase=jump_passphrase,
-                expected_jump_profile_updated_at=(
-                    None if params.jump is None else params.jump.profile_updated_at
+                expected_jump_profile_version=(
+                    None if params.jump is None else params.jump.profile_version
                 ),
             )
             return {"status": status.model_dump(mode="json")}

@@ -11,7 +11,7 @@ import {
   type WidthBounds,
 } from "../features/shell/workspace-layout";
 
-export type WorkspaceActivity = "connections" | "approval" | "settings";
+export type WorkspaceActivity = "connections" | "sftp" | "approval" | "settings";
 export type ConnectionDialogState =
   | { kind: "closed" }
   | { kind: "create" }
@@ -90,7 +90,9 @@ const validWidthOrDefault = (
     : defaultValue;
 
 const validActivity = (value: unknown): WorkspaceActivity => {
-  if (value === "approval" || value === "settings") return value;
+  if (value === "sftp" || value === "approval" || value === "settings") {
+    return value;
+  }
   return "connections";
 };
 
@@ -151,6 +153,7 @@ export const migrateWorkspaceState = (
   persisted: unknown,
   version: number,
 ): PersistedWorkspaceState => {
+  if (version === 3) return sanitizeV2(persisted);
   if (version === 2) return sanitizeV2(persisted);
   if (version === 1) return migrateV1(persisted);
   return { ...defaults };
@@ -192,7 +195,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
       partialize: (state: WorkspaceUiState) => ({
         sidebarVisible: state.sidebarVisible,

@@ -28,6 +28,10 @@ describe("workspace UI store", () => {
       password: "SECRET_MARKER",
       ptyOutput: "SECRET_MARKER",
       sessionId: "session-1",
+      sshSessionId: "ssh-session-1",
+      remotePath: "/sensitive/path",
+      entries: [{ name: "secret.txt" }],
+      recoveries: [{ recovery_id: "recovery-1" }],
     };
     expect(persistedWorkspaceState(state)).toEqual({
       sidebarVisible: true,
@@ -38,6 +42,9 @@ describe("workspace UI store", () => {
     });
     expect(JSON.stringify(persistedWorkspaceState(state))).not.toContain(
       "SECRET_MARKER",
+    );
+    expect(JSON.stringify(persistedWorkspaceState(state))).not.toMatch(
+      /sshSessionId|remotePath|entries|recovery/i,
     );
   });
 
@@ -109,6 +116,27 @@ describe("workspace UI store", () => {
       agentVisible: false,
       agentWidth: 480,
       activeActivity: "connections",
+    });
+  });
+
+  it("persists the delivered SFTP activity in schema v3", () => {
+    expect(
+      migrateWorkspaceState(
+        {
+          sidebarVisible: true,
+          sidebarWidth: 280,
+          agentVisible: true,
+          agentWidth: 520,
+          activeActivity: "sftp",
+        },
+        3,
+      ),
+    ).toEqual({
+      sidebarVisible: true,
+      sidebarWidth: 280,
+      agentVisible: true,
+      agentWidth: 520,
+      activeActivity: "sftp",
     });
   });
 

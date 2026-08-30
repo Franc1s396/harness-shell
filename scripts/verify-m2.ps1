@@ -69,7 +69,11 @@ try {
     New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
     $env:HARNESS_RUN_SSH_INTEGRATION = '1'
     $integrationTemp = Join-Path $evidenceRoot 'pytest'
-    & $pythonExe -m pytest -vv --basetemp $integrationTemp -p no:cacheprovider (Join-Path $backendRoot 'tests\ssh_integration') 2>&1 |
+    $sshIntegrationRoot = Join-Path $backendRoot 'tests\ssh_integration'
+    & $pythonExe -m pytest -vv --basetemp $integrationTemp -p no:cacheprovider `
+        --ignore (Join-Path $sshIntegrationRoot 'test_manual_sftp.py') `
+        --ignore (Join-Path $sshIntegrationRoot 'test_pty_and_manual_sftp_isolation.py') `
+        $sshIntegrationRoot 2>&1 |
         Tee-Object -FilePath (Join-Path $evidenceRoot 'integration-output.txt')
     if ($LASTEXITCODE -ne 0) { throw 'OpenSSH integration tests failed' }
 } finally {
@@ -147,22 +151,6 @@ foreach ($file in Get-ChildItem -LiteralPath $evidenceRoot -File -Recurse -Error
     }
 }
 
-$databaseAscii = ($runtimeDatabases | ForEach-Object {
-    [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($_.FullName))
-}) -join "`n"
-foreach ($requiredStore in @(
-    'audit_entries',
-    'trace_spans',
-    'artifact_metadata',
-    'encrypted_records',
-    'vault_meta',
-    'vault_secrets',
-    'vault_keys'
-)) {
-    if (-not $databaseAscii.Contains($requiredStore)) {
-        throw "Required runtime evidence store is missing: $requiredStore"
-    }
-}
 & $pythonExe (Join-Path $workspaceRoot 'tests\ssh_lab\check-runtime-evidence.py') $evidenceRoot
 if ($LASTEXITCODE -ne 0) { throw 'Runtime database evidence is incomplete' }
 

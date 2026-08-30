@@ -34,6 +34,7 @@ class FakeRuntime:
         """初始化空的瞬时秘密引用列表。"""
 
         self.captured_secrets: list[bytearray] = []  # 用于断言 finally 已原地清零。
+        self.captured_arguments: dict[str, object] = {}  # Handler 传入的安全元数据。
 
     async def inspect_host_key(
         self, connection_id: UUID, **secrets
@@ -43,6 +44,7 @@ class FakeRuntime:
         self.captured_secrets = [
             value for value in secrets.values() if isinstance(value, bytearray)
         ]
+        self.captured_arguments = secrets
         return status(connection_id, "HOST_KEY_REQUIRED")
 
     async def connect(self, connection_id: UUID, **secrets) -> ConnectionStatus:
@@ -51,6 +53,7 @@ class FakeRuntime:
         self.captured_secrets = [
             value for value in secrets.values() if isinstance(value, bytearray)
         ]
+        self.captured_arguments = secrets
         return status(connection_id, "READY", session_id=uuid4())
 
     async def disconnect(self, session_id: UUID) -> ConnectionStatus:
@@ -86,7 +89,7 @@ def test_secret_connect_payload_is_required_decoded_and_zeroized() -> None:
                     "ssh.connect",
                     {
                         "connection_id": str(connection_id),
-                        "profile_updated_at": "2026-08-25T00:00:00Z",
+                        "profile_version": 7,
                         "password_b64": base64.b64encode(b"secret").decode("ascii"),
                     },
                 )
@@ -98,13 +101,14 @@ def test_secret_connect_payload_is_required_decoded_and_zeroized() -> None:
                 "ssh.connect",
                 {
                     "connection_id": str(connection_id),
-                    "profile_updated_at": "2026-08-25T00:00:00Z",
+                    "profile_version": 7,
                     "password_b64": base64.b64encode(b"secret").decode("ascii"),
                 },
                 secret=True,
             )
         )
         assert result.payload["status"]["state"] == "READY"
+        assert runtime.captured_arguments["expected_profile_version"] == 7
         assert runtime.captured_secrets
         assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
 
@@ -124,13 +128,13 @@ def test_proxy_jump_connect_decodes_and_zeroizes_both_credentials() -> None:
                 "ssh.connect",
                 {
                     "connection_id": str(connection_id),
-                    "profile_updated_at": "2026-08-25T00:00:00Z",
+                    "profile_version": 7,
                     "password_b64": base64.b64encode(b"target-secret").decode(
                         "ascii"
                     ),
                     "jump": {
                         "connection_id": str(jump_id),
-                        "profile_updated_at": "2026-08-25T00:00:01Z",
+                        "profile_version": 3,
                         "password_b64": base64.b64encode(b"jump-secret").decode(
                             "ascii"
                         ),
@@ -141,6 +145,8 @@ def test_proxy_jump_connect_decodes_and_zeroizes_both_credentials() -> None:
         )
 
         assert result.payload["status"]["state"] == "READY"
+        assert runtime.captured_arguments["expected_profile_version"] == 7
+        assert runtime.captured_arguments["expected_jump_profile_version"] == 3
         assert len(runtime.captured_secrets) == 2
         assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
 
@@ -156,7 +162,7 @@ def test_proxy_jump_host_key_inspection_requires_secret_frame() -> None:
             "connection_id": str(uuid4()),
             "jump": {
                 "connection_id": str(uuid4()),
-                "profile_updated_at": "2026-08-25T00:00:01Z",
+                "profile_version": 3,
                 "password_b64": base64.b64encode(b"jump-secret").decode("ascii"),
             },
         }
@@ -171,6 +177,45 @@ def test_proxy_jump_host_key_inspection_requires_secret_frame() -> None:
         assert result.payload["status"]["state"] == "HOST_KEY_REQUIRED"
         assert runtime.captured_secrets
         assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
+
+    asyncio.run(scenario())
+
+
+def test_connect_requires_safe_integer_version_and_rejects_old_timestamp() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime()
+        dispatcher = RequestDispatcher()
+        register_ssh_handlers(dispatcher, runtime)
+        password = base64.b64encode(b"secret").decode("ascii")
+
+        for invalid in (0, -1, 2**53, 1.0, "1"):
+            with pytest.raises(DispatchError) as raised:
+                await dispatcher.dispatch(
+                    frame(
+                        "ssh.connect",
+                        {
+                            "connection_id": str(uuid4()),
+                            "profile_version": invalid,
+                            "password_b64": password,
+                        },
+                        secret=True,
+                    )
+                )
+            assert raised.value.error_code == "INVALID_REQUEST_PAYLOAD"
+
+        with pytest.raises(DispatchError) as removed:
+            await dispatcher.dispatch(
+                frame(
+                    "ssh.connect",
+                    {
+                        "connection_id": str(uuid4()),
+                        "profile_updated_at": "2026-08-29T00:00:00Z",
+                        "password_b64": password,
+                    },
+                    secret=True,
+                )
+            )
+        assert removed.value.error_code == "INVALID_REQUEST_PAYLOAD"
 
     asyncio.run(scenario())
 

@@ -10,6 +10,7 @@ const profile = (
   favorite = false,
 ): ConnectionProfile => ({
   connection_id: id,
+  version: 1,
   display_name: name,
   group_name: group,
   host: `${id}.example`,

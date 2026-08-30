@@ -3,7 +3,7 @@ use harness_shell_lib::{
     sidecar::{
         process::{
             advance_heartbeat_clock, apply_heartbeat_timeout, supervisor_event_for_process_error,
-            validate_initialize_response, ProcessError,
+            validate_initialize_response, validate_ready_frame, ProcessError,
         },
         RuntimeState, RuntimeStatus, Supervisor, SupervisorAction, SupervisorEvent,
     },
@@ -40,6 +40,55 @@ fn error_frame(request_id: Uuid, error_code: &str) -> FrameEnvelope {
             ("message".into(), json!("public initialization failure")),
         ]),
     }
+}
+
+fn ready_frame(storage_schema_version: u64, features: serde_json::Value) -> FrameEnvelope {
+    FrameEnvelope {
+        protocol_version: PROTOCOL_VERSION,
+        message_type: MessageType::Event,
+        request_id: Uuid::new_v4(),
+        task_id: None,
+        workflow_run_id: None,
+        sequence: 1,
+        timestamp: OffsetDateTime::now_utc(),
+        sensitivity: Sensitivity::Normal,
+        payload: Map::from_iter([
+            ("event".into(), json!("sidecar.ready")),
+            (
+                "capabilities".into(),
+                json!({
+                    "protocol_versions": [PROTOCOL_VERSION],
+                    "storage_schema_version": storage_schema_version,
+                    "features": features,
+                }),
+            ),
+        ]),
+    }
+}
+
+#[test]
+fn ready_requires_schema_three_and_manual_sftp_without_agent_compatibility() {
+    let current_features = json!([
+        "connection_profiles",
+        "host_key_store",
+        "ssh_runtime",
+        "pty",
+        "manual_sftp",
+    ]);
+    assert!(validate_ready_frame(&ready_frame(2, current_features.clone())).is_err());
+    assert!(validate_ready_frame(&ready_frame(
+        3,
+        json!([
+            "connection_profiles",
+            "host_key_store",
+            "ssh_runtime",
+            "pty",
+            "agent_readonly_io",
+        ]),
+    ))
+    .is_err());
+    validate_ready_frame(&ready_frame(3, current_features))
+        .expect("schema-three manual SFTP sidecar must be accepted");
 }
 
 #[test]

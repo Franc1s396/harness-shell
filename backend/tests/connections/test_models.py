@@ -55,6 +55,35 @@ def test_persisted_profile_rejects_self_proxy_jump() -> None:
             **profile_input(proxy_jump_id=connection_id).model_dump(),
             created_at=now,
             updated_at=now,
+            version=1,
+        )
+
+
+def test_persisted_profile_accepts_safe_integer_version() -> None:
+    now = datetime.now(timezone.utc)
+
+    profile = ConnectionProfile(
+        connection_id=uuid4(),
+        **profile_input().model_dump(),
+        created_at=now,
+        updated_at=now,
+        version=1,
+    )
+
+    assert profile.version == 1
+
+
+@pytest.mark.parametrize("version", [0, -1, 2**53, 1.0, "1"])
+def test_persisted_profile_rejects_unsafe_version(version: object) -> None:
+    now = datetime.now(timezone.utc)
+
+    with pytest.raises(ValidationError):
+        ConnectionProfile(
+            connection_id=uuid4(),
+            **profile_input().model_dump(),
+            created_at=now,
+            updated_at=now,
+            version=version,
         )
 
 

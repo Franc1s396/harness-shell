@@ -32,6 +32,18 @@ const setViewport = (width: number) => {
   });
 };
 
+const activeTransfer = {
+  operation_id: "operation-active",
+  direction: "download" as const,
+  phase: "transferring" as const,
+  display_name: "payload.bin",
+  remote_path: "/home/tester/payload.bin",
+  host_label: "test.example",
+  bytes_completed: 4,
+  bytes_total: 8,
+  cancellable: true,
+};
+
 const renderFrame = (overrides: Partial<React.ComponentProps<typeof WorkspaceFrame>> = {}) => {
   const callbacks = {
     onCreateConnection: vi.fn(),
@@ -42,7 +54,7 @@ const renderFrame = (overrides: Partial<React.ComponentProps<typeof WorkspaceFra
   render(
     <WorkspaceFrame
       connectionNavigator={<div>Connection navigator</div>}
-      terminalWorkspace={<div>Terminal surface</div>}
+      primaryWorkspace={<div>Terminal surface</div>}
       agentWorkspace={<div>Agent surface</div>}
       runtimeState="READY"
       hostKeyState="trusted"
@@ -90,6 +102,77 @@ describe("WorkspaceFrame", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: "Exit Harness Shell?" })).not.toBeInTheDocument();
     expect(tauriWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit wait-or-cancel decision before closing with an active transfer", async () => {
+    const cancelTransfer = vi.fn(async () => undefined);
+    renderFrame({
+      activeSftpTransfer: activeTransfer,
+      onCancelActiveSftpTransfer: cancelTransfer,
+    });
+    const event = { preventDefault: vi.fn() };
+
+    await vi.waitFor(() => expect(tauriWindow.emitCloseRequested).toBeTypeOf("function"));
+    await act(async () => tauriWindow.emitCloseRequested!(event));
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Continue waiting" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Cancel and clean up" })).toBeVisible();
+    expect(cancelTransfer).not.toHaveBeenCalled();
+    expect(tauriWindow.close).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel and clean up" }));
+    await vi.waitFor(() =>
+      expect(cancelTransfer).toHaveBeenCalledWith("operation-active"),
+    );
+    expect(tauriWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps the close decision open and exposes a failed transfer cancellation", async () => {
+    const cancelTransfer = vi.fn(async () => {
+      throw {
+        code: "SFTP_CANCEL_TOO_LATE",
+        message: "The operation is already committing.",
+      };
+    });
+    renderFrame({
+      activeSftpTransfer: activeTransfer,
+      onCancelActiveSftpTransfer: cancelTransfer,
+    });
+
+    await vi.waitFor(() => expect(tauriWindow.emitCloseRequested).toBeTypeOf("function"));
+    await act(async () =>
+      tauriWindow.emitCloseRequested!({ preventDefault: vi.fn() }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel and clean up" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "SFTP_CANCEL_TOO_LATE: The operation is already committing.",
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Exit Harness Shell?" }),
+    ).toBeVisible();
+    expect(tauriWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("offers only continued waiting while a transfer is committing", async () => {
+    renderFrame({
+      activeSftpTransfer: {
+        ...activeTransfer,
+        phase: "committing",
+        cancellable: false,
+      },
+      onCancelActiveSftpTransfer: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(tauriWindow.emitCloseRequested).toBeTypeOf("function"));
+    await act(async () =>
+      tauriWindow.emitCloseRequested!({ preventDefault: vi.fn() }),
+    );
+
+    expect(screen.getByRole("button", { name: "Continue waiting" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Cancel and clean up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Exit Harness Shell" })).not.toBeInTheDocument();
   });
 
   it("renders the wide four-region workbench with independent separators", () => {
@@ -166,10 +249,10 @@ describe("WorkspaceFrame", () => {
     expect(status).toHaveTextContent("Route: Direct");
   });
 
-  it("enables Connections, Approval, and Settings but not future activities", () => {
+  it("enables Connections, SFTP, Approval, and Settings but not future Files", () => {
     const callbacks = renderFrame();
     expect(screen.getByRole("button", { name: /Files/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /SFTP/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /SFTP/i })).toBeEnabled();
     const settings = screen.getByRole("button", { name: /Settings/i });
     const approval = screen.getByRole("button", { name: /Approval/i });
     expect(settings).toBeEnabled();
@@ -179,6 +262,14 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("combobox", { name: "Language" })).toBeVisible();
     fireEvent.click(approval);
     expect(callbacks.onOpenApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides both Agent surfaces while the SFTP activity is active", () => {
+    useWorkspaceUiStore.getState().setAgentVisible(true);
+    useWorkspaceUiStore.getState().setActiveActivity("sftp");
+    renderFrame({ agentWidth: 480 });
+    expect(screen.queryByTestId("agent-region")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Expand Agent/i })).not.toBeInTheDocument();
   });
 
   it("does not refocus the open language selector when the frame rerenders", () => {

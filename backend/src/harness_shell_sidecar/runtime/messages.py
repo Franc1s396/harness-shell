@@ -107,7 +107,7 @@ class RuntimeCapabilities(BaseModel):
     #: 当前能够处理的协议版本列表。
     protocol_versions: tuple[Literal[1], ...] = (1,)
     #: 当前 SQLite 运行时存储 Schema 版本。
-    storage_schema_version: Literal[2] = 2
+    storage_schema_version: Literal[3] = 3
     #: 供桌面端进行能力协商的稳定功能名称。
     features: tuple[str, ...] = (
         "encrypted_records",
@@ -117,5 +117,5 @@ class RuntimeCapabilities(BaseModel):
         "host_key_store",
         "ssh_runtime",
         "pty",
-        "agent_readonly_io",
+        "manual_sftp",
     )

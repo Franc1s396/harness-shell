@@ -33,7 +33,7 @@ def test_database_applies_schema_and_required_pragmas(tmp_path: Path) -> None:
         } <= tables
         assert database.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(1,), (2,)]
+        ).fetchall() == [(1,), (2,), (3,)]
     finally:
         database.close()
 
@@ -99,6 +99,54 @@ def test_database_upgrades_existing_v1_without_losing_records(tmp_path: Path) ->
         ).fetchall() == [("existing",)]
         assert database.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(1,), (2,)]
+        ).fetchall() == [(1,), (2,), (3,)]
+    finally:
+        database.close()
+
+
+def test_database_upgrades_existing_v2_with_profile_version(tmp_path: Path) -> None:
+    path = (tmp_path / "runtime.sqlite3").resolve()
+    connection = sqlite3.connect(path, isolation_level=None)
+    migrations = (
+        Path(__file__).parents[2]
+        / "src"
+        / "harness_shell_sidecar"
+        / "storage"
+        / "migrations"
+    )
+    connection.executescript(
+        (migrations / "001_m1.sql").read_text(encoding="utf-8")
+    )
+    connection.executescript(
+        (migrations / "002_m2.sql").read_text(encoding="utf-8")
+    )
+    connection.execute(
+        """
+        INSERT INTO connection_profiles(
+            connection_id, display_name, group_name, host, port, username,
+            auth_kind, credential_id, passphrase_credential_id,
+            proxy_jump_id, favorite, created_at, updated_at
+        ) VALUES (?, ?, NULL, ?, 22, ?, 'password', ?, NULL, NULL, 0, ?, ?)
+        """,
+        (
+            "00000000-0000-4000-8000-000000000001",
+            "existing",
+            "existing.example",
+            "deploy",
+            "00000000-0000-4000-8000-000000000002",
+            "2026-08-29T00:00:00.000000Z",
+            "2026-08-29T00:00:00.000000Z",
+        ),
+    )
+    connection.close()
+
+    database = RuntimeDatabase.open(path)
+    try:
+        assert database.execute(
+            "SELECT version, display_name FROM connection_profiles"
+        ).fetchone() == (1, "existing")
+        assert database.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        ).fetchall() == [(1,), (2,), (3,)]
     finally:
         database.close()

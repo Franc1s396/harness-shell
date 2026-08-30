@@ -66,7 +66,7 @@ def test_target_and_jump_host_key_changes_hard_fail(
             changed_target = await runtime_context.runtime.inspect_host_key(
                 target.connection_id,
                 jump_connection_id=jump.connection_id,
-                expected_jump_profile_updated_at=jump.updated_at,
+                expected_jump_profile_version=jump.version,
                 jump_password=lab.jump_password.encode(),
             )
             assert changed_target.state == "FAILED"
@@ -82,7 +82,7 @@ def test_target_and_jump_host_key_changes_hard_fail(
                 await runtime_context.runtime.inspect_host_key(
                     target.connection_id,
                     jump_connection_id=jump.connection_id,
-                    expected_jump_profile_updated_at=jump.updated_at,
+                    expected_jump_profile_version=jump.version,
                     jump_password=lab.jump_password.encode(),
                 )
             assert changed_jump.value.error_code == "HOST_KEY_CHANGED"

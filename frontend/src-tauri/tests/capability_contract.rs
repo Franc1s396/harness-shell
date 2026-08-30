@@ -7,7 +7,7 @@ use std::{
 use serde::Deserialize;
 use serde_json::Value;
 
-const CUSTOM_COMMANDS: [&str; 21] = [
+const CUSTOM_COMMANDS: [&str; 42] = [
     "get_runtime_status",
     "open_approval_window",
     "get_approval_context",
@@ -29,6 +29,27 @@ const CUSTOM_COMMANDS: [&str; 21] = [
     "write_pty",
     "resize_pty",
     "close_pty",
+    "get_manual_sftp_context",
+    "list_manual_sftp_directory",
+    "next_manual_sftp_directory_batch",
+    "close_manual_sftp_listing",
+    "inspect_manual_sftp_entry",
+    "hash_manual_sftp_file",
+    "open_manual_sftp_link",
+    "prepare_manual_sftp_upload",
+    "execute_manual_sftp_upload",
+    "prepare_manual_sftp_download",
+    "execute_manual_sftp_download",
+    "discard_manual_sftp_preparation",
+    "create_manual_sftp_directory",
+    "rename_manual_sftp_entry",
+    "remove_manual_sftp_entry",
+    "preflight_manual_sftp_delete",
+    "execute_manual_sftp_delete",
+    "cancel_manual_sftp_operation",
+    "list_manual_sftp_recoveries",
+    "inspect_manual_sftp_recovery",
+    "execute_manual_sftp_recovery",
 ];
 
 const FORBIDDEN_COMMAND_FRAGMENTS: [&str; 8] = [
@@ -42,16 +63,13 @@ const FORBIDDEN_COMMAND_FRAGMENTS: [&str; 8] = [
     "vault",
 ];
 
-const INTERNAL_AGENT_METHODS: [&str; 9] = [
+const FORBIDDEN_AGENT_SFTP_ROUTES: [&str; 6] = [
     "agent_exec",
-    "remote_stat",
-    "remote_list",
     "remote_read_range",
-    "remote_hash",
-    "sftp",
-    "lstat",
-    "listdir",
-    "sha256",
+    "RemoteExecutor",
+    "RemoteSftp",
+    "agent_sftp",
+    "sftp_write",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -215,6 +233,7 @@ fn window_capabilities_are_least_privilege() {
             "core:window:allow-destroy".to_owned(),
             "credentials".to_owned(),
             "runtime".to_owned(),
+            "sftp".to_owned(),
             "terminal".to_owned(),
         ])
     );
@@ -235,6 +254,8 @@ fn window_capabilities_are_least_privilege() {
     let main_commands = allowed_commands(main);
     assert!(main_commands.contains("get_runtime_status"));
     assert!(main_commands.contains("open_approval_window"));
+    assert!(main_commands.contains("get_manual_sftp_context"));
+    assert!(main_commands.contains("execute_manual_sftp_recovery"));
     assert!(!main_commands.contains("get_approval_context"));
     assert!(!main_commands.contains("submit_approval_decision"));
     assert!(main
@@ -253,6 +274,8 @@ fn window_capabilities_are_least_privilege() {
     assert!(approval_commands.contains("submit_approval_decision"));
     assert!(!approval_commands.contains("get_runtime_status"));
     assert!(!approval_commands.contains("open_approval_window"));
+    assert!(!approval_commands.contains("get_manual_sftp_context"));
+    assert!(!approval.permissions.contains(&"sftp".to_owned()));
     assert!(approval
         .permissions
         .iter()
@@ -319,6 +342,8 @@ fn build_manifest_scopes_exactly_the_m2_management_commands() {
     let build_script =
         fs::read_to_string(manifest_dir().join("build.rs")).expect("build.rs must be readable");
     assert!(build_script.contains("AppManifest::new()"));
+    assert!(!build_script.contains("raw_sftp"));
+    assert!(!build_script.contains("agent_sftp"));
 
     for command in CUSTOM_COMMANDS {
         assert!(
@@ -384,21 +409,16 @@ fn terminal_bridge_exposes_no_remote_control_side_effect_api() {
 }
 
 #[test]
-fn internal_agent_io_has_no_webview_route() {
+fn agent_sftp_routes_do_not_exist() {
     let build_script =
         fs::read_to_string(manifest_dir().join("build.rs")).expect("build.rs must be readable");
     let library =
         fs::read_to_string(manifest_dir().join("src/lib.rs")).expect("lib.rs must be readable");
-    let permissions = permission_commands()
-        .values()
-        .flat_map(|commands| commands.iter())
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let exposed = format!("{build_script}\n{library}\n{permissions:?}");
-    for method in INTERNAL_AGENT_METHODS {
+    let exposed = format!("{build_script}\n{library}");
+    for forbidden in FORBIDDEN_AGENT_SFTP_ROUTES {
         assert!(
-            !exposed.contains(method),
-            "internal Agent method {method} must not be exposed to WebView"
+            !exposed.contains(forbidden),
+            "forbidden Agent SFTP route: {forbidden}"
         );
     }
 }

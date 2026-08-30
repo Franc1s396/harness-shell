@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { Button } from "../../components/ui/controls";
+import { Dialog } from "../../components/ui/Dialog";
 import {
   getRuntimeStatus,
   openApprovalWindow,
@@ -38,6 +40,9 @@ import {
 import type { ConnectionSubmitIntent } from "../connections/connection-form";
 import { ErrorNotice } from "../errors/ErrorNotice";
 import { RuntimeFailureState } from "../errors/RuntimeFailureState";
+import { ManualSftpWorkspace } from "../sftp/ManualSftpWorkspace";
+import { useManualSftpController } from "../sftp/useManualSftpController";
+import { normalizeManualSftpError } from "../../api/manual-sftp";
 import { AgentWorkspace } from "../shell/AgentWorkspace";
 import { WorkspaceFrame } from "../shell/WorkspaceFrame";
 import { useSshEvents } from "../ssh/useSshEvents";
@@ -76,6 +81,12 @@ type HostKeyPrompt = {
   profileOverride: ConnectionProfile | null;
   profileSavedBeforeConnect: boolean;
   intent: ConnectIntent;
+};
+
+type DisconnectTransferDecision = {
+  session: TerminalSessionModel;
+  phase: "choice" | "cancelling" | "recovery";
+  error: ReturnType<typeof normalizeManualSftpError> | null;
 };
 
 export type WorkspaceFailure =
@@ -144,6 +155,8 @@ export function WorkspaceController() {
     new Set(),
   );
   const [runtimeRefreshRevision, setRuntimeRefreshRevision] = useState(0);
+  const [disconnectTransferDecision, setDisconnectTransferDecision] =
+    useState<DisconnectTransferDecision | null>(null);
 
   const connectionDialog = useWorkspaceUiStore(
     (state) => state.connectionDialog,
@@ -151,7 +164,13 @@ export function WorkspaceController() {
   const layoutRevision = useWorkspaceUiStore((state) => state.layoutRevision);
   const sidebarVisible = useWorkspaceUiStore((state) => state.sidebarVisible);
   const agentWidth = useWorkspaceUiStore((state) => state.agentWidth);
+  const activeActivity = useWorkspaceUiStore((state) => state.activeActivity);
   const activeTabId = useTerminalUiStore((state) => state.activeTabId);
+  const manualSftp = useManualSftpController({
+    enabled: activeActivity === "sftp",
+    sessions,
+    activeTabId,
+  });
 
   const sessionsRef = useRef(new Map<string, TerminalSessionModel>());
   const sshBindingsRef = useRef(new Map<string, SessionBinding>());
@@ -678,7 +697,7 @@ export function WorkspaceController() {
     return connectSession(tabId, "initial", context);
   };
 
-  const disconnectSession = async (requested: TerminalSessionModel) => {
+  const performDisconnectSession = async (requested: TerminalSessionModel) => {
     const current = sessionsRef.current.get(requested.tabId);
     if (!current || current.state !== "CONNECTED") return;
     replaceSession(current.tabId, (session) => ({
@@ -705,6 +724,49 @@ export function WorkspaceController() {
       sshSessionId: null,
     }));
   };
+
+  const disconnectSession = async (requested: TerminalSessionModel) => {
+    const activeTransfer = manualSftp.state.transferProgress;
+    if (
+      activeTransfer &&
+      manualSftp.activeTransferTabId === requested.tabId
+    ) {
+      setDisconnectTransferDecision({
+        session: requested,
+        phase: "choice",
+        error: null,
+      });
+      return;
+    }
+    await performDisconnectSession(requested);
+  };
+
+  useEffect(() => {
+    if (
+      disconnectTransferDecision?.phase !== "cancelling" ||
+      manualSftp.state.transferProgress
+    ) {
+      return;
+    }
+    if (
+      manualSftp.state.terminal?.state === "cleanup_required" ||
+      manualSftp.state.terminal?.state === "outcome_unknown"
+    ) {
+      setDisconnectTransferDecision((current) =>
+        current?.phase === "cancelling"
+          ? { ...current, phase: "recovery" }
+          : current,
+      );
+      return;
+    }
+    const session = disconnectTransferDecision.session;
+    setDisconnectTransferDecision(null);
+    void performDisconnectSession(session);
+  }, [
+    disconnectTransferDecision,
+    manualSftp.state.terminal?.state,
+    manualSftp.state.transferProgress,
+  ]);
 
   const closeSessionOptimistically = (requested: TerminalSessionModel) => {
     const current = sessionsRef.current.get(requested.tabId);
@@ -912,9 +974,7 @@ export function WorkspaceController() {
     ? connectionChecks[selected.connection_id]
     : undefined;
   const activeSession =
-    sessions.find((session) => session.tabId === activeTabId) ??
-    sessions[sessions.length - 1] ??
-    null;
+    sessions.find((session) => session.tabId === activeTabId) ?? null;
   const activePtySize = activeSession
     ? ptySizes[activeSession.tabId] ?? null
     : null;
@@ -1007,8 +1067,18 @@ export function WorkspaceController() {
             }}
           />
         }
-        terminalWorkspace={
-          <TerminalWorkspace
+        primaryWorkspace={
+          activeActivity === "sftp" ? (
+            <ManualSftpWorkspace
+              controller={manualSftp}
+              onSelectConnection={() => {
+                const store = useWorkspaceUiStore.getState();
+                store.setActiveActivity("connections");
+                store.setSidebarVisible(true);
+              }}
+            />
+          ) : (
+            <TerminalWorkspace
             sessions={sessions}
             outputBuffer={outputBuffer}
             runtimeReady={interactiveReady}
@@ -1124,7 +1194,8 @@ export function WorkspaceController() {
             onDisconnect={(session) => void disconnectSession(session)}
             onCloseConfirmed={closeSessionOptimistically}
             onFocusChange={() => undefined}
-          />
+            />
+          )
         }
         agentWorkspace={
           <AgentWorkspace
@@ -1167,6 +1238,9 @@ export function WorkspaceController() {
           interactiveReady && activeSession?.state === "CONNECTED"
         }
         connectionActionsDisabled={!interactiveReady}
+        activeSftpTransfer={manualSftp.state.transferProgress}
+        activeSftpTerminal={manualSftp.state.terminal}
+        onCancelActiveSftpTransfer={manualSftp.cancelOperation}
         onCreateConnection={() =>
           useWorkspaceUiStore.getState().openCreateConnection()
         }
@@ -1192,6 +1266,72 @@ export function WorkspaceController() {
         onSubmit={submitProfile}
         onDelete={removeProfile}
       />
+
+      <Dialog
+        open={disconnectTransferDecision !== null}
+        title={t("sftp.disconnectTransferTitle")}
+        onClose={() => setDisconnectTransferDecision(null)}
+      >
+        <p className="mt-3 text-sm text-ink-muted">
+          {manualSftp.state.transferProgress?.cancellable === false
+            ? t("sftp.disconnectCommittingBody")
+            : disconnectTransferDecision?.phase === "recovery"
+              ? t("sftp.disconnectRecoveryBody")
+              : t("sftp.disconnectTransferBody")}
+        </p>
+        {disconnectTransferDecision?.error ? (
+          <p role="alert" className="mt-3 text-sm text-danger">
+            <strong>{disconnectTransferDecision.error.code}</strong>: {disconnectTransferDecision.error.message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => setDisconnectTransferDecision(null)}
+          >
+            {t("applicationClose.continueWaiting")}
+          </Button>
+          {disconnectTransferDecision?.phase === "choice" &&
+          manualSftp.state.transferProgress?.cancellable ? (
+            <Button
+              variant="danger"
+              onClick={async () => {
+                const operationId = manualSftp.state.transferProgress?.operation_id;
+                if (!operationId) return;
+                setDisconnectTransferDecision((current) =>
+                  current ? { ...current, phase: "cancelling", error: null } : current,
+                );
+                try {
+                  await manualSftp.cancelOperation(operationId);
+                } catch (error) {
+                  // A failed cancel leaves the SSH session and transfer lifecycle unchanged.
+                  setDisconnectTransferDecision((current) =>
+                    current
+                      ? {
+                          ...current,
+                          phase: "choice",
+                          error: normalizeManualSftpError(error),
+                        }
+                      : current,
+                  );
+                }
+              }}
+            >
+              {t("applicationClose.cancelAndCleanUp")}
+            </Button>
+          ) : disconnectTransferDecision?.phase === "recovery" ? (
+            <Button
+              onClick={() => {
+                const session = disconnectTransferDecision.session;
+                setDisconnectTransferDecision(null);
+                void performDisconnectSession(session);
+              }}
+            >
+              {t("sftp.keepRecoveryAndDisconnect")}
+            </Button>
+          ) : null}
+        </div>
+      </Dialog>
 
       {hostKeyPrompt ? (
         <HostKeyDialog

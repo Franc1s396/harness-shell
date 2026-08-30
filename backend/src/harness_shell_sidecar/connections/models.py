@@ -26,6 +26,9 @@ NonBlank128 = Annotated[
 NonBlank255 = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)
 ]
+JsSafeProfileVersion = Annotated[
+    int, Field(ge=1, le=2**53 - 1, strict=True)
+]
 
 
 class ConnectionProfileInput(BaseModel):
@@ -73,6 +76,8 @@ class ConnectionProfile(ConnectionProfileInput):
     created_at: AwareDatetime
     #: 连接配置最近一次更新的时间。
     updated_at: AwareDatetime
+    #: 由 SQLite 在每次成功更新时单调递增的并发版本号。
+    version: JsSafeProfileVersion
 
     @model_validator(mode="after")
     def reject_self_proxy_jump(self) -> ConnectionProfile:

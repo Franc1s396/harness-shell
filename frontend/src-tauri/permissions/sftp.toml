@@ -1,0 +1,26 @@
+[[permission]]
+identifier = "sftp"
+description = "Allows the fixed main window to operate the user-driven manual SFTP file manager."
+commands.allow = [
+  "get_manual_sftp_context",
+  "list_manual_sftp_directory",
+  "next_manual_sftp_directory_batch",
+  "close_manual_sftp_listing",
+  "inspect_manual_sftp_entry",
+  "hash_manual_sftp_file",
+  "open_manual_sftp_link",
+  "prepare_manual_sftp_upload",
+  "execute_manual_sftp_upload",
+  "prepare_manual_sftp_download",
+  "execute_manual_sftp_download",
+  "discard_manual_sftp_preparation",
+  "create_manual_sftp_directory",
+  "rename_manual_sftp_entry",
+  "remove_manual_sftp_entry",
+  "preflight_manual_sftp_delete",
+  "execute_manual_sftp_delete",
+  "cancel_manual_sftp_operation",
+  "list_manual_sftp_recoveries",
+  "inspect_manual_sftp_recovery",
+  "execute_manual_sftp_recovery",
+]

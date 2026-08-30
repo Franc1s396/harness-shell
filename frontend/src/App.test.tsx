@@ -39,6 +39,29 @@ const sshApi = vi.hoisted(() => ({
   writePty: vi.fn(),
 }));
 
+const manualSftpApi = vi.hoisted(() => ({
+  cancelManualSftpOperation: vi.fn(),
+  closeManualSftpListing: vi.fn(),
+  getManualSftpContext: vi.fn(),
+  listManualSftpDirectory: vi.fn(),
+  listManualSftpRecoveries: vi.fn(),
+  subscribeManualSftpEvents: vi.fn(),
+}));
+
+const manualSftpEvents = vi.hoisted(() => ({
+  onTransfer: null as null | ((progress: {
+    operation_id: string;
+    direction: "download";
+    phase: "transferring";
+    display_name: string;
+    remote_path: string;
+    host_label: string;
+    bytes_completed: number;
+    bytes_total: number;
+    cancellable: boolean;
+  }) => void),
+}));
+
 const terminalTabMock = vi.hoisted(() => ({
   onInput: null as null | ((data: Uint8Array) => Promise<void>),
   onResize: null as null | ((cols: number, rows: number) => void),
@@ -64,6 +87,11 @@ vi.mock("@tauri-apps/api/window", () => ({
 vi.mock("./api/ssh", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api/ssh")>()),
   ...sshApi,
+}));
+
+vi.mock("./api/manual-sftp", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api/manual-sftp")>()),
+  ...manualSftpApi,
 }));
 
 vi.mock("./features/terminal/TerminalTab", () => ({
@@ -108,6 +136,7 @@ const runtimeReadyStatus: RuntimeStatus = {
 
 const savedProfile: ConnectionProfile = {
   connection_id: "connection-test",
+  version: 1,
   display_name: "Test profile",
   group_name: "Lab",
   host: "test.invalid",
@@ -224,6 +253,7 @@ describe("App connection orchestration", () => {
     useWorkspaceUiStore.getState().reset();
     Object.values(runtimeApi).forEach((mock) => mock.mockReset());
     Object.values(sshApi).forEach((mock) => mock.mockReset());
+    Object.values(manualSftpApi).forEach((mock) => mock.mockReset());
     Object.values(tauriWindow).forEach((mock) => mock.mockReset());
     terminalTabMock.onInput = null;
     terminalTabMock.onResize = null;
@@ -235,6 +265,18 @@ describe("App connection orchestration", () => {
     tauriWindow.close.mockResolvedValue(undefined);
     tauriWindow.onCloseRequested.mockResolvedValue(() => undefined);
     sshApi.subscribeSshEvents.mockResolvedValue(() => undefined);
+    manualSftpEvents.onTransfer = null;
+    manualSftpApi.subscribeManualSftpEvents.mockImplementation(
+      async (onTransfer) => {
+        manualSftpEvents.onTransfer = onTransfer;
+        return () => {
+          manualSftpEvents.onTransfer = null;
+        };
+      },
+    );
+    manualSftpApi.cancelManualSftpOperation.mockResolvedValue(undefined);
+    manualSftpApi.closeManualSftpListing.mockResolvedValue(true);
+    manualSftpApi.listManualSftpRecoveries.mockResolvedValue([]);
     sshApi.storeSshPassword.mockResolvedValue({
       credential_id: savedProfile.credential_id,
       kind: "ssh_password",
@@ -244,6 +286,129 @@ describe("App connection orchestration", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValue([savedProfile]);
     sshApi.confirmHostKey.mockResolvedValue(undefined);
+  });
+
+  it("binds SFTP to the explicitly active connected terminal tab", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-active" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-active",
+      ssh_session_id: "ssh-session-active",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+    manualSftpApi.getManualSftpContext.mockResolvedValue({
+      ssh_session_id: "ssh-session-active",
+      connection_id: savedProfile.connection_id,
+      home: "/home/tester",
+      host_label: "test.invalid",
+      sftp_version: 3,
+    });
+    manualSftpApi.listManualSftpDirectory.mockResolvedValue({
+      listing_id: "listing-active",
+      path: "/home/tester",
+      entries: [],
+      next_sequence: 1,
+      done: true,
+      observed_entry_count: 0,
+      complete: true,
+    });
+
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByTestId("terminal-tab");
+    fireEvent.click(screen.getByRole("button", { name: /SFTP/i }));
+
+    await waitFor(() =>
+      expect(manualSftpApi.getManualSftpContext).toHaveBeenCalledWith(
+        "ssh-session-active",
+      ),
+    );
+  });
+
+  it("does not disconnect the transfer-owning SSH session before an explicit lifecycle decision", async () => {
+    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
+    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
+    sshApi.connectSsh.mockResolvedValue(
+      status({ state: "READY", session_id: "ssh-session-active" }),
+    );
+    sshApi.openPty.mockResolvedValue({
+      pty_session_id: "pty-session-active",
+      ssh_session_id: "ssh-session-active",
+      connection_id: savedProfile.connection_id,
+      cols: 80,
+      rows: 24,
+      state: "OPEN",
+    });
+    manualSftpApi.getManualSftpContext.mockResolvedValue({
+      ssh_session_id: "ssh-session-active",
+      connection_id: savedProfile.connection_id,
+      home: "/home/tester",
+      host_label: "test.invalid",
+      sftp_version: 3,
+    });
+    manualSftpApi.listManualSftpDirectory.mockResolvedValue({
+      listing_id: "listing-active",
+      path: "/home/tester",
+      entries: [],
+      next_sequence: 1,
+      done: true,
+      observed_entry_count: 0,
+      complete: true,
+    });
+
+    render(<App />);
+    await openSavedProfile();
+    await screen.findByTestId("terminal-tab");
+    fireEvent.click(screen.getByRole("button", { name: /SFTP/i }));
+    await waitFor(() => expect(manualSftpEvents.onTransfer).not.toBeNull());
+    act(() =>
+      manualSftpEvents.onTransfer!({
+        operation_id: "operation-active",
+        direction: "download",
+        phase: "transferring",
+        display_name: "payload.bin",
+        remote_path: "/home/tester/payload.bin",
+        host_label: "test.invalid",
+        bytes_completed: 1,
+        bytes_total: 2,
+        cancellable: true,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /SSH Connections/i }));
+
+    await disconnectSavedProfile();
+    expect(
+      screen.getByRole("dialog", { name: "Active SFTP transfer" }),
+    ).toBeVisible();
+    expect(sshApi.disconnectSsh).not.toHaveBeenCalled();
+    expect(manualSftpApi.cancelManualSftpOperation).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue waiting" }));
+    expect(sshApi.disconnectSsh).not.toHaveBeenCalled();
+    await disconnectSavedProfile();
+    manualSftpApi.cancelManualSftpOperation.mockRejectedValueOnce({
+      code: "SFTP_CANCEL_TOO_LATE",
+      message: "The operation is already committing.",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel and clean up" }));
+    await waitFor(() =>
+      expect(manualSftpApi.cancelManualSftpOperation).toHaveBeenCalledWith(
+        "operation-active",
+      ),
+    );
+    expect(sshApi.disconnectSsh).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "SFTP_CANCEL_TOO_LATE: The operation is already committing.",
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Active SFTP transfer" }),
+    ).toBeVisible();
   });
   afterEach(() => {
     vi.useRealTimers();

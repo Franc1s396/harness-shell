@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-manual-sftp-upload"
+description = "Enables the prepare_manual_sftp_upload command without any pre-configured scope."
+commands.allow = ["prepare_manual_sftp_upload"]
+
+[[permission]]
+identifier = "deny-prepare-manual-sftp-upload"
+description = "Denies the prepare_manual_sftp_upload command without any pre-configured scope."
+commands.deny = ["prepare_manual_sftp_upload"]

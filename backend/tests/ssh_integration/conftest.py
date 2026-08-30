@@ -9,7 +9,6 @@ from uuid import uuid4
 import pytest
 
 from harness_shell_sidecar.connections import ConnectionProfileInput, ConnectionRepository
-from harness_shell_sidecar.remote_io import ArtifactStore
 from harness_shell_sidecar.ssh.runtime import SshRuntime
 from harness_shell_sidecar.storage import (
     AuditLedger,
@@ -63,6 +62,10 @@ class LabConfig:
     encrypted_private_key_path: Path
     #: 加密测试私钥的口令。
     private_key_passphrase: str
+    #: 目标节点上由 root 拥有且禁止测试用户写入的目录。
+    target_permission_denied_root: str
+    #: 目标节点上独立 volume 提供的跨文件系统目录。
+    target_cross_device_root: str
 
 
 @pytest.fixture(scope="session")
@@ -87,6 +90,8 @@ def lab() -> LabConfig:
         unencrypted_private_key_path=Path(manifest["unencrypted_private_key_path"]),
         encrypted_private_key_path=Path(manifest["encrypted_private_key_path"]),
         private_key_passphrase=secrets["private_key_passphrase"],
+        target_permission_denied_root=manifest["target_permission_denied_root"],
+        target_cross_device_root=manifest["target_cross_device_root"],
     )
 
 
@@ -98,7 +103,6 @@ class RuntimeContext:
 
         self.database = RuntimeDatabase.open(path.resolve())  # 本测试隔离数据库。
         self.records = EncryptedRecordStore(self.database, b"m" * 32)  # 加密记录仓储。
-        self.artifacts = ArtifactStore(self.database, self.records)  # 远端输出仓储。
         self.repository = ConnectionRepository(self.database)  # 连接与 Host Key 仓储。
         self.audit = AuditLedger(self.database, b"a" * 32)  # 测试审计链。
         # 仅写当前测试数据库的 Trace Provider。
@@ -156,6 +160,39 @@ def runtime_context(tmp_path: Path):
 
 
 @pytest.fixture
+def connect_direct(runtime_context: RuntimeContext, lab: LabConfig):
+    async def connect():
+        """Trust and connect directly to the host-facing jump node."""
+
+        profile = runtime_context.create_profile(
+            name="direct-manual-sftp",
+            host=lab.jump_host,
+            port=lab.jump_port,
+            username=lab.jump_username,
+        )
+        observation = await runtime_context.runtime.inspect_host_key(
+            profile.connection_id
+        )
+        assert observation.host_key_candidate is not None
+        assert (
+            observation.host_key_candidate.fingerprint_sha256
+            == lab.jump_host_fingerprint
+        )
+        runtime_context.repository.trust_first_host_key(
+            observation.host_key_candidate
+        )
+        status = await runtime_context.runtime.connect(
+            profile.connection_id,
+            password=lab.jump_password.encode(),
+            expected_profile_version=profile.version,
+        )
+        assert status.state == "READY"
+        return profile, status
+
+    return connect
+
+
+@pytest.fixture
 def connect_proxy(runtime_context: RuntimeContext, lab: LabConfig):
     async def connect():
         jump = runtime_context.create_profile(
@@ -174,7 +211,7 @@ def connect_proxy(runtime_context: RuntimeContext, lab: LabConfig):
         jump_observation = await runtime_context.runtime.inspect_host_key(
             target.connection_id,
             jump_connection_id=jump.connection_id,
-            expected_jump_profile_updated_at=jump.updated_at,
+            expected_jump_profile_version=jump.version,
             jump_password=lab.jump_password.encode(),
         )
         assert jump_observation.host_key_candidate is not None
@@ -184,7 +221,7 @@ def connect_proxy(runtime_context: RuntimeContext, lab: LabConfig):
         target_observation = await runtime_context.runtime.inspect_host_key(
             target.connection_id,
             jump_connection_id=jump.connection_id,
-            expected_jump_profile_updated_at=jump.updated_at,
+            expected_jump_profile_version=jump.version,
             jump_password=lab.jump_password.encode(),
         )
         assert target_observation.host_key_candidate is not None
@@ -193,10 +230,10 @@ def connect_proxy(runtime_context: RuntimeContext, lab: LabConfig):
         status = await runtime_context.runtime.connect(
             target.connection_id,
             password=lab.target_password.encode(),
-            expected_profile_updated_at=target.updated_at,
+            expected_profile_version=target.version,
             jump_connection_id=jump.connection_id,
             jump_password=lab.jump_password.encode(),
-            expected_jump_profile_updated_at=jump.updated_at,
+            expected_jump_profile_version=jump.version,
         )
         assert status.state == "READY"
         return jump, target, status

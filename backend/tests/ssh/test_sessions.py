@@ -123,7 +123,14 @@ def test_child_close_failure_still_closes_target_and_jump_transports() -> None:
         target = FakeConnection()
         jump = FakeConnection()
         child = FailingChildChannel()
-        session = sessions.register(uuid4(), target, jump)
+        session = sessions.register(
+            uuid4(),
+            target,
+            jump,
+            connection_profile_version=1,
+            host_label="test-host",
+            target_host_key_fingerprint="SHA256:test-target",
+        )
         session.child_channels.add(child)
 
         with pytest.raises(OSError, match="child close failed"):
@@ -144,10 +151,22 @@ def test_close_all_continues_after_an_earlier_session_fails() -> None:
     async def scenario() -> None:
         sessions = SshSessionRegistry()
         first_target = FakeConnection()
-        first = sessions.register(uuid4(), first_target)
+        first = sessions.register(
+            uuid4(),
+            first_target,
+            connection_profile_version=1,
+            host_label="first-host",
+            target_host_key_fingerprint="SHA256:first-target",
+        )
         first.child_channels.add(FailingChildChannel())
         second_target = FakeConnection()
-        sessions.register(uuid4(), second_target)
+        sessions.register(
+            uuid4(),
+            second_target,
+            connection_profile_version=1,
+            host_label="second-host",
+            target_host_key_fingerprint="SHA256:second-target",
+        )
 
         with pytest.raises(OSError, match="child close failed"):
             await sessions.close_all()
@@ -255,7 +274,7 @@ def test_profile_change_after_secret_resolution_blocks_network_io(
                 await runtime.connect(
                     value.connection_id,
                     password=b"secret",
-                    expected_profile_updated_at=value.updated_at,
+                    expected_profile_version=value.version,
                 )
             assert raised.value.error_code == "CONNECTION_PROFILE_CHANGED"
             assert connector.attempts == 0

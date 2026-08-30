@@ -1,0 +1,122 @@
+[
+  {
+    "method": "manual_sftp.open",
+    "request": {"method": "manual_sftp.open", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001"}},
+    "response": {"context": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "connection_id": "00000000-0000-4000-8000-000000000006", "home": "/home/demo", "host_label": "demo-host", "sftp_version": 3}}
+  },
+  {
+    "method": "manual_sftp.list.begin",
+    "request": {"method": "manual_sftp.list.begin", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo"}},
+    "response": {"batch": {"listing_id": "00000000-0000-4000-8000-000000000002", "path": "/home/demo", "entries": [{"name": "data.txt", "path": "/home/demo/data.txt", "entry_type": "file", "size": 3, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null}], "next_sequence": 1, "done": true, "observed_entry_count": 1, "complete": true}}
+  },
+  {
+    "method": "manual_sftp.list.next",
+    "request": {"method": "manual_sftp.list.next", "params": {"listing_id": "00000000-0000-4000-8000-000000000002", "sequence": 1}},
+    "response": {"batch": {"listing_id": "00000000-0000-4000-8000-000000000002", "path": "/home/demo", "entries": [], "next_sequence": 2, "done": true, "observed_entry_count": 1, "complete": true}}
+  },
+  {
+    "method": "manual_sftp.list.close",
+    "request": {"method": "manual_sftp.list.close", "params": {"listing_id": "00000000-0000-4000-8000-000000000002"}},
+    "response": {"closed": true}
+  },
+  {
+    "method": "manual_sftp.lstat",
+    "request": {"method": "manual_sftp.lstat", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/data.txt"}},
+    "response": {"entry": {"name": "data.txt", "path": "/home/demo/data.txt", "entry_type": "file", "size": 3, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null}}
+  },
+  {
+    "method": "manual_sftp.readlink",
+    "request": {"method": "manual_sftp.readlink", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/current"}},
+    "response": {"entry": {"name": "current", "path": "/home/demo/current", "entry_type": "symlink", "size": null, "mode": 41471, "mtime_ns": "1770000000000000000", "link_target": "data.txt"}}
+  },
+  {
+    "method": "manual_sftp.realpath",
+    "request": {"method": "manual_sftp.realpath", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo"}},
+    "response": {"entry": {"name": "demo", "path": "/home/demo", "entry_type": "directory", "size": null, "mode": 16877, "mtime_ns": "1770000000000000000", "link_target": null}}
+  },
+  {
+    "method": "manual_sftp.sha256",
+    "request": {"method": "manual_sftp.sha256", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/data.txt"}},
+    "response": {"hash": {"path": "/home/demo/data.txt", "snapshot": {"path": "/home/demo/data.txt", "exists": true, "entry_type": "file", "size": 3, "mtime_ns": "1770000000000000000", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byte_count": 3}}
+  },
+  {
+    "method": "manual_sftp.upload.preflight",
+    "request": {"method": "manual_sftp.upload.preflight", "params": {"ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/upload.bin"}},
+    "response": {"snapshot": {"path": "/home/demo/upload.bin", "exists": false, "entry_type": null, "size": null, "mtime_ns": null, "sha256": null}}
+  },
+  {
+    "method": "manual_sftp.upload.begin",
+    "request": {"method": "manual_sftp.upload.begin", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/upload.bin", "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "source_byte_count": 3, "target_snapshot": {"path": "/home/demo/upload.bin", "exists": false, "entry_type": null, "size": null, "mtime_ns": null, "sha256": null}}},
+    "response": {"upload": {"operation_id": "00000000-0000-4000-8000-000000000003", "temp_path": "/home/demo/.upload.bin.harness-upload-00000000000040008000000000000003", "next_sequence": 0, "next_offset": 0}}
+  },
+  {
+    "method": "manual_sftp.upload.chunk",
+    "request": {"method": "manual_sftp.upload.chunk", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "sequence": 0, "offset": 0, "chunk_b64": "AQID"}},
+    "response": {"chunk": {"operation_id": "00000000-0000-4000-8000-000000000003", "next_sequence": 1, "next_offset": 3}}
+  },
+  {
+    "method": "manual_sftp.upload.finish",
+    "request": {"method": "manual_sftp.upload.finish", "params": {"operation_id": "00000000-0000-4000-8000-000000000003"}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "succeeded", "error_code": null, "message": "Upload completed.", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byte_count": 3, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.upload.abort",
+    "request": {"method": "manual_sftp.upload.abort", "params": {"operation_id": "00000000-0000-4000-8000-000000000003"}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "cancelled", "error_code": null, "message": "Upload cancelled.", "sha256": null, "byte_count": null, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.download.begin",
+    "request": {"method": "manual_sftp.download.begin", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/data.txt"}},
+    "response": {"download": {"operation_id": "00000000-0000-4000-8000-000000000003", "path": "/home/demo/data.txt", "snapshot": {"path": "/home/demo/data.txt", "exists": true, "entry_type": "file", "size": 3, "mtime_ns": "1770000000000000000", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byte_count": 3, "next_sequence": 0, "next_offset": 0}}
+  },
+  {
+    "method": "manual_sftp.download.chunk",
+    "request": {"method": "manual_sftp.download.chunk", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "sequence": 0, "offset": 0}},
+    "response": {"chunk": {"operation_id": "00000000-0000-4000-8000-000000000003", "sequence": 0, "offset": 0, "chunk_b64": "AQID", "next_offset": 3, "eof": true}}
+  },
+  {
+    "method": "manual_sftp.download.finish",
+    "request": {"method": "manual_sftp.download.finish", "params": {"operation_id": "00000000-0000-4000-8000-000000000003"}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "succeeded", "error_code": null, "message": "Download verified.", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byte_count": 3, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.download.abort",
+    "request": {"method": "manual_sftp.download.abort", "params": {"operation_id": "00000000-0000-4000-8000-000000000003"}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "cancelled", "error_code": null, "message": "Download cancelled.", "sha256": null, "byte_count": null, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.mkdir",
+    "request": {"method": "manual_sftp.mkdir", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "ssh_session_id": "00000000-0000-4000-8000-000000000001", "parent_path": "/home/demo", "name": "new-dir"}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "succeeded", "error_code": null, "message": "Directory created.", "sha256": null, "byte_count": null, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.rename",
+    "request": {"method": "manual_sftp.rename", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "ssh_session_id": "00000000-0000-4000-8000-000000000001", "source_path": "/home/demo/data.txt", "target_path": "/home/demo/data-renamed.txt", "overwrite": false, "source_snapshot": {"path": "/home/demo/data.txt", "exists": true, "entry_type": "file", "size": 3, "mtime_ns": "1770000000000000000", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "target_snapshot": {"path": "/home/demo/data-renamed.txt", "exists": false, "entry_type": null, "size": null, "mtime_ns": null, "sha256": null}}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "succeeded", "error_code": null, "message": "Entry renamed.", "sha256": null, "byte_count": null, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.remove",
+    "request": {"method": "manual_sftp.remove", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/data.txt", "expected_snapshot": {"path": "/home/demo/data.txt", "exists": true, "entry_type": "file", "size": 3, "mtime_ns": "1770000000000000000", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "succeeded", "error_code": null, "message": "Entry removed.", "sha256": null, "byte_count": null, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.delete.preflight",
+    "request": {"method": "manual_sftp.delete.preflight", "params": {"operation_id": "00000000-0000-4000-8000-000000000003", "ssh_session_id": "00000000-0000-4000-8000-000000000001", "path": "/home/demo/cache"}},
+    "response": {"delete_plan": {"delete_plan_id": "00000000-0000-4000-8000-000000000004", "operation_id": "00000000-0000-4000-8000-000000000003", "root_path": "/home/demo/cache", "root_snapshot": {"path": "/home/demo/cache", "exists": true, "entry_type": "directory", "size": null, "mtime_ns": "1770000000000000000", "sha256": null}, "file_count": 1, "directory_count": 1, "symlink_count": 0, "total_byte_count": 3, "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "complete": true}}
+  },
+  {
+    "method": "manual_sftp.delete.execute",
+    "request": {"method": "manual_sftp.delete.execute", "params": {"delete_plan_id": "00000000-0000-4000-8000-000000000004"}},
+    "response": {"terminal": {"operation_id": "00000000-0000-4000-8000-000000000003", "state": "succeeded", "error_code": null, "message": "Tree deleted.", "sha256": null, "byte_count": null, "recovery_id": null}}
+  },
+  {
+    "method": "manual_sftp.recovery.inspect",
+    "request": {"method": "manual_sftp.recovery.inspect", "params": {"recovery_id": "00000000-0000-4000-8000-000000000005"}},
+    "response": {"recovery": {"recovery_id": "00000000-0000-4000-8000-000000000005", "operation_id": "00000000-0000-4000-8000-000000000005", "kind": "delete_tombstone", "host_label": "demo-host", "remote_path": "/home/demo/.cache.harness-delete", "display_name": "cache", "state": "recovery_required", "created_at": "2026-08-29T00:00:00Z", "available_actions": ["verify", "continue_delete", "restore_tombstone", "keep"]}}
+  },
+  {
+    "method": "manual_sftp.recovery.execute",
+    "request": {"method": "manual_sftp.recovery.execute", "params": {"recovery_id": "00000000-0000-4000-8000-000000000005", "action": "verify", "operation_id": "00000000-0000-4000-8000-000000000006"}},
+    "response": {"recovery": {"recovery_id": "00000000-0000-4000-8000-000000000005", "operation_id": "00000000-0000-4000-8000-000000000005", "kind": "delete_tombstone", "host_label": "demo-host", "remote_path": "/home/demo/.cache.harness-delete", "display_name": "cache", "state": "recovery_required", "created_at": "2026-08-29T00:00:00Z", "available_actions": ["continue_delete", "restore_tombstone", "keep"]}}
+  }
+]

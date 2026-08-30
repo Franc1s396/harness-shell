@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -56,7 +55,7 @@ class SshRuntime:
         jump_password: bytes | bytearray | None = None,
         jump_private_key: bytes | bytearray | None = None,
         jump_passphrase: bytes | bytearray | None = None,
-        expected_jump_profile_updated_at: datetime | None = None,
+        expected_jump_profile_version: int | None = None,
         jump_connection_id: UUID | None = None,
     ) -> ConnectionStatus:
         """检查目标或跳板 Host Key，且不保留任何认证会话。"""
@@ -68,7 +67,7 @@ class SshRuntime:
 
         jump = self._proxy_profile(
             profile,
-            expected_jump_profile_updated_at,
+            expected_jump_profile_version,
             correlation_id,
             expected_connection_id=jump_connection_id,
         )
@@ -161,11 +160,11 @@ class SshRuntime:
         password: bytes | bytearray | None = None,
         private_key: bytes | bytearray | None = None,
         passphrase: bytes | bytearray | None = None,
-        expected_profile_updated_at: datetime | None = None,
+        expected_profile_version: int | None = None,
         jump_password: bytes | bytearray | None = None,
         jump_private_key: bytes | bytearray | None = None,
         jump_passphrase: bytes | bytearray | None = None,
-        expected_jump_profile_updated_at: datetime | None = None,
+        expected_jump_profile_version: int | None = None,
         jump_connection_id: UUID | None = None,
     ) -> ConnectionStatus:
         """验证配置快照与 Host Key 后，在最多两次尝试内建立 SSH 会话。"""
@@ -173,8 +172,8 @@ class SshRuntime:
         correlation_id = uuid4()
         profile = self._profile(connection_id, correlation_id)
         if (
-            expected_profile_updated_at is not None
-            and profile.updated_at != expected_profile_updated_at
+            expected_profile_version is not None
+            and profile.version != expected_profile_version
         ):
             raise SshRuntimeError(
                 "CONNECTION_PROFILE_CHANGED",
@@ -186,7 +185,7 @@ class SshRuntime:
         if profile.proxy_jump_id is not None:
             jump = self._proxy_profile(
                 profile,
-                expected_jump_profile_updated_at,
+                expected_jump_profile_version,
                 correlation_id,
                 expected_connection_id=jump_connection_id,
             )
@@ -250,7 +249,13 @@ class SshRuntime:
                 raise error from exc
             else:
                 self._record_attempt(profile.connection_id, correlation_id, attempt, "succeeded", None)
-                session = self.sessions.register(profile.connection_id, connection)
+                session = self.sessions.register(
+                    profile.connection_id,
+                    connection,
+                    connection_profile_version=profile.version,
+                    host_label=profile.display_name,
+                    target_host_key_fingerprint=active_host_key.fingerprint_sha256,
+                )
                 status = self._status(
                     connection_id,
                     "READY",
@@ -376,6 +381,12 @@ class SshRuntime:
                     profile.connection_id,
                     target_connection,
                     jump_connection,
+                    connection_profile_version=profile.version,
+                    host_label=profile.display_name,
+                    target_host_key_fingerprint=active_target_key.fingerprint_sha256,
+                    jump_connection_id=jump.connection_id,
+                    jump_profile_version=jump.version,
+                    jump_host_key_fingerprint=active_jump_key.fingerprint_sha256,
                 )
                 status = self._status(
                     profile.connection_id,
@@ -437,7 +448,7 @@ class SshRuntime:
     def _proxy_profile(
         self,
         profile,
-        expected_updated_at: datetime | None,
+        expected_version: int | None,
         correlation_id: UUID,
         *,
         expected_connection_id: UUID | None = None,
@@ -464,7 +475,7 @@ class SshRuntime:
                 remote_state="not_contacted",
                 correlation_id=correlation_id,
             )
-        if expected_updated_at is not None and jump.updated_at != expected_updated_at:
+        if expected_version is not None and jump.version != expected_version:
             raise SshRuntimeError(
                 "CONNECTION_PROFILE_CHANGED",
                 node="proxy_jump.profile",

@@ -27,7 +27,8 @@ use crate::{
     app_state::{RuntimeControl, RuntimeStateHandle},
     sidecar::{
         broker::{
-            validate_runtime_event, BrokerError, PendingReplies, RuntimeCommand, RuntimeRequest,
+            emit_runtime_event_projection, BrokerError, PendingReplies, RuntimeCommand,
+            RuntimeRequest,
         },
         job::WindowsJob,
         Supervisor, SupervisorEvent,
@@ -365,8 +366,10 @@ pub async fn supervise_runtime<R: Runtime>(
                         }),
                     );
                 } else if frame.message_type == MessageType::Event {
-                    if validate_runtime_event(&frame.payload).is_err()
-                        || app.emit_to("main", "ssh://event", &frame.payload).is_err()
+                    if emit_runtime_event_projection(&frame.payload, |projection| {
+                        app.emit_to("main", projection.webview_event, projection.payload.clone())
+                    })
+                    .is_err()
                     {
                         publish(&state, supervisor.transition(SupervisorEvent::InvalidFrame));
                         process.kill()?;
@@ -522,8 +525,14 @@ async fn shutdown_runtime<R: Runtime>(
                             return Err(error);
                         }
                     } else if frame.message_type == MessageType::Event {
-                        if validate_runtime_event(&frame.payload).is_err()
-                            || app.emit_to("main", "ssh://event", &frame.payload).is_err()
+                        if emit_runtime_event_projection(&frame.payload, |projection| {
+                            app.emit_to(
+                                "main",
+                                projection.webview_event,
+                                projection.payload.clone(),
+                            )
+                        })
+                        .is_err()
                         {
                             publish(state, supervisor.transition(SupervisorEvent::InvalidFrame));
                             process.kill()?;
@@ -887,8 +896,8 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         .and_then(|value| value.get("protocol_versions"))
         .and_then(Value::as_array)
         .is_some_and(|versions| versions.contains(&json!(PROTOCOL_VERSION)));
-    let schema_v2 =
-        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(2));
+    let schema_v3 =
+        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(3));
     let features = capabilities
         .and_then(|value| value.get("features"))
         .and_then(Value::as_array);
@@ -897,9 +906,9 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         "host_key_store",
         "ssh_runtime",
         "pty",
-        "agent_readonly_io",
+        "manual_sftp",
     ];
-    let supports_ssh_runtime = features.is_some_and(|features| {
+    let supports_required_features = features.is_some_and(|features| {
         required_features
             .iter()
             .all(|feature| features.contains(&json!(feature)))
@@ -909,8 +918,8 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         || frame.sensitivity != Sensitivity::Normal
         || frame.payload.get("event") != Some(&json!("sidecar.ready"))
         || !supports_v1
-        || !schema_v2
-        || !supports_ssh_runtime
+        || !schema_v3
+        || !supports_required_features
     {
         return Err(ProcessError::InvalidFrame("sidecar.ready"));
     }

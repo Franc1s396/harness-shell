@@ -173,3 +173,74 @@ fn redacted_debug_never_formats_payload_values() {
     assert!(normal_debug.contains("api_key"));
     assert!(!normal_debug.contains("M1-RUST-SECRET-MARKER"));
 }
+
+#[test]
+fn manual_sftp_fixture_corpus_covers_all_24_methods_and_invalid_boundaries() {
+    let fixture_root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/protocol/fixtures/manual-sftp");
+    let pairs: Value = serde_json::from_slice(
+        &fs::read(fixture_root.join("valid-method-pairs-v1.json")).expect("read SFTP pairs"),
+    )
+    .expect("parse SFTP pairs");
+    let methods = pairs
+        .as_array()
+        .expect("SFTP pairs must be an array")
+        .iter()
+        .map(|pair| pair["method"].as_str().expect("pair method"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        methods,
+        vec![
+            "manual_sftp.open",
+            "manual_sftp.list.begin",
+            "manual_sftp.list.next",
+            "manual_sftp.list.close",
+            "manual_sftp.lstat",
+            "manual_sftp.readlink",
+            "manual_sftp.realpath",
+            "manual_sftp.sha256",
+            "manual_sftp.upload.preflight",
+            "manual_sftp.upload.begin",
+            "manual_sftp.upload.chunk",
+            "manual_sftp.upload.finish",
+            "manual_sftp.upload.abort",
+            "manual_sftp.download.begin",
+            "manual_sftp.download.chunk",
+            "manual_sftp.download.finish",
+            "manual_sftp.download.abort",
+            "manual_sftp.mkdir",
+            "manual_sftp.rename",
+            "manual_sftp.remove",
+            "manual_sftp.delete.preflight",
+            "manual_sftp.delete.execute",
+            "manual_sftp.recovery.inspect",
+            "manual_sftp.recovery.execute",
+        ]
+    );
+    for pair in pairs.as_array().unwrap() {
+        assert_eq!(pair["request"]["method"], pair["method"]);
+        assert!(pair["request"]["params"].is_object());
+        assert!(pair["response"].is_object());
+    }
+
+    let invalid: Value = serde_json::from_slice(
+        &fs::read(fixture_root.join("invalid-cases-v1.json")).expect("read invalid SFTP corpus"),
+    )
+    .expect("parse invalid SFTP corpus");
+    let kinds = invalid
+        .as_array()
+        .expect("invalid SFTP corpus must be an array")
+        .iter()
+        .map(|case| case["kind"].as_str().expect("invalid case kind"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        vec![
+            "unknown_response_field",
+            "oversized_chunk",
+            "unsafe_size",
+            "invalid_sequence",
+            "invalid_progress_event",
+        ]
+    );
+}

@@ -137,7 +137,13 @@ def setup_manager():
     process = FakeProcess()
     connection = FakeConnection(process)
     sessions = SshSessionRegistry()
-    ssh_session = sessions.register(uuid4(), connection)
+    ssh_session = sessions.register(
+        uuid4(),
+        connection,
+        connection_profile_version=1,
+        host_label="test-host",
+        target_host_key_fingerprint="SHA256:test-target",
+    )
     manager = PtyManager(sessions, event_listener=emit)
     return manager, sessions, ssh_session, process, connection, events
 

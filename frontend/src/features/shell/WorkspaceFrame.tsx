@@ -3,6 +3,11 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "../../components/ui/controls";
 import { Dialog } from "../../components/ui/Dialog";
+import type {
+  OperationTerminalProjection,
+  TransferProgressProjection,
+} from "../../api/manual-sftp";
+import { normalizeManualSftpError } from "../../api/manual-sftp";
 import { useWorkspaceUiStore } from "../../stores/workspace-ui-store";
 import { ActivityBar } from "./ActivityBar";
 import { ContextBar } from "./ContextBar";
@@ -23,7 +28,7 @@ import {
 
 export type WorkspaceFrameProps = {
   connectionNavigator: ReactNode;
-  terminalWorkspace: ReactNode;
+  primaryWorkspace: ReactNode;
   agentWorkspace: ReactNode;
   workspaceOverlay?: ReactNode;
   runtimeState: string;
@@ -36,6 +41,9 @@ export type WorkspaceFrameProps = {
   agentWidth: number | null;
   activeTerminalAvailable: boolean;
   connectionActionsDisabled?: boolean;
+  activeSftpTransfer?: TransferProgressProjection | null;
+  activeSftpTerminal?: OperationTerminalProjection | null;
+  onCancelActiveSftpTransfer?: (operationId: string) => Promise<void>;
   onCreateConnection: () => void;
   onEditConnection: () => void;
   onFocusTerminal: () => void;
@@ -44,7 +52,7 @@ export type WorkspaceFrameProps = {
 
 export function WorkspaceFrame({
   connectionNavigator,
-  terminalWorkspace,
+  primaryWorkspace,
   agentWorkspace,
   workspaceOverlay,
   runtimeState,
@@ -56,6 +64,9 @@ export function WorkspaceFrame({
   targetSummary,
   activeTerminalAvailable,
   connectionActionsDisabled = false,
+  activeSftpTransfer = null,
+  activeSftpTerminal = null,
+  onCancelActiveSftpTransfer,
   onCreateConnection,
   onEditConnection,
   onFocusTerminal,
@@ -71,6 +82,7 @@ export function WorkspaceFrame({
   const requestedAgentVisible = useWorkspaceUiStore(
     (state) => state.agentVisible,
   );
+  const activeActivity = useWorkspaceUiStore((state) => state.activeActivity);
   const requestedAgentWidth = useWorkspaceUiStore((state) => state.agentWidth);
   const drawerOpen = useWorkspaceUiStore(
     (state) => state.mediumViewportDrawerOpen,
@@ -78,12 +90,60 @@ export function WorkspaceFrame({
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [settingsAnchor, setSettingsAnchor] =
     useState<HTMLButtonElement | null>(null);
+  const [closeTransferDecision, setCloseTransferDecision] = useState<
+    "idle" | "cancelling"
+  >("idle");
+  const [closeTransferError, setCloseTransferError] = useState<
+    ReturnType<typeof normalizeManualSftpError> | null
+  >(null);
   const closeSettings = useCallback(() => setSettingsAnchor(null), []);
   const {
     closeConfirmationOpen,
     cancelApplicationClose,
     confirmApplicationClose,
   } = useApplicationCloseConfirmation();
+
+  useEffect(() => {
+    if (
+      !closeConfirmationOpen ||
+      closeTransferDecision !== "cancelling" ||
+      activeSftpTransfer
+    ) {
+      return;
+    }
+    if (
+      activeSftpTerminal?.state === "cleanup_required" ||
+      activeSftpTerminal?.state === "outcome_unknown"
+    ) {
+      return;
+    }
+    void confirmApplicationClose();
+  }, [
+    activeSftpTerminal?.state,
+    activeSftpTransfer,
+    closeConfirmationOpen,
+    closeTransferDecision,
+    confirmApplicationClose,
+  ]);
+
+  const continueWaitingForClose = () => {
+    setCloseTransferDecision("idle");
+    setCloseTransferError(null);
+    cancelApplicationClose();
+  };
+
+  const cancelTransferForClose = async () => {
+    if (!activeSftpTransfer?.cancellable || !onCancelActiveSftpTransfer) return;
+    setCloseTransferDecision("cancelling");
+    setCloseTransferError(null);
+    try {
+      await onCancelActiveSftpTransfer(activeSftpTransfer.operation_id);
+    } catch (error) {
+      // Keep the lifecycle decision visible. A failed cancel is not equivalent to cleanup.
+      setCloseTransferDecision("idle");
+      setCloseTransferError(normalizeManualSftpError(error));
+    }
+  };
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -96,7 +156,8 @@ export function WorkspaceFrame({
     requestedSidebarVisible,
     requestedAgentVisible,
   );
-  const effectiveAgentWidth = responsive.agentVisible
+  const agentAllowed = activeActivity !== "sftp";
+  const effectiveAgentWidth = responsive.agentVisible && agentAllowed
     ? resolveEffectiveAgentWidth(
         requestedAgentWidth,
         agentWidthBounds({
@@ -174,7 +235,7 @@ export function WorkspaceFrame({
             style={{ minWidth: 560 }}
             className="min-h-0 min-w-0 flex-1"
           >
-            {terminalWorkspace}
+            {primaryWorkspace}
           </section>
 
           {effectiveAgentWidth !== null ? (
@@ -210,7 +271,7 @@ export function WorkspaceFrame({
                 {agentWorkspace}
               </aside>
             </>
-          ) : (
+          ) : agentAllowed ? (
             <button
               type="button"
               aria-label={t("agent.expand")}
@@ -221,7 +282,7 @@ export function WorkspaceFrame({
             >
               <ShellIcon name="agent" />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -254,18 +315,54 @@ export function WorkspaceFrame({
       <Dialog
         open={closeConfirmationOpen}
         title={t("applicationClose.title")}
-        onClose={cancelApplicationClose}
+        onClose={continueWaitingForClose}
       >
         <p className="mt-3 text-sm text-ink-muted">
-          {t("applicationClose.body")}
+          {activeSftpTransfer
+            ? activeSftpTransfer.cancellable
+              ? t("applicationClose.activeTransferBody")
+              : t("applicationClose.committingBody")
+            : closeTransferDecision === "cancelling" &&
+                (activeSftpTerminal?.state === "cleanup_required" ||
+                  activeSftpTerminal?.state === "outcome_unknown")
+              ? t("applicationClose.recoveryBody")
+              : t("applicationClose.body")}
         </p>
+        {closeTransferError ? (
+          <p role="alert" className="mt-3 text-sm text-danger">
+            <strong>{closeTransferError.code}</strong>: {closeTransferError.message}
+          </p>
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={cancelApplicationClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button onClick={() => void confirmApplicationClose()}>
-            {t("applicationClose.confirm")}
-          </Button>
+          {activeSftpTransfer || closeTransferDecision === "cancelling" ? (
+            <Button variant="secondary" onClick={continueWaitingForClose}>
+              {t("applicationClose.continueWaiting")}
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={cancelApplicationClose}>
+              {t("common.cancel")}
+            </Button>
+          )}
+          {activeSftpTransfer?.cancellable ? (
+            <Button
+              variant="danger"
+              disabled={closeTransferDecision === "cancelling"}
+              onClick={() => void cancelTransferForClose()}
+            >
+              {t("applicationClose.cancelAndCleanUp")}
+            </Button>
+          ) : !activeSftpTransfer &&
+            closeTransferDecision === "cancelling" &&
+            (activeSftpTerminal?.state === "cleanup_required" ||
+              activeSftpTerminal?.state === "outcome_unknown") ? (
+            <Button onClick={() => void confirmApplicationClose()}>
+              {t("applicationClose.keepRecoveryAndClose")}
+            </Button>
+          ) : !activeSftpTransfer && closeTransferDecision === "idle" ? (
+            <Button onClick={() => void confirmApplicationClose()}>
+              {t("applicationClose.confirm")}
+            </Button>
+          ) : null}
         </div>
       </Dialog>
       {workspaceOverlay}

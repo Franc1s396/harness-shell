@@ -51,16 +51,26 @@ class MemoryTransport:
 class CleanupProbe:
     """记录 close_all 调用并可注入清理失败的测试探针。"""
 
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        label: str | None = None,
+        order: list[str] | None = None,
+    ) -> None:
         """配置探针是否在记录关闭后抛出预期异常。"""
 
         self.closed = False  # close_all 是否被调用。
         self.fail = fail  # 是否注入清理失败。
+        self.label = label  # 可选的清理顺序标识。
+        self.order = order  # 多 owner 共享的关闭顺序记录。
 
     async def close_all(self) -> None:
         """记录清理，并按配置抛出 OSError。"""
 
         self.closed = True
+        if self.label is not None and self.order is not None:
+            self.order.append(self.label)
         if self.fail:
             raise OSError("PTY cleanup failed")
 
@@ -99,6 +109,36 @@ def frame(
         sensitivity=sensitivity,
         payload=payload,
     )
+
+
+def test_sidecar_service_has_no_prebuilt_agent_remote_io_fields() -> None:
+    """人工 SFTP 重设计后，Sidecar 不再预构建任何 Agent Remote I/O 对象。"""
+
+    service = SidecarService(MemoryTransport())
+
+    assert not hasattr(service, "_artifact_store")
+    assert not hasattr(service, "_remote_executor")
+    assert not hasattr(service, "_remote_sftp")
+
+
+def test_ready_capabilities_advertise_manual_sftp_schema_three_without_agent_io() -> None:
+    """The real ready frame must negotiate the current manual-SFTP runtime only."""
+
+    async def scenario() -> None:
+        transport = MemoryTransport()
+        service = SidecarService(transport)
+        running = asyncio.create_task(service.run())
+
+        ready = await transport.output.get()
+        capabilities = ready.payload["capabilities"]
+        assert capabilities["storage_schema_version"] == 3
+        assert "manual_sftp" in capabilities["features"]
+        assert "agent_readonly_io" not in capabilities["features"]
+
+        await transport.input.put(None)
+        await running
+
+    asyncio.run(scenario())
 
 
 def test_service_sends_heartbeat_before_slow_application_response(
@@ -169,8 +209,11 @@ def test_service_cleanup_attempts_every_stage_after_an_earlier_failure() -> None
         dispatcher = FailingCloseDispatcher()
         service = SidecarService(transport, dispatcher=dispatcher)
         pty = CleanupProbe(fail=True)
-        ssh = CleanupProbe()
+        order: list[str] = []
+        manual_sftp = CleanupProbe(label="manual_sftp", order=order)
+        ssh = CleanupProbe(label="ssh", order=order)
         service._pty_manager = pty
+        service._manual_sftp_service = manual_sftp
         service._ssh_runtime = ssh
         await transport.input.put(None)
 
@@ -179,7 +222,9 @@ def test_service_cleanup_attempts_every_stage_after_an_earlier_failure() -> None
 
         assert dispatcher.closed is True
         assert pty.closed is True
+        assert manual_sftp.closed is True
         assert ssh.closed is True
+        assert order == ["manual_sftp", "ssh"]
         assert transport.closed is True
 
     asyncio.run(scenario())

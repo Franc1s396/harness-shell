@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 
+from harness_shell_sidecar.connections import repository as repository_module
 from harness_shell_sidecar.connections import (
     ConnectionProfileInput,
     ConnectionRepository,
@@ -53,6 +54,8 @@ def test_profile_crud_round_trip(repository: ConnectionRepository) -> None:
     assert updated.connection_id == created.connection_id
     assert updated.created_at == created.created_at
     assert updated.updated_at >= created.updated_at
+    assert created.version == 1
+    assert updated.version == 2
     assert updated.favorite is True
 
     assert repository.delete(created.connection_id) is True
@@ -116,3 +119,39 @@ def test_host_key_first_trust_and_compare_and_swap_replacement(
     assert replacement.status == "active"
     assert replacement.fingerprint_sha256 == "SHA256:second"
     assert repository.active_host_key(profile.connection_id) == replacement
+
+
+def test_profile_version_increments_even_when_wall_clock_does_not(
+    repository: ConnectionRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        repository_module,
+        "_utc_now",
+        lambda: "2026-08-29T00:00:00.000000Z",
+    )
+    created = repository.create(profile_input("created"))
+    first = repository.update(created.connection_id, profile_input("first"))
+    second = repository.update(created.connection_id, profile_input("second"))
+
+    assert (created.version, first.version, second.version) == (1, 2, 3)
+    assert created.updated_at == first.updated_at == second.updated_at
+
+
+def test_profile_update_rejects_version_exhaustion(
+    repository: ConnectionRepository,
+) -> None:
+    created = repository.create(profile_input("created"))
+    repository._database.execute(
+        "UPDATE connection_profiles SET version = ? WHERE connection_id = ?",
+        (2**53 - 1, str(created.connection_id)),
+    )
+
+    with pytest.raises(ConnectionRepositoryError) as raised:
+        repository.update(created.connection_id, profile_input("blocked"))
+
+    assert raised.value.error_code == "CONNECTION_VERSION_EXHAUSTED"
+    stored = repository.get(created.connection_id)
+    assert stored is not None
+    assert stored.display_name == "created"
+    assert stored.version == 2**53 - 1

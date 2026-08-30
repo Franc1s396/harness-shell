@@ -15,6 +15,16 @@ class SshSession:
     ssh_session_id: UUID
     #: 创建该会话的连接配置标识符。
     connection_id: UUID
+    #: 建立连接时冻结的配置单调版本，恢复操作必须精确匹配。
+    connection_profile_version: int
+    #: 建立连接时冻结的安全显示名。
+    host_label: str
+    #: 已验证目标 Host Key 的 SHA-256 指纹。
+    target_host_key_fingerprint: str
+    #: 可选跳板配置及其冻结版本和 Host Key 指纹。
+    jump_connection_id: UUID | None
+    jump_profile_version: int | None
+    jump_host_key_fingerprint: str | None
     #: 已认证且 Host Key 已验证的目标 AsyncSSH 连接。
     connection: Any
     #: 可选的已认证 ProxyJump 连接，必须晚于目标子连接关闭。
@@ -37,12 +47,31 @@ class SshSessionRegistry:
         return len(self._sessions)
 
     def register(
-        self, connection_id: UUID, connection: Any, jump_connection: Any | None = None
+        self,
+        connection_id: UUID,
+        connection: Any,
+        jump_connection: Any | None = None,
+        *,
+        connection_profile_version: int,
+        host_label: str,
+        target_host_key_fingerprint: str,
+        jump_connection_id: UUID | None = None,
+        jump_profile_version: int | None = None,
+        jump_host_key_fingerprint: str | None = None,
     ) -> SshSession:
         """为已建立连接分配不透明会话 ID 并接管其生命周期。"""
 
         session = SshSession(
-            uuid4(), connection_id, connection, jump_connection
+            ssh_session_id=uuid4(),
+            connection_id=connection_id,
+            connection_profile_version=connection_profile_version,
+            host_label=host_label,
+            target_host_key_fingerprint=target_host_key_fingerprint,
+            jump_connection_id=jump_connection_id,
+            jump_profile_version=jump_profile_version,
+            jump_host_key_fingerprint=jump_host_key_fingerprint,
+            connection=connection,
+            jump_connection=jump_connection,
         )
         self._sessions[session.ssh_session_id] = session
         return session
@@ -51,6 +80,38 @@ class SshSessionRegistry:
         """读取活动会话；不存在时返回 None。"""
 
         return self._sessions.get(session_id)
+
+    def find_by_connection_id(self, connection_id: UUID) -> tuple[SshSession, ...]:
+        """返回指定连接配置的全部活动会话，不猜测其中哪一个应被使用。"""
+
+        return tuple(
+            session
+            for session in self._sessions.values()
+            if session.connection_id == connection_id
+        )
+
+    def find_recovery_session(
+        self,
+        *,
+        connection_id: UUID,
+        connection_profile_version: int,
+        target_host_key_fingerprint: str,
+        jump_connection_id: UUID | None,
+        jump_profile_version: int | None,
+        jump_host_key_fingerprint: str | None,
+    ) -> tuple[SshSession, ...]:
+        """Match the complete authenticated endpoint chain frozen by an operation."""
+
+        return tuple(
+            session
+            for session in self._sessions.values()
+            if session.connection_id == connection_id
+            and session.connection_profile_version == connection_profile_version
+            and session.target_host_key_fingerprint == target_host_key_fingerprint
+            and session.jump_connection_id == jump_connection_id
+            and session.jump_profile_version == jump_profile_version
+            and session.jump_host_key_fingerprint == jump_host_key_fingerprint
+        )
 
     async def close(self, session_id: UUID) -> SshSession | None:
         """依次关闭子 channel、目标连接和跳板，并保留首个清理错误。"""

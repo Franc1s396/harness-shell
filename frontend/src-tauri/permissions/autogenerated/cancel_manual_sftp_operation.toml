@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-manual-sftp-operation"
+description = "Enables the cancel_manual_sftp_operation command without any pre-configured scope."
+commands.allow = ["cancel_manual_sftp_operation"]
+
+[[permission]]
+identifier = "deny-cancel-manual-sftp-operation"
+description = "Denies the cancel_manual_sftp_operation command without any pre-configured scope."
+commands.deny = ["cancel_manual_sftp_operation"]

@@ -46,8 +46,8 @@ class ConnectionRepository:
             INSERT INTO connection_profiles(
                 connection_id, display_name, group_name, host, port, username,
                 auth_kind, credential_id, passphrase_credential_id,
-                proxy_jump_id, favorite, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                proxy_jump_id, favorite, created_at, updated_at, version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _profile_parameters(connection_id, value, now, now),
         )
@@ -68,15 +68,20 @@ class ConnectionRepository:
             raise ConnectionRepositoryError(
                 "CONNECTION_NOT_FOUND", "connection profile was not found"
             )
+        if current.version == 2**53 - 1:
+            raise ConnectionRepositoryError(
+                "CONNECTION_VERSION_EXHAUSTED",
+                "connection profile version is exhausted",
+            )
         self._validate_proxy(value.proxy_jump_id, connection_id)
-        self._database.execute(
+        cursor = self._database.execute(
             """
             UPDATE connection_profiles SET
                 display_name = ?, group_name = ?, host = ?, port = ?,
                 username = ?, auth_kind = ?, credential_id = ?,
                 passphrase_credential_id = ?, proxy_jump_id = ?, favorite = ?,
-                updated_at = ?
-            WHERE connection_id = ?
+                updated_at = ?, version = version + 1
+            WHERE connection_id = ? AND version = ?
             """,
             (
                 value.display_name,
@@ -91,10 +96,16 @@ class ConnectionRepository:
                 int(value.favorite),
                 _utc_now(),
                 str(connection_id),
+                current.version,
             ),
         )
+        if cursor.rowcount != 1:
+            raise ConnectionRepositoryError(
+                "CONNECTION_PERSISTENCE_FAILED",
+                "connection profile version changed during update",
+            )
         updated = self.get(connection_id)
-        if updated is None:
+        if updated is None or updated.version != current.version + 1:
             raise ConnectionRepositoryError(
                 "CONNECTION_PERSISTENCE_FAILED", "updated profile was not found"
             )
@@ -261,7 +272,7 @@ class ConnectionRepository:
 _PROFILE_SELECT = """
 SELECT connection_id, display_name, group_name, host, port, username,
        auth_kind, credential_id, passphrase_credential_id, proxy_jump_id,
-       favorite, created_at, updated_at
+       favorite, created_at, updated_at, version
 FROM connection_profiles
 """
 
@@ -286,6 +297,7 @@ def _profile_parameters(
         int(value.favorite),
         created_at,
         updated_at,
+        1,
     )
 
 
@@ -304,6 +316,7 @@ def _profile_from_row(row: tuple) -> ConnectionProfile:
         favorite=bool(row[10]),
         created_at=_parse_time(row[11]),
         updated_at=_parse_time(row[12]),
+        version=row[13],
     )
 
 

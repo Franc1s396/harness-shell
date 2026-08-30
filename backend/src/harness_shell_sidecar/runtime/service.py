@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from opentelemetry.trace import Status, StatusCode
@@ -12,7 +13,6 @@ from opentelemetry.trace import Status, StatusCode
 from harness_shell_sidecar.connections.handlers import register_connection_handlers
 from harness_shell_sidecar.connections.repository import ConnectionRepository
 from harness_shell_sidecar.protocol import MessageType, ProtocolViolation
-from harness_shell_sidecar.remote_io import ArtifactStore, RemoteExecutor, RemoteSftp
 from harness_shell_sidecar.storage import (
     AuditEvent,
     AuditLedger,
@@ -36,6 +36,10 @@ from .router import Router
 from .stdio import StdioTransport
 
 
+if TYPE_CHECKING:
+    from harness_shell_sidecar.manual_sftp.service import ManualSftpService
+
+
 LOGGER = logging.getLogger("harness_shell_sidecar.runtime")
 
 
@@ -56,11 +60,10 @@ class SidecarService:
         self._connection_repository: ConnectionRepository | None = None
         self._ssh_runtime: SshRuntime | None = None  # SSH 连接与会话生命周期管理器。
         self._pty_manager: PtyManager | None = None  # 交互式 PTY channel 管理器。
+        # 仅由用户显式操作、绑定活动 SSH Session 的 SFTP 所有者。
+        self._manual_sftp_service: ManualSftpService | None = None
         # 持有运行时数据加密 Key 的认证加密记录仓储。
         self._record_store: EncryptedRecordStore | None = None
-        self._artifact_store: ArtifactStore | None = None  # 远端输出 Artifact 仓储。
-        self._remote_executor: RemoteExecutor | None = None  # 有界远端命令执行器。
-        self._remote_sftp: RemoteSftp | None = None  # 只读 SFTP 操作入口。
         self._audit_ledger: AuditLedger | None = None  # HMAC 链式审计账本。
         self._trace_provider = None  # 仅写本地数据库的 OpenTelemetry Provider。
         self._tracer = None  # 当前运行时模块使用的 Tracer。
@@ -118,6 +121,8 @@ class SidecarService:
                             await self._dispatcher.close()
                             if self._pty_manager is not None:
                                 await self._pty_manager.close_all()
+                            if self._manual_sftp_service is not None:
+                                await self._manual_sftp_service.close_all()
                             if self._ssh_runtime is not None:
                                 await self._ssh_runtime.close_all()
                             response = self._router.handle_validated(frame)
@@ -170,6 +175,11 @@ class SidecarService:
             if self._pty_manager is not None:
                 try:
                     await self._pty_manager.close_all()
+                except BaseException as exc:
+                    remember(exc)
+            if self._manual_sftp_service is not None:
+                try:
+                    await self._manual_sftp_service.close_all()
                 except BaseException as exc:
                     remember(exc)
             if self._ssh_runtime is not None:
@@ -270,6 +280,12 @@ class SidecarService:
     def _initialize_runtime(self, payload: InitializeRequestPayload) -> None:
         """按 fail-closed 顺序打开、校验并发布全部运行时资源。"""
 
+        # 局部导入避免领域 handler 直接导入 dispatcher 时触发 runtime package 环。
+        from harness_shell_sidecar.manual_sftp.handlers import (
+            register_manual_sftp_handlers,
+        )
+        from harness_shell_sidecar.manual_sftp.service import ManualSftpService
+
         if self._database is not None:
             raise RuntimeError("runtime storage is already initialized")
 
@@ -284,8 +300,6 @@ class SidecarService:
             connection_repository = ConnectionRepository(database)
             register_connection_handlers(self._dispatcher, connection_repository)
             record_store = EncryptedRecordStore(database, data_key)
-            artifact_store = ArtifactStore(database, record_store)
-            artifact_store.self_check()
             trace_provider = build_local_tracer_provider(LocalTraceStore(database))
             tracer = trace_provider.get_tracer("harness_shell_sidecar.runtime")
             with tracer.start_as_current_span("runtime.starting") as span:
@@ -318,8 +332,12 @@ class SidecarService:
                 event_listener=self._publish_pty_event,
             )
             register_terminal_handlers(self._dispatcher, pty_manager)
-            remote_executor = RemoteExecutor(ssh_runtime.sessions, artifact_store)
-            remote_sftp = RemoteSftp(ssh_runtime.sessions, artifact_store)
+            manual_sftp_service = ManualSftpService(
+                ssh_runtime.sessions,
+                record_store,
+                event_listener=self._publish_manual_sftp_event,
+            )
+            register_manual_sftp_handlers(self._dispatcher, manual_sftp_service)
         except RuntimeInitializationFailure:
             _zeroize(data_key)
             _zeroize(audit_hmac_key)
@@ -349,10 +367,8 @@ class SidecarService:
         self._connection_repository = connection_repository
         self._ssh_runtime = ssh_runtime
         self._pty_manager = pty_manager
+        self._manual_sftp_service = manual_sftp_service
         self._record_store = record_store
-        self._artifact_store = artifact_store
-        self._remote_executor = remote_executor
-        self._remote_sftp = remote_sftp
         self._audit_ledger = audit_ledger
         self._trace_provider = trace_provider
         self._tracer = tracer
@@ -385,6 +401,11 @@ class SidecarService:
 
     async def _publish_pty_event(self, event: dict) -> None:
         """把 PTY 输出或关闭信息发布为应用事件。"""
+
+        await self._transport.send(self._router.application_event(event))
+
+    async def _publish_manual_sftp_event(self, event: dict) -> None:
+        """发布仅由人工 SFTP 状态机生成的白名单候选事件。"""
 
         await self._transport.send(self._router.application_event(event))
 
@@ -432,9 +453,6 @@ class SidecarService:
                 remember(exc)
             finally:
                 self._record_store = None
-                self._artifact_store = None
-                self._remote_executor = None
-                self._remote_sftp = None
         if self._audit_ledger is not None:
             try:
                 self._audit_ledger.zeroize()
@@ -452,6 +470,7 @@ class SidecarService:
                 self._connection_repository = None
                 self._ssh_runtime = None
                 self._pty_manager = None
+                self._manual_sftp_service = None
         if first_error is not None:
             raise first_error
 

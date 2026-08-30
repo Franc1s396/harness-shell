@@ -87,6 +87,8 @@ $manifest = [ordered]@{
     encrypted_private_key_path = $encryptedKey
     jump_host_fingerprint = Get-Fingerprint (Join-Path $jumpRoot.FullName 'host_ed25519_key.pub')
     target_host_fingerprint = Get-Fingerprint (Join-Path $targetRoot.FullName 'host_ed25519_key.pub')
+    target_permission_denied_root = '/srv/harness-sftp-denied'
+    target_cross_device_root = '/srv/harness-sftp-cross-device'
 }
 $secrets = [ordered]@{
     jump_password = $jumpPassword

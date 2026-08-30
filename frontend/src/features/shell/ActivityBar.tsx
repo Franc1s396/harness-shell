@@ -19,7 +19,7 @@ type Activity = {
 export const activities: readonly Activity[] = [
   { id: "connections", labelKey: "nav.connections", icon: "connections", enabled: true, milestone: "M2", activity: "connections" },
   { id: "files", labelKey: "nav.files", unavailableKey: "activity.filesUnavailable", icon: "files", enabled: false, milestone: "M3+" },
-  { id: "sftp", labelKey: "nav.sftp", unavailableKey: "activity.sftpUnavailable", icon: "sftp", enabled: false, milestone: "M3+" },
+  { id: "sftp", labelKey: "nav.sftp", icon: "sftp", enabled: true, milestone: "M2", activity: "sftp" },
   { id: "settings", labelKey: "activity.settings", icon: "settings", enabled: true, milestone: "M2", activity: "settings" },
   { id: "approval", labelKey: "activity.approval", icon: "security", enabled: true, milestone: "M2", activity: "approval" },
 ];

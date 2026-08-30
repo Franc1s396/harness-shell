@@ -10,6 +10,7 @@ import { ConnectionActionMenu } from "./ConnectionActionMenu";
 
 const connection: ConnectionProfile = {
   connection_id: "prod",
+  version: 1,
   display_name: "Production",
   group_name: "Servers",
   host: "prod.example",

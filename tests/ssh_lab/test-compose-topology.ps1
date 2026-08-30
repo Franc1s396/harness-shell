@@ -40,3 +40,18 @@ $published = $publishedPorts[0]
 if ($published.host_ip -ne '127.0.0.1' -or [int]$published.published -ne 2222 -or [int]$published.target -ne 22) {
     throw 'The jump service must publish 127.0.0.1:2222 to container port 22'
 }
+$targetPortsProperty = $config.services.target.PSObject.Properties['ports']
+if ($null -ne $targetPortsProperty -and @($targetPortsProperty.Value).Count -ne 0) {
+    throw 'The target service must not publish a host port'
+}
+$targetTmpfs = @($config.services.target.tmpfs)
+if (
+    $targetTmpfs.Count -ne 1 -or
+    $targetTmpfs[0] -notmatch '^/srv/harness-sftp-cross-device:'
+) {
+    throw 'The target service requires exactly one ephemeral cross-device SFTP fixture mount'
+}
+$jumpTmpfsProperty = $config.services.jump.PSObject.Properties['tmpfs']
+if ($null -ne $jumpTmpfsProperty -and @($jumpTmpfsProperty.Value).Count -ne 0) {
+    throw 'The jump service must not receive the target cross-device fixture mount'
+}

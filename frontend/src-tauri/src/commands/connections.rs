@@ -37,6 +37,7 @@ pub enum AuthKind {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ConnectionProfile {
     pub connection_id: Uuid,
+    pub version: u64,
     pub display_name: String,
     pub group_name: Option<String>,
     pub host: String,
@@ -252,8 +253,8 @@ pub async fn connect_ssh(
             Value::String(connection_id.to_string()),
         ),
         (
-            "profile_updated_at".to_owned(),
-            Value::String(profile.updated_at.clone()),
+            "profile_version".to_owned(),
+            Value::Number(profile.version.into()),
         ),
     ]);
     {
@@ -276,8 +277,19 @@ pub async fn connect_ssh(
 #[tauri::command]
 pub async fn disconnect_ssh(
     broker: State<'_, RuntimeBrokerHandle>,
+    sftp: State<'_, crate::sftp::coordinator::SftpCoordinatorState>,
     ssh_session_id: Uuid,
 ) -> Result<ConnectionStatus, CommandError> {
+    if sftp
+        .coordinator()
+        .active_transfer_for_session(ssh_session_id)
+        .is_some()
+    {
+        return Err(CommandError::new(
+            "SFTP_TRANSFER_ACTIVE",
+            "Choose whether to wait or cancel the active manual SFTP transfer before disconnecting.",
+        ));
+    }
     let params = Map::from_iter([(
         "ssh_session_id".to_owned(),
         Value::String(ssh_session_id.to_string()),
@@ -403,8 +415,8 @@ fn authentication_params(
             Value::String(profile.connection_id.to_string()),
         ),
         (
-            "profile_updated_at".to_owned(),
-            Value::String(profile.updated_at.clone()),
+            "profile_version".to_owned(),
+            Value::Number(profile.version.into()),
         ),
     ]);
     append_authentication_params(&mut params, vault, profile)?;

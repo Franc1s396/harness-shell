@@ -1,8 +1,8 @@
 use harness_shell_lib::{
     protocol::{FrameEnvelope, MessageType, Sensitivity},
     sidecar::broker::{
-        runtime_broker_channel, validate_runtime_event, BrokerError, PendingReplies,
-        RuntimeCommand, RuntimeRequest,
+        emit_runtime_event_projection, project_runtime_event, runtime_broker_channel,
+        validate_runtime_event, BrokerError, PendingReplies, RuntimeCommand, RuntimeRequest,
     },
 };
 use serde_json::{json, Map, Value};
@@ -137,11 +137,35 @@ fn secret_request_debug_is_redacted() {
 #[test]
 fn only_known_ssh_events_can_reach_the_main_window() {
     for event in ["ssh.connection.status", "ssh.pty.output", "ssh.pty.closed"] {
-        validate_runtime_event(&object(json!({"event": event}))).expect("known SSH event");
+        let payload = object(json!({"event": event}));
+        validate_runtime_event(&payload).expect("known SSH event");
+        assert_eq!(
+            project_runtime_event(&payload).unwrap().webview_event,
+            "ssh://event"
+        );
     }
 
     let error = validate_runtime_event(&object(json!({"event": "shell.execute"}))).unwrap_err();
     assert_eq!(error, BrokerError::UnknownEvent);
+}
+
+#[test]
+fn legal_manual_sftp_event_survives_webview_emission_failure() {
+    let payload = object(json!({
+        "event": "manual_sftp.operation.progress",
+        "operation_id": "00000000-0000-4000-8000-000000000001",
+        "kind": "recursive_delete",
+        "phase": "deleting",
+        "display_name": "cache",
+        "remote_path": "/home/demo/cache",
+        "host_label": "demo-host",
+        "items_completed": 12,
+        "items_total": 30,
+        "cancellable": false
+    }));
+
+    emit_runtime_event_projection(&payload, |_projection| Err::<(), ()>(()))
+        .expect("a legal observation must not become a protocol failure");
 }
 
 #[test]

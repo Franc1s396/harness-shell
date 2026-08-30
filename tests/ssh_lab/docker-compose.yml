@@ -21,6 +21,8 @@ services:
       LAB_NODE: target
     volumes:
       - ./.runtime/target:/runtime:ro
+    tmpfs:
+      - /srv/harness-sftp-cross-device:rw,mode=0755
     networks: [ssh_lab]
 
 networks:

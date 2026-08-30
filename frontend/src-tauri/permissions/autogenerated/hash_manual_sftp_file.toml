@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hash-manual-sftp-file"
+description = "Enables the hash_manual_sftp_file command without any pre-configured scope."
+commands.allow = ["hash_manual_sftp_file"]
+
+[[permission]]
+identifier = "deny-hash-manual-sftp-file"
+description = "Denies the hash_manual_sftp_file command without any pre-configured scope."
+commands.deny = ["hash_manual_sftp_file"]

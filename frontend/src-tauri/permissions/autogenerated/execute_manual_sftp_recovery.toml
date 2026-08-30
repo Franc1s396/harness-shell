@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-execute-manual-sftp-recovery"
+description = "Enables the execute_manual_sftp_recovery command without any pre-configured scope."
+commands.allow = ["execute_manual_sftp_recovery"]
+
+[[permission]]
+identifier = "deny-execute-manual-sftp-recovery"
+description = "Denies the execute_manual_sftp_recovery command without any pre-configured scope."
+commands.deny = ["execute_manual_sftp_recovery"]

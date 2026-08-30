@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preflight-manual-sftp-delete"
+description = "Enables the preflight_manual_sftp_delete command without any pre-configured scope."
+commands.allow = ["preflight_manual_sftp_delete"]
+
+[[permission]]
+identifier = "deny-preflight-manual-sftp-delete"
+description = "Denies the preflight_manual_sftp_delete command without any pre-configured scope."
+commands.deny = ["preflight_manual_sftp_delete"]
