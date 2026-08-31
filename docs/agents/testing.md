@@ -13,15 +13,18 @@
 
 ## 范围与职责
 
-本仓库将验证分为七个证据层级：
+本仓库将验证分为十个证据层级：
 
 1. Focused unit/contract test：证明一个小范围行为或契约。
 2. Subsystem suite：Python、Frontend 或 Rust 某一子系统回归。
 3. Packaged Sidecar/Rust contract：证明实际 `.exe` 与 Rust 启动、Vault、Protocol、Supervisor 契约。
 4. M1 automated gate：证明本地桌面基础设施的自动化范围。
 5. M2 automated gate：证明当前 Windows checkout 加 containerized OpenSSH Lab 的自动化范围。
-6. Tauri desktop manual acceptance：证明真实窗口、输入、焦点、Runtime 投影和进程清理等观察行为。
-7. Production host/deployment/migration acceptance：必须在目标环境单独执行，不由前六层自动推导。
+6. Manual SFTP automated gate：证明用户手动 SFTP 的跨层契约、packaged Sidecar 和 containerized OpenSSH 行为。
+7. M3 Agent automated gate：证明 fake ChatModels、packaged Sidecar、Agent Protocol/Rust 边界和 bound-session containerized OpenSSH command 行为。
+8. Explicit Provider probe：只证明一次显式选择的 API type/model/provider 路径可用；不属于默认自动门禁。
+9. Tauri desktop manual acceptance：证明真实窗口、输入、焦点、Runtime 投影和进程清理等观察行为。
+10. Production host/deployment/migration acceptance：必须在目标环境单独执行，不由前九层自动推导。
 
 结论只能覆盖实际执行且保存证据的层级。
 
@@ -34,9 +37,13 @@
 - Sidecar build：[backend/scripts/build_sidecar.ps1](../../backend/scripts/build_sidecar.ps1)
 - M1 gate：[scripts/verify-m1.ps1](../../scripts/verify-m1.ps1)
 - M2 gate：[scripts/verify-m2.ps1](../../scripts/verify-m2.ps1)
+- Manual SFTP gate：[scripts/verify-manual-sftp.ps1](../../scripts/verify-manual-sftp.ps1)
+- M3 Agent gate：[scripts/verify-m3-agent.ps1](../../scripts/verify-m3-agent.ps1)
+- Explicit Provider probe：[backend/scripts/probe_agent_provider.py](../../backend/scripts/probe_agent_provider.py)
 - SSH Lab：[tests/ssh_lab/](../../tests/ssh_lab/)
 - M1 acceptance：[docs/testing/m1-acceptance.md](../testing/m1-acceptance.md)
 - M2 acceptance：[docs/testing/m2-acceptance.md](../testing/m2-acceptance.md)
+- M3 Agent acceptance：[docs/testing/m3-agent-acceptance.md](../testing/m3-agent-acceptance.md)
 - 生成物排除：[.gitignore](../../.gitignore)
 
 ## 项目结构规范
@@ -64,13 +71,17 @@
 - `scripts/verify-m1.ps1` 当前执行工具链检查、Python tests、Sidecar package、Rust tests、Web build 和 `tauri info`。
 - `scripts/verify-m2.ps1` 先运行 M1，再运行 SSH Lab topology/keygen/startup-readiness/shell-line-ending contracts、Python unit/contract、真实 SSH integration、cleanup 和 runtime evidence 检查。Startup readiness 对 Compose 成功但 `ps -q` 暂时无输出的状态使用同一个 90 秒 deadline 条件等待；Compose 查询失败或 deadline 耗尽仍立即显式失败。Linux 容器入口脚本由根 `.gitattributes` 固定为 LF，并由字节级契约测试阻止 CRLF shebang。M2 仍要求历史 `artifact_metadata` 与通用 `encrypted_records` schema 存在，但已删除的 Agent/Artifact runtime 不再产生业务行，因此 M2 行证据只要求 audit、trace 与 Vault；人工 SFTP 门禁另行要求 encrypted operation 行证据。
 - `scripts/verify-manual-sftp.ps1` 先回归 M2，再运行 focused manual-SFTP Python、packaged Sidecar/Rust all-target、Frontend test/build、Direct/ProxyJump OpenSSH manual-SFTP 与 PTY isolation，并扫描 container log、typed event、SQLite/evidence 中的 credential/local-path/file-content marker；任何阶段失败都不得打印总成功标志。
+- `scripts/verify-m3-agent.ps1` 先回归完整 Manual SFTP gate，再运行 focused Agent/runtime/schema Python tests、packaged Sidecar/Rust all-target、Sidecar build 和 Direct/ProxyJump bound-session Agent command integration；它使用 fake ChatModels，不联系 Provider，并在成功或失败时清理自己启动的 SSH Lab。
 - 旧 Agent exec/SFTP/Artifact 单元与 SSH integration 测试已经随运行时删除；用户手动 SFTP 由独立 manual-SFTP gate 和桌面清单验收，不构成 Agent SFTP 证据。
-- 私有 manual SFTP runtime/coordinator 的 Rust/Python contract、command/capability contract、typed frontend/controller 与 workspace 交互测试已覆盖本地实现、wire 行为、42-command 注册、main-only permission、进入 Activity 时固定 Session binding、Rust canonical snapshot/TxF、本地 download-part recovery、disconnect/exit lifecycle、单项 action matrix、lazy tree、非持久化状态、确认/键盘/焦点和 900×600 响应式边界。实现完成不等于统一自动门禁或 Tauri Desktop 已验收；这些测试与 Web build 也不能替代 SSH Lab 或真实 host 验收。
-- Connection profile 版本回归必须覆盖 v2→v3 migration、固定时钟下连续更新仍逐次 `+1`、`2^53-1` 耗尽不写入、目标/ProxyJump 陈旧版本在网络 I/O 前失败，以及 Rust 只发送数字 `profile_version` 的跨语言契约。
+- 私有 manual SFTP runtime/coordinator 的 Rust/Python contract、command/capability contract、typed frontend/controller 与 workspace 交互测试已覆盖本地实现、wire 行为、49-command 注册、main-only permission、进入 Activity 时固定 Session binding、Rust canonical snapshot/TxF、本地 download-part recovery、disconnect/exit lifecycle、单项 action matrix、lazy tree、非持久化状态、确认/键盘/焦点和 960×640 响应式边界。实现和自动门禁完成仍不等于 Tauri Desktop 或真实 host 验收。
+- Agent tests 必须覆盖两个显式 API type、5 次 timeout retry、128 次 Tool 循环、多 Tool Call 拒绝、五轮 context、中断闭合、canonical SystemMessage 的只读/secret/状态变更确认边界与高危操作双确认、无 checkpointer、认证加密原始 message/output、Vault secret non-exposure、六个 Protocol method、七个 main-window Tauri commands、1 MiB response 拒绝以及 Direct/ProxyJump Session 绑定。
+- Runtime schema 回归必须覆盖 v2→v3→v4 migration、schema v4 Agent 表的 STRICT、列类型/nullability、外键、唯一索引与关键 CHECK 自检，以及连接 profile 在固定时钟下连续更新仍逐次 `+1`、`2^53-1` 耗尽不写入、目标/ProxyJump 陈旧版本在网络 I/O 前失败和 Rust 只发送数字 `profile_version` 的跨语言契约。
 - M2 成功标志必须是脚本最终明确输出：`M2 automated gate passed: local Windows checkout plus containerized OpenSSH lab only.`
 - Manual SFTP gate 的唯一总成功标志必须在 cleanup 与 evidence scan 完成后输出：`Manual SFTP automated gate passed: local Windows checkout plus containerized OpenSSH lab only.`
+- M3 Agent gate 的唯一总成功标志必须在自己的 SSH Lab cleanup 后输出：`M3 Agent automated gate passed: local Windows checkout, fake ChatModels, packaged Sidecar, and containerized OpenSSH lab only.`
+- Provider probe 必须要求 `HARNESS_RUN_AGENT_PROVIDER_PROBE=1` 及完整 Provider 环境变量；`CHAT_COMPLETIONS` 与 `RESPONSES` 必须分别显式运行，禁止自动切换。输出只允许 API type、model、status 和 latency。
 - SSH Lab 的 `jump` 同时连接 `ssh_ingress` 与内部 `ssh_lab`，只将 `127.0.0.1:2222` 暴露到 host；`target` 仅连接 internal `ssh_lab`。
-- 容器 SSH integration 直接经过 Python runtime，不证明凭据经过桌面 Core/Vault，也不证明 Provider、Agent Workflow、审批、sudo 或远程写路径。
+- Manual SFTP 容器 integration 直接经过 Python runtime，不证明凭据经过桌面 Core/Vault。M3 Agent 容器 integration 证明 bound-session command executor 的 Direct/ProxyJump 目标用户、stdout/stderr、timeout、cancel 与 channel cleanup 行为，但 fake ChatModel 不证明 Provider；两者都不证明 Agent UI、审批、sudo、生产主机或部署。
 - 自动测试不能替代 Tauri Desktop 的真实焦点、窗口、xterm 输入、Runtime 刷新和进程清理验收。
 - 当前 M2 手工记录完成只证明该 checkout 与选定 local/container hosts，仍不是 production-host acceptance。
 
@@ -108,9 +119,10 @@ cargo test --manifest-path frontend\src-tauri\Cargo.toml --all-targets
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m2.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-manual-sftp.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
 ```
 
-M2 会创建并清理容器、生成 credential 和证据，要求 Docker Desktop、Docker Compose v2、Python 3.12.13、Node/npm、Rust MSVC 工具链、WebView2 和 Windows OpenSSH `ssh-keygen.exe`。
+M2、Manual SFTP 和 M3 Agent gate 会创建并清理容器、生成临时 credential/evidence，要求 Docker Desktop、Docker Compose v2、Python 3.12.13、Node/npm、Rust MSVC 工具链、WebView2 和 Windows OpenSSH `ssh-keygen.exe`。M3 默认不需要 Provider credential。
 
 ## 验证要求
 
@@ -119,6 +131,7 @@ M2 会创建并清理容器、生成 credential 和证据，要求 Docker Deskto
 - Sidecar package 只有 build script 和 smoke test 真正成功后才能报告已打包。
 - `verify-m1.ps1` 通过只说明其六阶段自动范围；人工桌面安全检查未完成时不得宣称 M1 桌面验收完成。
 - `verify-m2.ps1` 通过只说明 local Windows checkout + containerized OpenSSH Lab；人工 Desktop matrix 另行记录。
+- `verify-m3-agent.ps1` 通过只说明其 fake ChatModel、packaged Sidecar、Rust contracts 与 containerized OpenSSH 范围；Provider、Agent UI、Tauri Desktop 和生产 SSH 主机必须分别验收。
 - UI 行为由用户截图、复现和“验证通过”可作为对应桌面范围证据，但必须保存具体观察与未覆盖项。
 - 完成前运行 `git diff --check`，审查 `git status --short`，确认未误改或纳入生成物；未获授权不执行 Git 写操作。
 

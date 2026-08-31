@@ -81,6 +81,14 @@ class SshSessionRegistry:
 
         return self._sessions.get(session_id)
 
+    def is_connected(self, session_id: UUID) -> bool:
+        """Return whether the owned target and optional jump transports remain open."""
+
+        session = self._sessions.get(session_id)
+        if session is None or session.connection.is_closed():
+            return False
+        return session.jump_connection is None or not session.jump_connection.is_closed()
+
     def find_by_connection_id(self, connection_id: UUID) -> tuple[SshSession, ...]:
         """返回指定连接配置的全部活动会话，不猜测其中哪一个应被使用。"""
 

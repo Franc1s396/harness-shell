@@ -34,6 +34,30 @@ pub fn store_private_key_passphrase(
 }
 
 #[tauri::command]
+pub fn store_model_api_key(
+    vault: State<'_, VaultState>,
+    secret: String,
+) -> Result<CredentialReference, CommandError> {
+    store_text_secret(vault, secret, CredentialKind::ApiKey)
+}
+
+#[tauri::command]
+pub fn delete_model_api_key(
+    vault: State<'_, VaultState>,
+    credential_id: CredentialId,
+) -> Result<(), CommandError> {
+    let vault = lock_vault(&vault)?;
+    let resolved = vault
+        .resolve_secret(credential_id, CredentialKind::ApiKey)
+        .map_err(map_vault_error)?;
+    drop(resolved);
+    vault
+        .delete_secret(credential_id)
+        .map_err(map_vault_error)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn import_private_key(
     app: AppHandle,
     vault: State<'_, VaultState>,
@@ -85,7 +109,7 @@ pub fn delete_ssh_credential(
     Ok(())
 }
 
-fn store_text_secret(
+pub(super) fn store_text_secret(
     vault: State<'_, VaultState>,
     secret: String,
     kind: CredentialKind,
@@ -101,7 +125,7 @@ fn store_text_secret(
     })
 }
 
-fn lock_vault(state: &VaultState) -> Result<MutexGuard<'_, SecretVault>, CommandError> {
+pub(super) fn lock_vault(state: &VaultState) -> Result<MutexGuard<'_, SecretVault>, CommandError> {
     state
         .0
         .lock()
@@ -171,7 +195,7 @@ fn validate_private_key_bytes(bytes: &[u8]) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn map_vault_error(error: VaultError) -> CommandError {
+pub(super) fn map_vault_error(error: VaultError) -> CommandError {
     match error {
         VaultError::NotFound(_) => {
             CommandError::new("CREDENTIAL_NOT_FOUND", "The credential could not be found.")

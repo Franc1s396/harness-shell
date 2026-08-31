@@ -4,6 +4,7 @@ use harness_shell_lib::protocol::{
     encode_frame, FrameDecoder, FrameEnvelope, ProtocolError, Sensitivity, MAX_HEADER_BYTES,
     MAX_PAYLOAD_BYTES,
 };
+use harness_shell_lib::sidecar::process::validate_ready_frame;
 use serde_json::{json, Value};
 
 fn fixture_bytes() -> Vec<u8> {
@@ -172,6 +173,41 @@ fn redacted_debug_never_formats_payload_values() {
     let normal_debug = format!("{:?}", frame.redacted_debug());
     assert!(normal_debug.contains("api_key"));
     assert!(!normal_debug.contains("M1-RUST-SECRET-MARKER"));
+}
+
+#[test]
+fn schema_four_ready_requires_react_shell_agent_feature() {
+    let mut ready = heartbeat();
+    ready.message_type = harness_shell_lib::protocol::MessageType::Event;
+    ready.sequence = 1;
+    ready.payload = json!({
+        "event": "sidecar.ready",
+        "capabilities": {
+            "protocol_versions": [1],
+            "storage_schema_version": 4,
+            "features": [
+                "connection_profiles",
+                "host_key_store",
+                "ssh_runtime",
+                "pty",
+                "manual_sftp"
+            ]
+        }
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    assert!(validate_ready_frame(&ready).is_err());
+
+    ready.payload["capabilities"]["features"] = json!([
+        "connection_profiles",
+        "host_key_store",
+        "ssh_runtime",
+        "pty",
+        "manual_sftp",
+        "react_shell_agent"
+    ]);
+    validate_ready_frame(&ready).expect("schema v4 Agent feature must be accepted");
 }
 
 #[test]

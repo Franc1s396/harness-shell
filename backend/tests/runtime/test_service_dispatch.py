@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -57,6 +58,7 @@ class CleanupProbe:
         fail: bool = False,
         label: str | None = None,
         order: list[str] | None = None,
+        on_close: Callable[[], None] | None = None,
     ) -> None:
         """配置探针是否在记录关闭后抛出预期异常。"""
 
@@ -64,6 +66,7 @@ class CleanupProbe:
         self.fail = fail  # 是否注入清理失败。
         self.label = label  # 可选的清理顺序标识。
         self.order = order  # 多 owner 共享的关闭顺序记录。
+        self.on_close = on_close  # 可选的资源顺序断言回调。
 
     async def close_all(self) -> None:
         """记录清理，并按配置抛出 OSError。"""
@@ -71,6 +74,8 @@ class CleanupProbe:
         self.closed = True
         if self.label is not None and self.order is not None:
             self.order.append(self.label)
+        if self.on_close is not None:
+            self.on_close()
         if self.fail:
             raise OSError("PTY cleanup failed")
 
@@ -121,8 +126,8 @@ def test_sidecar_service_has_no_prebuilt_agent_remote_io_fields() -> None:
     assert not hasattr(service, "_remote_sftp")
 
 
-def test_ready_capabilities_advertise_manual_sftp_schema_three_without_agent_io() -> None:
-    """The real ready frame must negotiate the current manual-SFTP runtime only."""
+def test_ready_capabilities_advertise_schema_four_and_react_shell_agent() -> None:
+    """The ready frame must negotiate schema v4 and the explicit Agent feature."""
 
     async def scenario() -> None:
         transport = MemoryTransport()
@@ -131,12 +136,55 @@ def test_ready_capabilities_advertise_manual_sftp_schema_three_without_agent_io(
 
         ready = await transport.output.get()
         capabilities = ready.payload["capabilities"]
-        assert capabilities["storage_schema_version"] == 3
+        assert capabilities["storage_schema_version"] == 4
         assert "manual_sftp" in capabilities["features"]
+        assert "react_shell_agent" in capabilities["features"]
         assert "agent_readonly_io" not in capabilities["features"]
 
         await transport.input.put(None)
         await running
+
+    asyncio.run(scenario())
+
+
+def test_runtime_initialization_registers_agent_configuration_handlers(
+    tmp_path: Path,
+) -> None:
+    """Expose Agent handlers only after storage and SSH runtime initialization."""
+
+    async def scenario() -> None:
+        transport = MemoryTransport()
+        service = SidecarService(transport)
+        running = asyncio.create_task(service.run())
+        await transport.output.get()
+        initialize = frame(
+            1,
+            {
+                "method": "initialize",
+                "app_version": "0.1.0",
+                "runtime_db_path": str((tmp_path / "agent-runtime.sqlite3").resolve()),
+                "runtime_data_key_b64": base64.b64encode(b"d" * 32).decode("ascii"),
+                "audit_hmac_key_b64": base64.b64encode(b"a" * 32).decode("ascii"),
+                "heartbeat_interval_ms": 5_000,
+                "heartbeat_timeout_ms": 15_000,
+            },
+            sensitivity=Sensitivity.SECRET,
+        )
+        await transport.input.put([initialize])
+        assert (await transport.output.get()).payload["result"] == "initialized"
+
+        request = frame(
+            2,
+            {"method": "agent.api_configs.list", "params": {}},
+        )
+        await transport.input.put([request])
+        response = await asyncio.wait_for(transport.output.get(), timeout=1)
+        assert response.request_id == request.request_id
+        assert response.payload == {"configs": []}
+
+        await transport.input.put([frame(3, {"method": "shutdown"})])
+        assert (await transport.output.get()).payload == {"result": "stopping"}
+        assert await running == 0
 
     asyncio.run(scenario())
 
@@ -210,8 +258,18 @@ def test_service_cleanup_attempts_every_stage_after_an_earlier_failure() -> None
         service = SidecarService(transport, dispatcher=dispatcher)
         pty = CleanupProbe(fail=True)
         order: list[str] = []
-        manual_sftp = CleanupProbe(label="manual_sftp", order=order)
+        agent_cleared: list[bool] = []
+        manual_sftp = CleanupProbe(
+            label="manual_sftp",
+            order=order,
+            on_close=lambda: agent_cleared.append(
+                service._agent_service is None
+                and service._agent_api_configs is None
+            ),
+        )
         ssh = CleanupProbe(label="ssh", order=order)
+        service._agent_service = object()  # type: ignore[assignment]
+        service._agent_api_configs = object()  # type: ignore[assignment]
         service._pty_manager = pty
         service._manual_sftp_service = manual_sftp
         service._ssh_runtime = ssh
@@ -225,6 +283,7 @@ def test_service_cleanup_attempts_every_stage_after_an_earlier_failure() -> None
         assert manual_sftp.closed is True
         assert ssh.closed is True
         assert order == ["manual_sftp", "ssh"]
+        assert agent_cleared == [True]
         assert transport.closed is True
 
     asyncio.run(scenario())

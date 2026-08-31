@@ -67,13 +67,14 @@ fn ready_frame(storage_schema_version: u64, features: serde_json::Value) -> Fram
 }
 
 #[test]
-fn ready_requires_schema_three_and_manual_sftp_without_agent_compatibility() {
+fn ready_requires_schema_four_manual_sftp_and_react_shell_agent() {
     let current_features = json!([
         "connection_profiles",
         "host_key_store",
         "ssh_runtime",
         "pty",
         "manual_sftp",
+        "react_shell_agent",
     ]);
     assert!(validate_ready_frame(&ready_frame(2, current_features.clone())).is_err());
     assert!(validate_ready_frame(&ready_frame(
@@ -87,8 +88,19 @@ fn ready_requires_schema_three_and_manual_sftp_without_agent_compatibility() {
         ]),
     ))
     .is_err());
-    validate_ready_frame(&ready_frame(3, current_features))
-        .expect("schema-three manual SFTP sidecar must be accepted");
+    assert!(validate_ready_frame(&ready_frame(
+        4,
+        json!([
+            "connection_profiles",
+            "host_key_store",
+            "ssh_runtime",
+            "pty",
+            "manual_sftp",
+        ]),
+    ))
+    .is_err());
+    validate_ready_frame(&ready_frame(4, current_features))
+        .expect("schema-four Agent sidecar must be accepted");
 }
 
 #[test]

@@ -72,7 +72,7 @@ Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sid
 - Runtime、Connection 和 Terminal 的权威状态来自 Rust/Sidecar 返回或允许事件；UI optimistic state 不得覆盖失败事实。
 - `ConnectionProfile.version` 是 Sidecar 返回的 JS-safe 正整数快照，Frontend 只按 typed API 保留和展示连接数据；凭据解析后的陈旧检查由 Rust 传递数字 `profile_version`、Sidecar 在网络 I/O 前执行，不能用 `updated_at` 替代。
 - UI 持久化只允许稳定偏好。当前持久化白名单和版本逻辑以 `workspace-ui-store.ts`、`locale-store.ts` 及其测试为真源。
-- 主界面保持 terminal-first；在 M3 实现前，Agent Workspace 必须呈现诚实的 unavailable/placeholder 状态，不提供虚假聊天或工具控制。
+- 主界面保持 terminal-first；实验性 M3 Agent 后端虽已存在，但 Agent Workspace 尚未接入，必须继续呈现诚实的 unavailable/placeholder 状态，不提供虚假聊天或工具控制。
 - 布局、i18n 和交互的自动测试不能替代 Tauri 桌面实际窗口、焦点和 Runtime 刷新验收。
 
 ## 项目命令

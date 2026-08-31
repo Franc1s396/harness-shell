@@ -12,6 +12,24 @@ use tempfile::tempdir;
 const PLAINTEXT_MARKER: &[u8] = b"M1-DPAPI-PLAINTEXT-091a0d3f";
 
 #[test]
+fn model_api_key_round_trips_only_as_api_key_kind() {
+    let directory = tempdir().expect("create Vault directory");
+    let vault = SecretVault::open(directory.path().join("vault.sqlite3")).expect("open Vault");
+    let api_key_id = vault
+        .put_secret(CredentialKind::ApiKey, b"model-key-marker")
+        .expect("store model API key");
+
+    assert!(matches!(
+        vault.resolve_secret(api_key_id, CredentialKind::ApiKey),
+        Ok(secret) if secret.as_slice() == b"model-key-marker"
+    ));
+    assert!(matches!(
+        vault.resolve_secret(api_key_id, CredentialKind::SshPassword),
+        Err(VaultError::KindMismatch { .. })
+    ));
+}
+
+#[test]
 fn vault_round_trips_secrets_without_persisting_plaintext() {
     let directory = tempdir().expect("create vault temp directory");
     let database_path = directory.path().join("vault.sqlite3");

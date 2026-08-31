@@ -6,7 +6,7 @@
 
 - `backend/src/harness_shell_sidecar/` 中的 Python Sidecar 代码；
 - stdin/stdout transport、Router、Dispatcher 或 handler；
-- Connection、SSH、Host Key、PTY、用户手动 SFTP 或历史 Artifact schema；
+- Connection、SSH、Host Key、PTY、用户手动 SFTP、实验性 ReAct Agent 或历史 Artifact schema；
 - Runtime SQLite、migration、加密记录、Audit 或 Trace；
 - Python Sidecar 测试、启动或 PyInstaller 打包。
 
@@ -20,6 +20,7 @@ Python Sidecar 是由 Tauri Rust Core 独占管理的本地子进程。它负责
 - 校验 initialize、request、cancel、shutdown 和 application payload；
 - 管理 SSH connection、Host Key、人工 PTY 和隔离 channel；
 - 管理 runtime SQLite migration、AES-GCM record、Audit HMAC chain 和 local Trace；
+- 管理实验性 ReAct Agent、显式 Provider API 类型、绑定 Session 的 non-PTY command channel 和加密 conversation history；
 - 通过受控 event listener 发布允许的连接与 PTY 事件。
 
 Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView 通信，也不拥有自动重启或不确定请求重放策略。
@@ -36,6 +37,7 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 | `telemetry` | local-only OpenTelemetry exporter/provider | `local_exporter.py` |
 | `terminal` | 人工 PTY model、manager 与 request handler | `models.py`、`manager.py`、`handlers.py` |
 | `manual_sftp` | 用户手动 SFTP 的严格 payload、隔离 channel、mutation、transfer、encrypted operation record 与显式 recovery | `handlers.py`、`service.py`、`mutations.py`、`transfers.py`、`operation_store.py`、`recovery.py` |
+| `agent` | 模型 API 配置、ReAct graph、五轮 context、绑定 Session 的 command tool、Provider gateway 与加密 conversation/run/message | `handlers.py`、`service.py`、`graph.py`、`context.py`、`executor.py`、`model_gateway.py`、`conversations.py` |
 
 其他真源：
 
@@ -52,8 +54,9 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 - Pydantic model 定义跨边界数据；数据库 row 到领域 model 的转换集中在 repository/store 层。
 - SSH connection、PTY process、SSH child channel 和 async task 各有唯一 registry/manager owner。
 - `storage/migrations/` 只新增顺序编号 SQL migration，不原地重写已经发布的 migration。
-- Connection profile 当前使用 schema v3 的 `version` 列：范围为 `1..2^53-1`，创建为 `1`，repository 更新通过原子 `version = version + 1` 推进；达到上限返回 `CONNECTION_VERSION_EXHAUSTED` 且不修改记录，`updated_at` 不承担并发控制。
-- 旧 `remote_io` 包已经删除；不得恢复 Agent exec/SFTP/Artifact compatibility layer。`manual_sftp` 只服务用户显式操作，经私有 Protocol method 由 Rust coordinator 调用；不得接入 Agent 工具、自动恢复或请求重放。
+- Runtime SQLite 当前为 schema v4。Connection profile 的 `version` 列范围仍为 `1..2^53-1`，创建为 `1`，repository 更新通过原子 `version = version + 1` 推进；达到上限返回 `CONNECTION_VERSION_EXHAUSTED` 且不修改记录，`updated_at` 不承担并发控制。
+- 旧 `remote_io` 包已经删除；不得恢复宽泛 Agent exec/SFTP/Artifact compatibility layer。`manual_sftp` 只服务用户显式操作，经私有 Protocol method 由 Rust coordinator 调用；不得接入 Agent 工具、自动恢复或请求重放。实验性 Agent 命令只能经过 `agent.executor` 的严格单命令契约。
+- `AgentService` 在 conversation lock 内重新验证完整 Provider config 快照、取消状态和 connected Session；lock entry 必须在最后一个 holder/waiter 离开后回收。`executor.py` 对所有未确定结果保留 child-channel 所有权，直到 `close()` 与 `wait_closed()` 成功；预取消不得跨过 `create_process` dispatch boundary。
 - 新包或模块按单一职责建立；不得把 handler、数据库、transport 和安全策略堆入同一 convenience module。
 
 ## 代码规范
@@ -75,6 +78,9 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 - Audit 是 append-only、tamper-evident；Trace 只保存 allowlist metadata；encrypted record 使用绑定身份的 AES-GCM。
 - stdout 不允许混入日志。stderr 不得包含 key、credential、raw payload 或未限制的远程输出。
 - Sidecar 异常退出后由 Rust Supervisor 决定显式状态；Python 不自启、不隐式恢复、不重放请求。
+- Agent 的 API 类型只能是显式配置的 `CHAT_COMPLETIONS` 或 `RESPONSES`，禁止自动探测或切换；网络 timeout 仅按固定策略最多重试 5 次，其他 Provider failure 立即显式失败。
+- Agent 每次 turn 固定一个 live `ssh_session_id`，只开隔离 non-PTY exec channel；命令 30 秒超时、stdout/stderr 严格 UTF-8、危险模式与多 Tool Call fail closed，最多完成 128 次 ReAct Tool 循环。
+- Agent 的原始 message/tool/output 只以绑定 conversation/message 身份的 AES-GCM ciphertext 持久化。SQLite 普通列、Audit、Trace、日志和 error detail 不得保存 user message、API Key、command、stdout/stderr 或 model response plaintext。
 - `manual_sftp.recovery.execute` 必须接收 Rust 选择的 fresh `operation_id`，在任何 mutation I/O 前验证它不同于旧 recovery ID 且未被 encrypted operation store 使用，并把该 ID 原样用于新 mutation。
 - `manual_sftp.delete.preflight` 必须接收 Rust 选择的 fresh `operation_id`，在保存 encrypted delete plan/operation record 前验证未被使用，并以该 ID 作为唯一 recursive-delete remote identity；不得生成替代 ID、猜测或重放 preflight。
 - OpenSSH listing 返回的 `.`/`..` 由 listing owner 忽略且不计入 50,000 entry 上限；typed `SFTPPermissionDenied` 映射为确定的 `SFTP_PERMISSION_DENIED`。rename 在服务端支持 `statvfs` 时先比较 source/target parent `fsid` 并以 `SFTP_CROSS_DEVICE_MOVE_UNSUPPORTED` 在 dispatch 前拒绝跨文件系统移动，不实施 copy-delete fallback。
@@ -82,7 +88,7 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 - SFTP channel open/close、metadata 与简单 mutation 单次请求使用 15 秒 deadline，chunk 请求使用 30 秒 deadline，完整 SHA-256 与 recursive work 使用 60 秒无进展 deadline；不设置任意总 wall-clock cap，也不自动重试 mutation。
 - encrypted remote recovery record 冻结连接 `version`、安全 `display_name`、目标 Host Key 指纹以及可选 ProxyJump 的 connection/version/fingerprint；恢复只能绑定完全匹配且唯一的 live Session。相同 `connection_id` 的已编辑配置或已替换 Host Key 不能复用旧 recovery。
 - SFTP v3 的 absent destination 必须使用标准 no-clobber rename（`flags=0`），因为 AsyncSSH 会把任意非零 v3 flags 映射为可覆盖目标的 OpenSSH POSIX rename；确认覆盖仍使用 atomic overwrite flags，且不得在目标并发出现后弱化重试。
-- Agent 和 WebView 当前都没有 exec/SFTP route；不得把历史 `artifact_metadata` 表描述为仍存在 Artifact 运行时。
+- WebView 仅能经七个 main-window Tauri commands 使用实验性 Agent 配置、模型 API Key 和 turn；不能调用 raw Sidecar method。Agent 没有 SFTP/Artifact route，且不得把历史 `artifact_metadata` 表描述为仍存在 Artifact 运行时。
 - `backend/build/`、`backend/dist/`、`.venv/`、cache 和复制到 Tauri binaries 的 `.exe` 均为生成物。
 
 ## 项目命令

@@ -8,6 +8,8 @@ fn main() {
         "store_private_key_passphrase",
         "import_private_key",
         "delete_ssh_credential",
+        "store_model_api_key",
+        "delete_model_api_key",
         "list_connections",
         "create_connection",
         "update_connection",
@@ -42,6 +44,11 @@ fn main() {
         "list_manual_sftp_recoveries",
         "inspect_manual_sftp_recovery",
         "execute_manual_sftp_recovery",
+        "list_model_api_configs",
+        "create_model_api_config",
+        "update_model_api_config",
+        "delete_model_api_config",
+        "run_agent_turn",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)).unwrap();
 }

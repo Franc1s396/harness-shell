@@ -1,3 +1,4 @@
+mod agent;
 mod approval;
 mod connections;
 mod credentials;
@@ -5,13 +6,19 @@ mod runtime;
 mod sftp;
 mod terminal;
 
+pub use agent::{
+    create_model_api_config, delete_model_api_config, list_model_api_configs, run_agent_turn,
+    run_agent_turn_with_dependencies, update_model_api_config, AgentRunStatus, AgentTurnResult,
+    ApiType, ModelApiConfig, ModelApiConfigInput,
+};
 pub use approval::{get_approval_context, submit_approval_decision};
 pub use connections::{
     confirm_host_key, connect_ssh, create_connection, delete_connection, disconnect_ssh,
     inspect_host_key, list_connections, replace_host_key, update_connection,
 };
 pub use credentials::{
-    delete_ssh_credential, import_private_key, store_private_key_passphrase, store_ssh_password,
+    delete_model_api_key, delete_ssh_credential, import_private_key, store_model_api_key,
+    store_private_key_passphrase, store_ssh_password,
 };
 pub use runtime::{get_runtime_status, open_approval_window};
 pub use sftp::{

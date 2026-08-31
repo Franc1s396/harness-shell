@@ -6,6 +6,7 @@
   "permissions": [
     "runtime",
     "credentials",
+    "agent",
     "connections",
     "terminal",
     "sftp",

@@ -7,7 +7,7 @@ use std::{
 use serde::Deserialize;
 use serde_json::Value;
 
-const CUSTOM_COMMANDS: [&str; 42] = [
+const CUSTOM_COMMANDS: [&str; 49] = [
     "get_runtime_status",
     "open_approval_window",
     "get_approval_context",
@@ -16,6 +16,8 @@ const CUSTOM_COMMANDS: [&str; 42] = [
     "store_private_key_passphrase",
     "import_private_key",
     "delete_ssh_credential",
+    "store_model_api_key",
+    "delete_model_api_key",
     "list_connections",
     "create_connection",
     "update_connection",
@@ -50,6 +52,11 @@ const CUSTOM_COMMANDS: [&str; 42] = [
     "list_manual_sftp_recoveries",
     "inspect_manual_sftp_recovery",
     "execute_manual_sftp_recovery",
+    "list_model_api_configs",
+    "create_model_api_config",
+    "update_model_api_config",
+    "delete_model_api_config",
+    "run_agent_turn",
 ];
 
 const FORBIDDEN_COMMAND_FRAGMENTS: [&str; 8] = [
@@ -227,6 +234,7 @@ fn window_capabilities_are_least_privilege() {
         main.permissions.iter().cloned().collect::<BTreeSet<_>>(),
         BTreeSet::from([
             "connections".to_owned(),
+            "agent".to_owned(),
             "core:event:allow-listen".to_owned(),
             "core:event:allow-unlisten".to_owned(),
             "core:window:allow-close".to_owned(),
@@ -256,6 +264,8 @@ fn window_capabilities_are_least_privilege() {
     assert!(main_commands.contains("open_approval_window"));
     assert!(main_commands.contains("get_manual_sftp_context"));
     assert!(main_commands.contains("execute_manual_sftp_recovery"));
+    assert!(main_commands.contains("run_agent_turn"));
+    assert!(!main_commands.contains("execute_command"));
     assert!(!main_commands.contains("get_approval_context"));
     assert!(!main_commands.contains("submit_approval_decision"));
     assert!(main
@@ -275,6 +285,7 @@ fn window_capabilities_are_least_privilege() {
     assert!(!approval_commands.contains("get_runtime_status"));
     assert!(!approval_commands.contains("open_approval_window"));
     assert!(!approval_commands.contains("get_manual_sftp_context"));
+    assert!(!approval_commands.contains("run_agent_turn"));
     assert!(!approval.permissions.contains(&"sftp".to_owned()));
     assert!(approval
         .permissions

@@ -36,6 +36,11 @@ class FakeConnection:
 
         self.waited = True
 
+    def is_closed(self) -> bool:
+        """Expose the same authoritative closed predicate as AsyncSSH."""
+
+        return self.closed
+
 
 class FailingChildChannel(FakeConnection):
     """在 wait_closed 阶段失败的子 channel 替身。"""
@@ -145,6 +150,30 @@ def test_child_close_failure_still_closes_target_and_jump_transports() -> None:
         assert len(sessions) == 0
 
     asyncio.run(scenario())
+
+
+def test_connected_predicate_rejects_closed_target_or_jump_transport() -> None:
+    """Do not treat a registry entry with a closed transport as connected."""
+
+    sessions = SshSessionRegistry()
+    target = FakeConnection()
+    jump = FakeConnection()
+    session = sessions.register(
+        uuid4(),
+        target,
+        jump,
+        connection_profile_version=1,
+        host_label="test-host",
+        target_host_key_fingerprint="SHA256:test-target",
+    )
+
+    assert sessions.is_connected(session.ssh_session_id) is True
+    jump.close()
+    assert sessions.is_connected(session.ssh_session_id) is False
+    jump.closed = False
+    target.close()
+    assert sessions.is_connected(session.ssh_session_id) is False
+    assert sessions.is_connected(uuid4()) is False
 
 
 def test_close_all_continues_after_an_earlier_session_fails() -> None:

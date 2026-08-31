@@ -206,7 +206,7 @@ fn application_request(sequence: u64, payload: serde_json::Value) -> FrameEnvelo
 }
 
 #[test]
-fn ready_contract_requires_schema_three_manual_sftp_features() {
+fn ready_contract_requires_schema_four_manual_sftp_features() {
     let ready = FrameEnvelope {
         protocol_version: 1,
         message_type: MessageType::Event,
@@ -220,7 +220,7 @@ fn ready_contract_requires_schema_three_manual_sftp_features() {
             "event": "sidecar.ready",
             "capabilities": {
                 "protocol_versions": [1],
-                "storage_schema_version": 3,
+                "storage_schema_version": 4,
                 "features": ["connection_profiles", "host_key_store"]
             }
         })
@@ -250,7 +250,8 @@ fn ready_contract_requires_schema_three_manual_sftp_features() {
         "host_key_store",
         "ssh_runtime",
         "pty",
-        "manual_sftp"
+        "manual_sftp",
+        "react_shell_agent"
     ]);
     validate_ready_frame(&ready_with_pty).expect("all required runtime features must be accepted");
 }

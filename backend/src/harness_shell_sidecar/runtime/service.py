@@ -37,6 +37,8 @@ from .stdio import StdioTransport
 
 
 if TYPE_CHECKING:
+    from harness_shell_sidecar.agent.api_configs import ApiConfigRepository
+    from harness_shell_sidecar.agent.service import AgentService
     from harness_shell_sidecar.manual_sftp.service import ManualSftpService
 
 
@@ -62,6 +64,10 @@ class SidecarService:
         self._pty_manager: PtyManager | None = None  # 交互式 PTY channel 管理器。
         # 仅由用户显式操作、绑定活动 SSH Session 的 SFTP 所有者。
         self._manual_sftp_service: ManualSftpService | None = None
+        # Agent 配置仓储只保存 Rust Vault 的 opaque secret reference。
+        self._agent_api_configs: ApiConfigRepository | None = None
+        # 编译 graph 不持有任何单次 API Key、消息或模型实例。
+        self._agent_service: AgentService | None = None
         # 持有运行时数据加密 Key 的认证加密记录仓储。
         self._record_store: EncryptedRecordStore | None = None
         self._audit_ledger: AuditLedger | None = None  # HMAC 链式审计账本。
@@ -119,6 +125,7 @@ class SidecarService:
                         ) == "shutdown":
                             self._router.validate_inbound(frame)
                             await self._dispatcher.close()
+                            self._clear_agent_runtime()
                             if self._pty_manager is not None:
                                 await self._pty_manager.close_all()
                             if self._manual_sftp_service is not None:
@@ -172,6 +179,7 @@ class SidecarService:
                     )
                 except BaseException as exc:
                     remember(exc)
+            self._clear_agent_runtime()
             if self._pty_manager is not None:
                 try:
                     await self._pty_manager.close_all()
@@ -285,6 +293,15 @@ class SidecarService:
             register_manual_sftp_handlers,
         )
         from harness_shell_sidecar.manual_sftp.service import ManualSftpService
+        from harness_shell_sidecar.agent import (
+            AgentService,
+            ApiConfigRepository,
+            ContextService,
+            ConversationRepository,
+            ModelGateway,
+            SshCommandExecutor,
+            register_agent_handlers,
+        )
 
         if self._database is not None:
             raise RuntimeError("runtime storage is already initialized")
@@ -338,6 +355,20 @@ class SidecarService:
                 event_listener=self._publish_manual_sftp_event,
             )
             register_manual_sftp_handlers(self._dispatcher, manual_sftp_service)
+            api_configs = ApiConfigRepository(database)
+            conversations = ConversationRepository(database, record_store)
+            executor = SshCommandExecutor(ssh_runtime.sessions)
+            gateway = ModelGateway()
+            context = ContextService(conversations)
+            agent_service = AgentService(
+                api_configs,
+                conversations,
+                executor,
+                gateway,
+                context,
+                ssh_runtime.sessions.is_connected,
+            )
+            register_agent_handlers(self._dispatcher, api_configs, agent_service)
         except RuntimeInitializationFailure:
             _zeroize(data_key)
             _zeroize(audit_hmac_key)
@@ -368,6 +399,8 @@ class SidecarService:
         self._ssh_runtime = ssh_runtime
         self._pty_manager = pty_manager
         self._manual_sftp_service = manual_sftp_service
+        self._agent_api_configs = api_configs
+        self._agent_service = agent_service
         self._record_store = record_store
         self._audit_ledger = audit_ledger
         self._trace_provider = trace_provider
@@ -413,6 +446,7 @@ class SidecarService:
         """记录终态、刷新遥测、清零 Key 并关闭数据库，保留首个错误。"""
 
         first_error: BaseException | None = None
+        self._clear_agent_runtime()
 
         def remember(error: BaseException) -> None:
             nonlocal first_error
@@ -473,6 +507,12 @@ class SidecarService:
                 self._manual_sftp_service = None
         if first_error is not None:
             raise first_error
+
+    def _clear_agent_runtime(self) -> None:
+        """在 dispatcher 收敛后清除 Agent 的长期运行时引用。"""
+
+        self._agent_service = None
+        self._agent_api_configs = None
 
 
 def _zeroize(value: bytearray) -> None:

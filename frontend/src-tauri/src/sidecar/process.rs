@@ -896,8 +896,8 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         .and_then(|value| value.get("protocol_versions"))
         .and_then(Value::as_array)
         .is_some_and(|versions| versions.contains(&json!(PROTOCOL_VERSION)));
-    let schema_v3 =
-        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(3));
+    let schema_v4 =
+        capabilities.and_then(|value| value.get("storage_schema_version")) == Some(&json!(4));
     let features = capabilities
         .and_then(|value| value.get("features"))
         .and_then(Value::as_array);
@@ -907,6 +907,7 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         "ssh_runtime",
         "pty",
         "manual_sftp",
+        "react_shell_agent",
     ];
     let supports_required_features = features.is_some_and(|features| {
         required_features
@@ -918,7 +919,7 @@ pub fn validate_ready_frame(frame: &FrameEnvelope) -> Result<(), ProcessError> {
         || frame.sensitivity != Sensitivity::Normal
         || frame.payload.get("event") != Some(&json!("sidecar.ready"))
         || !supports_v1
-        || !schema_v3
+        || !schema_v4
         || !supports_required_features
     {
         return Err(ProcessError::InvalidFrame("sidecar.ready"));

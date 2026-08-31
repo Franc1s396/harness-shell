@@ -18,6 +18,7 @@ Rust Core 是桌面应用的特权边界，负责：
 - 注册和验证 WebView 可调用的 Tauri commands；
 - 用 capability/permission 控制每个窗口的最小权限；
 - 通过 DPAPI Vault 管理持久化凭据和运行时密钥；
+- 通过专用模型 API Key kind 与 Agent Tauri commands 注入最短生命周期的 secret frame；
 - 启动、监督、停止 packaged Python Sidecar；
 - 将 request 与 response 通过 `request_id` 精确关联；
 - 只向 WebView 发布白名单内、已投影和脱敏的事件与状态。
@@ -29,6 +30,7 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 - Tauri 构建和 command 注册：[frontend/src-tauri/src/lib.rs](../../frontend/src-tauri/src/lib.rs)
 - App runtime state：[frontend/src-tauri/src/app_state.rs](../../frontend/src-tauri/src/app_state.rs)
 - Commands：[frontend/src-tauri/src/commands/](../../frontend/src-tauri/src/commands/)
+- Agent commands：[frontend/src-tauri/src/commands/agent.rs](../../frontend/src-tauri/src/commands/agent.rs)、[frontend/src-tauri/src/commands/credentials.rs](../../frontend/src-tauri/src/commands/credentials.rs)
 - Protocol：[frontend/src-tauri/src/protocol/](../../frontend/src-tauri/src/protocol/)
 - 用户手动 SFTP coordinator、严格模型、typed transfer-progress sink、私有 wire、本地文件 owner 与 DPAPI journal actor：[frontend/src-tauri/src/sftp/](../../frontend/src-tauri/src/sftp/)
 - Sidecar lifecycle：[frontend/src-tauri/src/sidecar/](../../frontend/src-tauri/src/sidecar/)
@@ -45,6 +47,7 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 - `src/protocol/`：Protocol v1 envelope、codec 和严格验证；不包含 SSH 业务逻辑。
 - `src/sftp/`：用户手动 SFTP 的 Rust coordinator、跨进程严格模型、私有 runtime client、本地文件 owner 与 DPAPI-protected journal；coordinator 通过注入的 typed sink 发布 transfer projection，production sink 由 `lib.rs` 固定绑定 `main` window 与 `manual-sftp://transfer-state`。
 - `src/commands/sftp.rs`：21 个用户手动 SFTP typed commands；每个 command 在访问 coordinator 或 native dialog 前校验固定 `main` window。上传/下载 picker 由 Rust 打开，取消返回 `None`，本地绝对路径只进入不可序列化的 coordinator input。
+- `src/commands/agent.rs`：四个 Provider metadata CRUD commands 与一个 turn command；turn 先读取当前 config，再从 Vault 解析专用 API Key kind，并只通过 `agent.turn.run` secret frame 传给 Sidecar。`commands/credentials.rs` 另提供两个模型 API Key store/delete commands，因此 Agent 后端新增七个 main-window Tauri commands。
 - `src/vault/`：DPAPI-backed secret storage、secret type 和清理逻辑；不得提供 WebView 可序列化的原始 secret type。
 - `capabilities/`：按固定窗口分配权限集合。
 - `permissions/`：按 command 领域维护 permission set；生成 permission 是产物，不手工作为业务真源。
@@ -71,6 +74,8 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 - Manual SFTP mutation dispatch 由单一 actor 串行拥有。Tauri caller 超时或 drop 不能取消已经派发的 broker request；actor 必须等待真实 response、收敛 encrypted journal，再执行排队的 transfer abort，避免 forward/cleanup 并发。
 - Sidecar typed error 可携带受限 `operation_state=cleanup_required|outcome_unknown`；这两种状态必须保留 local recovery record，普通可信 terminal failure 才写 failed 后删除。
 - `RuntimeRequest` 的 `Debug` 必须持续脱敏 payload。
+- 模型 API Key 只存在于 Rust DPAPI Vault；Sidecar metadata 仅保存 opaque secret reference。Rust 解析后使用 canonical Base64 发送 secret frame，不得进入 `Debug`、event、普通 error 或持久化明文。
+- Agent command 必须先读取当前 `agent.api_configs.get` 结果，再解析该 config 指向的专用 API Key；Sidecar 将该完整非秘密 config 作为 handler 快照，并在 conversation lock 内、创建 Run 和 Provider 调用前再次与持久化值逐字段比较。配置发生竞争变化时以 `MODEL_API_CONFIG_CHANGED` fail closed。
 - Connection command 将 Sidecar 返回的 `version` 建模为 `u64`；解析目标和跳板凭据后只能发送 JSON 数字 `profile_version`，不得发送或回退到 `profile_updated_at`。
 - WebView runtime event 白名单以 Broker 验证为真源；新增 event 必须显式设计、投影和测试。
 - Rust-local manual SFTP transfer event 不经过 Sidecar Broker：production 必须显式注入 main-window sink，sink 只接受 `TransferProgressProjection`。event emit 失败记录 path-free stable diagnostic，但不能使已 dispatch transfer 失败或触发 replay。
@@ -88,6 +93,7 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 
 ```powershell
 cargo test --manifest-path frontend\src-tauri\Cargo.toml --all-targets
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
 ```
 
 需要验证 packaged Sidecar 契约时，先构建当前二进制并显式设置路径：

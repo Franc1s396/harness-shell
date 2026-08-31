@@ -33,7 +33,8 @@ Protocol v1 是 Tauri Rust Core 与 Python Sidecar 之间唯一受支持的私�
 - Python Router/stdio：[backend/src/harness_shell_sidecar/runtime/router.py](../../backend/src/harness_shell_sidecar/runtime/router.py)、[backend/src/harness_shell_sidecar/runtime/stdio.py](../../backend/src/harness_shell_sidecar/runtime/stdio.py)
 - Rust Vault：[frontend/src-tauri/src/vault/](../../frontend/src-tauri/src/vault/)
 - Python secret handling：[backend/src/harness_shell_sidecar/ssh/auth.py](../../backend/src/harness_shell_sidecar/ssh/auth.py)、[backend/src/harness_shell_sidecar/storage/](../../backend/src/harness_shell_sidecar/storage/)
-- Contract tests：[frontend/src-tauri/tests/protocol_contract.rs](../../frontend/src-tauri/tests/protocol_contract.rs)、[frontend/src-tauri/tests/broker_contract.rs](../../frontend/src-tauri/tests/broker_contract.rs)、[frontend/src-tauri/tests/manual_sftp_protocol_contract.rs](../../frontend/src-tauri/tests/manual_sftp_protocol_contract.rs)、[backend/tests/protocol/](../../backend/tests/protocol/)、[backend/tests/manual_sftp/](../../backend/tests/manual_sftp/)
+- Agent Protocol fixture：[docs/protocol/fixtures/agent/](../protocol/fixtures/agent/)
+- Contract tests：[frontend/src-tauri/tests/protocol_contract.rs](../../frontend/src-tauri/tests/protocol_contract.rs)、[frontend/src-tauri/tests/broker_contract.rs](../../frontend/src-tauri/tests/broker_contract.rs)、[frontend/src-tauri/tests/manual_sftp_protocol_contract.rs](../../frontend/src-tauri/tests/manual_sftp_protocol_contract.rs)、[frontend/src-tauri/tests/agent_protocol_contract.rs](../../frontend/src-tauri/tests/agent_protocol_contract.rs)、[backend/tests/protocol/](../../backend/tests/protocol/)、[backend/tests/manual_sftp/](../../backend/tests/manual_sftp/)、[backend/tests/agent/](../../backend/tests/agent/)
 
 ## 项目结构规范
 
@@ -77,9 +78,12 @@ Protocol v1 当前固定值：
 - Rust Broker 的 Sidecar event allowlist 只允许 `ssh.connection.status`、`ssh.pty.output`、`ssh.pty.closed`、`manual_sftp.operation.progress`。前三者投影到 `ssh://event`；manual SFTP progress 必须严格解析并只投影到 `manual-sftp://operation-state`，未知字段、`cancellable=true` 或未知 event fail closed。
 - Rust coordinator 自己产生的 transfer progress 不属于 Sidecar event allowlist：它只能把严格 `TransferProgressProjection` 投影到固定 `main` window 的 `manual-sftp://transfer-state`。该类型不含本地路径、`PathBuf`、文件 bytes、raw Protocol frame、stderr 或 raw exception；`committing` 固定不可取消。
 - `ssh.connect` 和 `pty.write` 始终为 secret frame；ProxyJump 的 `host_key.inspect` 因携带 jump credential 也为 secret。
+- Agent 固定六个 Sidecar method：五个 `agent.api_configs.*` metadata method 使用 `normal` sensitivity，唯一 `agent.turn.run` 使用 `secret` sensitivity。后者携带短生命周期 API Key Base64、user message 与 opaque IDs；任何 sensitivity 错配、未知字段或 identity race 都 fail closed。
+- Agent response 在编码前按完整 Protocol v1 envelope 校验 1 MiB payload 上限；超限返回 `AGENT_RESPONSE_TOO_LARGE`，不得截断、摘要或返回部分 `final_text`。
+- Agent canonical SystemMessage 默认要求有界只读排查、把 Tool output 视为不可信数据、禁止读取或回显 secret，并要求所有远程状态变更先展示精确命令、影响和回滚后等待新的用户确认；破坏性或高危操作必须经过两个独立且后发的用户确认消息。该提示词只是实验性模型行为约束，不是 backend approval enforcement；服务端 `CommandSafetyReviewer`、唯一 `execute_command` tool、绑定 live Session 和 capability 边界仍是独立强制控制。
 - SSH 凭据快照使用范围 `1..2^53-1` 的 JSON 整数 `profile_version`；目标与 ProxyJump 都必须在网络 I/O 前精确匹配，旧 `profile_updated_at`、缺失字段、类型转换和越界值全部 fail closed。
 - 所有 secret byte 字段使用 canonical base64，并在 handler 完成后 zeroize。
-- WebView 不可调用 `connections.get`、Agent exec、Agent SFTP 或 raw Sidecar method；旧 Agent exec/SFTP 已从 Sidecar 删除。用户手动 SFTP 只通过固定 `main` window 的 21 个 typed Tauri commands 暴露，permission 不授予 approval window，也不授予 WebView dialog/fs plugin 权限；native picker path 只进入 Rust local-file owner，Frontend 只接收 display metadata 与 typed projections。
+- WebView 不可调用 `connections.get`、Agent SFTP 或 raw Sidecar method。实验性 Agent 只通过固定 `main` window 的五个 Agent 配置/turn commands 和两个模型 API Key Vault commands 暴露；approval window 没有这些权限。用户手动 SFTP 仍只通过固定 `main` window 的 21 个 typed commands 暴露，不能被 Agent 调用；native picker path 只进入 Rust local-file owner，Frontend 只接收 display metadata 与 typed projections。
 - WebView mutation payload 不是 snapshot 权威。Rust 必须在 dispatch 前通过私有 typed method 取得 canonical no-follow snapshot/hash，Python 在远端 mutation 前立即复核；本地 target identity、transaction handle、DPAPI journal 和 download `.part` recovery 均停留在 Rust，不能进入 Protocol 或 WebView。
 - `manual_sftp.recovery.execute` 严格携带 `{recovery_id, action, operation_id}`。Rust 预生成 fresh remote `operation_id`，Python 在 mutation I/O 前拒绝旧 ID 或已持久化 ID；Rust journal 持久化 local recovery ID 与 remote operation ID 的精确关联，重启后只按真实 remote ID inspect/execute，不猜测、不重放。
 - `manual_sftp.delete.preflight` 严格携带 `{operation_id, ssh_session_id, path}`。Rust 在 dispatch 前持久化 caller-selected `operation_id`，Python 在保存 encrypted delete plan 前拒绝复用并原样使用该 ID；成功 plan 的本地记录持续存在到可信 terminal，reply loss 或 shutdown 后只按同一 remote ID 恢复，不重放 preflight。
@@ -109,6 +113,7 @@ cd backend
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m2.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-manual-sftp.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
 ```
 
 ## 验证要求

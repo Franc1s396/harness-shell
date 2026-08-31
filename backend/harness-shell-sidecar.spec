@@ -4,10 +4,24 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 BACKEND_ROOT = Path(SPECPATH)
+
+
+def _is_agent_runtime_submodule(module_name: str) -> bool:
+    """Exclude optional middleware which depends on the unplanned langchain package."""
+
+    return not module_name.startswith("langchain_openai.middleware")
+
+
 hiddenimports = sorted(
     set(
         collect_submodules("pydantic")
         + collect_submodules("cryptography")
+        + collect_submodules("langchain_core")
+        + collect_submodules(
+            "langchain_openai",
+            filter=_is_agent_runtime_submodule,
+        )
+        + collect_submodules("langgraph")
         + collect_submodules("opentelemetry")
     )
 )

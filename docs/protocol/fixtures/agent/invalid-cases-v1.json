@@ -1,0 +1,40 @@
+[
+  {
+    "kind": "normal_frame_api_key",
+    "sensitivity": "normal",
+    "request": {"method": "agent.turn.run", "params": {"api_key_b64": "a2V5"}},
+    "error_code": "AGENT_SECRET_FRAME_REQUIRED"
+  },
+  {
+    "kind": "unknown_request_field",
+    "request": {"method": "agent.turn.run", "params": {"unknown": true}},
+    "error_code": "INVALID_REQUEST_PAYLOAD"
+  },
+  {
+    "kind": "malformed_uuid",
+    "field": "ssh_session_id",
+    "value": "not-a-uuid",
+    "error_code": "INVALID_REQUEST_PAYLOAD"
+  },
+  {
+    "kind": "malformed_base64",
+    "field": "api_key_b64",
+    "value": "%%%",
+    "error_code": "INVALID_REQUEST_PAYLOAD"
+  },
+  {
+    "kind": "tool_session_argument_forbidden",
+    "tool_call": {"name": "execute_command", "args": {"command": "pwd", "session": "other"}},
+    "error_code": "COMMAND_REJECTED_INVALID_ARGUMENTS"
+  },
+  {
+    "kind": "oversized_agent_response",
+    "encoded_payload_bytes": 1048577,
+    "error_code": "AGENT_RESPONSE_TOO_LARGE"
+  },
+  {
+    "kind": "unmatched_tool_call_repair",
+    "tool_call_id": "call-interrupted",
+    "repair": {"schema_version": 1, "ok": false, "code": "PREVIOUS_TOOL_CALL_INTERRUPTED", "message": "The previous agent run ended before this tool call produced a confirmed result.", "result": null}
+  }
+]

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from uuid import uuid4
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 REQUIRED_TABLES = frozenset(
     {
         "schema_migrations",
@@ -16,6 +17,10 @@ REQUIRED_TABLES = frozenset(
         "connection_profiles",
         "host_keys",
         "artifact_metadata",
+        "model_api_configs",
+        "agent_conversations",
+        "agent_runs",
+        "agent_messages",
     }
 )
 
@@ -121,6 +126,7 @@ class RuntimeDatabase:
         migration_names = {
             2: "002_m2.sql",
             3: "003_connection_profile_version.sql",
+            4: "004_react_shell_agent.sql",
         }
         for next_version in range(versions[-1] + 1, SCHEMA_VERSION + 1):
             migration = (
@@ -209,6 +215,246 @@ class RuntimeDatabase:
             raise StorageSelfCheckFailed(
                 "connection_profiles contains an invalid version"
             )
+        self._check_agent_schema()
+
+    def _check_agent_schema(self) -> None:
+        """Verify schema-v4 Agent types, constraints, foreign keys, and indexes."""
+
+        expected_columns = {
+            "model_api_configs": {
+                "api_config_id": ("TEXT", 1, 1),
+                "display_name": ("TEXT", 1, 0),
+                "api_type": ("TEXT", 1, 0),
+                "base_url": ("TEXT", 1, 0),
+                "model": ("TEXT", 1, 0),
+                "api_key_secret_ref": ("TEXT", 1, 0),
+                "enabled": ("INTEGER", 1, 0),
+                "created_at": ("TEXT", 1, 0),
+                "updated_at": ("TEXT", 1, 0),
+            },
+            "agent_conversations": {
+                "conversation_id": ("TEXT", 1, 1),
+                "created_at": ("TEXT", 1, 0),
+                "updated_at": ("TEXT", 1, 0),
+            },
+            "agent_runs": {
+                "agent_run_id": ("TEXT", 1, 1),
+                "conversation_id": ("TEXT", 1, 0),
+                "ssh_session_id": ("TEXT", 1, 0),
+                "api_config_id": ("TEXT", 1, 0),
+                "status": ("TEXT", 1, 0),
+                "react_iteration": ("INTEGER", 1, 0),
+                "error_code": ("TEXT", 0, 0),
+                "started_at": ("TEXT", 1, 0),
+                "ended_at": ("TEXT", 0, 0),
+            },
+            "agent_messages": {
+                "message_id": ("TEXT", 1, 1),
+                "conversation_id": ("TEXT", 1, 0),
+                "sequence": ("INTEGER", 1, 0),
+                "message_type": ("TEXT", 1, 0),
+                "encrypted_record_id": ("TEXT", 1, 0),
+                "tool_call_id": ("TEXT", 0, 0),
+                "agent_run_id": ("TEXT", 1, 0),
+                "created_at": ("TEXT", 1, 0),
+            },
+        }
+        table_metadata = {
+            row[1]: row
+            for row in self.connection.execute("PRAGMA table_list").fetchall()
+            if row[0] == "main"
+        }
+        for table_name, required in expected_columns.items():
+            metadata = table_metadata.get(table_name)
+            if metadata is None or metadata[5] != 1:
+                raise StorageSelfCheckFailed(
+                    f"{table_name} schema does not match version 4"
+                )
+            actual = {
+                row[1]: (str(row[2]).upper(), row[3], row[5])
+                for row in self.connection.execute(
+                    f"PRAGMA table_info({table_name})"
+                ).fetchall()
+            }
+            if actual != required:
+                raise StorageSelfCheckFailed(
+                    f"{table_name} schema does not match version 4"
+                )
+        unique_indexes = {
+            tuple(
+                column[2]
+                for column in self.connection.execute(
+                    f"PRAGMA index_info({index[1]})"
+                ).fetchall()
+            )
+            for index in self.connection.execute(
+                "PRAGMA index_list(agent_messages)"
+            ).fetchall()
+            if index[2] == 1
+        }
+        if not {
+            ("encrypted_record_id",),
+            ("conversation_id", "sequence"),
+        } <= unique_indexes:
+            raise StorageSelfCheckFailed(
+                "agent_messages uniqueness schema does not match version 4"
+            )
+        expected_foreign_keys = {
+            "agent_runs": {
+                ("agent_conversations", "conversation_id", "conversation_id"),
+                ("model_api_configs", "api_config_id", "api_config_id"),
+            },
+            "agent_messages": {
+                ("agent_conversations", "conversation_id", "conversation_id"),
+                ("agent_runs", "agent_run_id", "agent_run_id"),
+            },
+        }
+        for table_name, expected in expected_foreign_keys.items():
+            actual = {
+                (row[2], row[3], row[4])
+                for row in self.connection.execute(
+                    f"PRAGMA foreign_key_list({table_name})"
+                ).fetchall()
+            }
+            if actual != expected:
+                raise StorageSelfCheckFailed(
+                    f"{table_name} schema does not match version 4"
+                )
+        self._probe_agent_checks()
+
+    def _probe_agent_checks(self) -> None:
+        """Use a rolled-back write probe to prove critical CHECK constraints execute."""
+
+        connection = self.connection
+        conversation_id = str(uuid4())
+        config_id = str(uuid4())
+        valid_run_id = str(uuid4())
+        invalid_status_run_id = str(uuid4())
+        invalid_iteration_run_id = str(uuid4())
+        invalid_negative_iteration_run_id = str(uuid4())
+        connection.execute("SAVEPOINT agent_schema_probe")
+        try:
+            connection.execute(
+                "INSERT INTO agent_conversations VALUES (?, 'now', 'now')",
+                (conversation_id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO model_api_configs VALUES (
+                    ?, 'probe', 'RESPONSES', 'https://example.invalid/', 'model',
+                    '00000000-0000-4000-8000-00000000a003', 1, 'now', 'now'
+                )
+                """,
+                (config_id,),
+            )
+            for invalid_column, invalid_value in (
+                ("display_name", ""),
+                ("display_name", "x" * 81),
+                ("api_type", "INVALID"),
+                ("base_url", ""),
+                ("base_url", "x" * 2049),
+                ("model", ""),
+                ("model", "x" * 256),
+                ("enabled", 2),
+            ):
+                values: dict[str, object] = {
+                    "api_config_id": str(uuid4()),
+                    "display_name": "probe",
+                    "api_type": "RESPONSES",
+                    "base_url": "https://example.invalid/",
+                    "model": "model",
+                    "api_key_secret_ref": str(uuid4()),
+                    "enabled": 1,
+                }
+                values[invalid_column] = invalid_value
+                self._expect_agent_constraint_failure(
+                    """
+                    INSERT INTO model_api_configs VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, 'now', 'now'
+                    )
+                    """,
+                    (
+                        values["api_config_id"],
+                        values["display_name"],
+                        values["api_type"],
+                        values["base_url"],
+                        values["model"],
+                        values["api_key_secret_ref"],
+                        values["enabled"],
+                    ),
+                )
+            self._expect_agent_constraint_failure(
+                """
+                INSERT INTO agent_runs VALUES (
+                    ?, ?,
+                    '00000000-0000-4000-8000-00000000a005', ?,
+                    'INVALID', 0, NULL, 'now', NULL
+                )
+                """,
+                (invalid_status_run_id, conversation_id, config_id),
+            )
+            self._expect_agent_constraint_failure(
+                """
+                INSERT INTO agent_runs VALUES (
+                    ?, ?,
+                    '00000000-0000-4000-8000-00000000a007', ?,
+                    'RUNNING', 129, NULL, 'now', NULL
+                )
+                """,
+                (invalid_iteration_run_id, conversation_id, config_id),
+            )
+            self._expect_agent_constraint_failure(
+                """
+                INSERT INTO agent_runs VALUES (
+                    ?, ?,
+                    '00000000-0000-4000-8000-00000000a008', ?,
+                    'RUNNING', -1, NULL, 'now', NULL
+                )
+                """,
+                (invalid_negative_iteration_run_id, conversation_id, config_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO agent_runs VALUES (
+                    ?, ?,
+                    '00000000-0000-4000-8000-00000000a009', ?,
+                    'RUNNING', 0, NULL, 'now', NULL
+                )
+                """,
+                (valid_run_id, conversation_id, config_id),
+            )
+            self._expect_agent_constraint_failure(
+                """
+                INSERT INTO agent_messages VALUES (
+                    ?, ?, 0, 'HUMAN', ?, NULL, ?, 'now'
+                )
+                """,
+                (str(uuid4()), conversation_id, str(uuid4()), valid_run_id),
+            )
+            self._expect_agent_constraint_failure(
+                """
+                INSERT INTO agent_messages VALUES (
+                    ?, ?, 1, 'INVALID', ?, NULL, ?, 'now'
+                )
+                """,
+                (str(uuid4()), conversation_id, str(uuid4()), valid_run_id),
+            )
+        finally:
+            connection.execute("ROLLBACK TO agent_schema_probe")
+            connection.execute("RELEASE agent_schema_probe")
+
+    def _expect_agent_constraint_failure(
+        self,
+        statement: str,
+        parameters: tuple[object, ...],
+    ) -> None:
+        """Fail self-check when an invalid Agent row is unexpectedly accepted."""
+
+        try:
+            self.connection.execute(statement, parameters)
+        except sqlite3.IntegrityError:
+            return
+        raise StorageSelfCheckFailed("Agent schema does not match version 4")
 
     def _schema_versions(self) -> list[int]:
         """按升序返回已经持久化的全部连续 schema 版本。"""
