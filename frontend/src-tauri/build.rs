@@ -49,6 +49,8 @@ fn main() {
         "update_model_api_config",
         "delete_model_api_config",
         "run_agent_turn",
+        "get_log_directory",
+        "open_log_directory",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)).unwrap();
 }

@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod commands;
+mod logging;
 pub mod protocol;
 pub mod sftp;
 pub mod sidecar;
@@ -14,15 +15,15 @@ use commands::{
     delete_connection, delete_model_api_config, delete_model_api_key, delete_ssh_credential,
     discard_manual_sftp_preparation, disconnect_ssh, execute_manual_sftp_delete,
     execute_manual_sftp_download, execute_manual_sftp_recovery, execute_manual_sftp_upload,
-    get_approval_context, get_manual_sftp_context, get_runtime_status, hash_manual_sftp_file,
-    import_private_key, inspect_host_key, inspect_manual_sftp_entry, inspect_manual_sftp_recovery,
-    list_connections, list_manual_sftp_directory, list_manual_sftp_recoveries,
-    list_model_api_configs, next_manual_sftp_directory_batch, open_approval_window,
-    open_manual_sftp_link, open_pty, preflight_manual_sftp_delete, prepare_manual_sftp_download,
-    prepare_manual_sftp_upload, remove_manual_sftp_entry, rename_manual_sftp_entry,
-    replace_host_key, resize_pty, run_agent_turn, store_model_api_key,
-    store_private_key_passphrase, store_ssh_password, submit_approval_decision, update_connection,
-    update_model_api_config, write_pty,
+    get_approval_context, get_log_directory, get_manual_sftp_context, get_runtime_status,
+    hash_manual_sftp_file, import_private_key, inspect_host_key, inspect_manual_sftp_entry,
+    inspect_manual_sftp_recovery, list_connections, list_manual_sftp_directory,
+    list_manual_sftp_recoveries, list_model_api_configs, next_manual_sftp_directory_batch,
+    open_approval_window, open_log_directory, open_manual_sftp_link, open_pty,
+    preflight_manual_sftp_delete, prepare_manual_sftp_download, prepare_manual_sftp_upload,
+    remove_manual_sftp_entry, rename_manual_sftp_entry, replace_host_key, resize_pty,
+    run_agent_turn, store_model_api_key, store_private_key_passphrase, store_ssh_password,
+    submit_approval_decision, update_connection, update_model_api_config, write_pty,
 };
 use sftp::{
     coordinator::{
@@ -61,6 +62,7 @@ impl TransferProgressSink for MainWindowTransferProgressSink {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(logging::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
@@ -112,9 +114,12 @@ pub fn run() {
             create_model_api_config,
             update_model_api_config,
             delete_model_api_config,
-            run_agent_turn
+            run_agent_turn,
+            get_log_directory,
+            open_log_directory
         ])
         .setup(|app| {
+            log::info!(target: "harness_shell::core", "application startup initialized");
             let app_data = app.path().app_local_data_dir()?;
             let extraction_directory = app_data.join("sidecar-tmp");
             fs::create_dir_all(&extraction_directory)?;

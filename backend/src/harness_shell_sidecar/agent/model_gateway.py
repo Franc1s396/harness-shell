@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
@@ -11,6 +12,8 @@ from langchain_core.messages import AIMessage, AnyMessage
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
+
+from harness_shell_sidecar.telemetry import log_exception_event
 
 from .contracts import ApiType, ModelApiConfig
 from .executor import AgentCancelled
@@ -21,6 +24,7 @@ MODEL_REQUEST_TIMEOUT_SECONDS = 60
 MODEL_RETRY_DELAYS_SECONDS = (1, 2, 4, 8, 16)
 ModelBuilder = Callable[..., Any]
 Sleep = Callable[[float], Awaitable[None]]
+LOGGER = logging.getLogger("harness_shell_sidecar.agent.model_gateway")
 
 
 class ModelGatewayError(RuntimeError):
@@ -100,9 +104,27 @@ class ModelGateway:
                 raise
             except Exception as error:
                 if not _is_network_timeout(error):
-                    raise ModelGatewayError("MODEL_REQUEST_FAILED") from None
+                    log_exception_event(
+                        LOGGER,
+                        "model_request_failed",
+                        error,
+                        error_code="MODEL_REQUEST_FAILED",
+                        api_config_id=str(config.api_config_id),
+                        api_type=config.api_type.value,
+                        model=config.model,
+                    )
+                    raise ModelGatewayError("MODEL_REQUEST_FAILED") from error
                 if attempt == len(MODEL_RETRY_DELAYS_SECONDS):
-                    raise ModelGatewayError("MODEL_NETWORK_TIMEOUT") from None
+                    log_exception_event(
+                        LOGGER,
+                        "model_network_timeout",
+                        error,
+                        error_code="MODEL_NETWORK_TIMEOUT",
+                        api_config_id=str(config.api_config_id),
+                        api_type=config.api_type.value,
+                        model=config.model,
+                    )
+                    raise ModelGatewayError("MODEL_NETWORK_TIMEOUT") from error
                 await _await_with_cancellation(
                     self._sleep(MODEL_RETRY_DELAYS_SECONDS[attempt]),
                     cancelled,

@@ -20,7 +20,10 @@ from harness_shell_sidecar.storage import (
     LocalTraceStore,
     RuntimeDatabase,
 )
-from harness_shell_sidecar.telemetry import build_local_tracer_provider
+from harness_shell_sidecar.telemetry import (
+    build_local_tracer_provider,
+    log_exception_event,
+)
 from harness_shell_sidecar.ssh.handlers import register_ssh_handlers
 from harness_shell_sidecar.ssh.runtime import SshRuntime
 from harness_shell_sidecar.terminal import PtyManager
@@ -155,9 +158,12 @@ class SidecarService:
 
                 if exit_code != 0:
                     break
-        except Exception:
-            LOGGER.exception(
-                '{"level":"ERROR","error_code":"SIDECAR_RUNTIME_FAILED"}'
+        except Exception as error:
+            log_exception_event(
+                LOGGER,
+                "sidecar_runtime_failed",
+                error,
+                error_code="SIDECAR_RUNTIME_FAILED",
             )
             exit_code = 1
         finally:
@@ -242,9 +248,12 @@ class SidecarService:
                 MessageType.ERROR,
                 payload,
             )
-        except Exception:
-            LOGGER.exception(
-                '{"level":"ERROR","error_code":"REQUEST_HANDLER_FAILED"}'
+        except Exception as error:
+            log_exception_event(
+                LOGGER,
+                "request_handler_failed",
+                error,
+                error_code="REQUEST_HANDLER_FAILED",
             )
             response = self._router.application_response(
                 frame,

@@ -22,6 +22,7 @@ from harness_shell_sidecar.agent.graph import AgentGraphDependencies, build_agen
 from harness_shell_sidecar.agent.model_gateway import ModelGateway
 from harness_shell_sidecar.agent.service import AgentService
 from harness_shell_sidecar.agent.tools import CommandSafetyReviewer
+from harness_shell_sidecar.telemetry import JsonLogFormatter
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
@@ -39,6 +40,7 @@ class RecordingExecutor:
 
     before_execute: Callable[[], None] | None = None
     failure: Exception | None = None
+    stdout: str | None = None
     calls: list[tuple[UUID, str]] = field(default_factory=list)
 
     async def execute(
@@ -62,7 +64,13 @@ class RecordingExecutor:
                 command=command,
                 exit_code=0,
                 exit_signal=None,
-                stdout="/home/test\n" if command == "pwd" else "ok\n",
+                stdout=(
+                    self.stdout
+                    if self.stdout is not None
+                    else "/home/test\n"
+                    if command == "pwd"
+                    else "ok\n"
+                ),
                 stderr="",
                 timed_out=False,
                 duration_ms=1,
@@ -99,6 +107,8 @@ async def _run_turn(
     agent_storage: AgentStorage,
     service: AgentService,
     turn: AgentTurnInput,
+    *,
+    api_key: str = "key",
 ) -> AgentTurnResult:
     """Run through the service with the exact handler-observed config snapshot."""
 
@@ -106,7 +116,7 @@ async def _run_turn(
     assert config is not None
     return await service.run_turn(
         turn,
-        SecretStr("key"),
+        SecretStr(api_key),
         asyncio.Event(),
         expected_config=config,
     )
@@ -133,6 +143,143 @@ def test_tool_result_returns_to_model_before_final_answer(
         assert result.final_text == "The remote directory is /home/test."
         assert model.message_calls[1][-1].tool_call_id == "call-1"
         assert executor.calls == [(turn.ssh_session_id, "pwd")]
+
+    asyncio.run(scenario())
+
+
+def test_model_only_turn_logs_exact_node_pairs_and_route(
+    agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Expose the real successful node order without serializing graph state."""
+
+    async def scenario() -> None:
+        model = FakeModelSequence([AIMessage(content="done")])
+        service, turn = _service(agent_storage, model, RecordingExecutor())
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+
+        await _run_turn(agent_storage, service, turn)
+
+        events = [
+            (getattr(record, "harness_event", None), record.harness_fields)
+            for record in caplog.records
+            if getattr(record, "harness_event", "").startswith("agent_")
+        ]
+        assert [
+            (event, fields["node"])
+            for event, fields in events
+            if "node" in fields
+        ] == [
+            ("agent_node_started", "load_context"),
+            ("agent_node_completed", "load_context"),
+            ("agent_node_started", "trim_context"),
+            ("agent_node_completed", "trim_context"),
+            ("agent_node_started", "call_model"),
+            ("agent_node_completed", "call_model"),
+            ("agent_node_started", "return_response"),
+            ("agent_node_completed", "return_response"),
+        ]
+        assert any(
+            event == "agent_route_selected"
+            and fields["route_source"] == "call_model"
+            and fields["route_target"] == "return_response"
+            for event, fields in events
+        )
+        assert all(
+            fields["duration_ms"] >= 0
+            for event, fields in events
+            if event == "agent_node_completed"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_graph_logs_no_message_command_output_or_provider_key(
+    agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Keep every Graph record limited to IDs, node metadata, and routes."""
+
+    async def scenario() -> None:
+        user_marker = "graph-user-message-marker-1f4b"
+        command_marker = "graph-command-marker-2a5c"
+        tool_output_marker = "graph-tool-output-marker-3b6d"
+        model_output_marker = "graph-model-output-marker-4c7e"
+        provider_key_marker = "graph-provider-key-marker-5d8f"
+        model = FakeModelSequence(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[make_tool_call("call-safe-log", command_marker)],
+                ),
+                AIMessage(content=model_output_marker),
+            ]
+        )
+        executor = RecordingExecutor(stdout=tool_output_marker)
+        service, turn = _service(agent_storage, model, executor)
+        turn = turn.model_copy(update={"user_message": user_marker})
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+
+        await _run_turn(
+            agent_storage,
+            service,
+            turn,
+            api_key=provider_key_marker,
+        )
+
+        graph_records = [
+            record
+            for record in caplog.records
+            if record.name == "harness_shell_sidecar.agent.graph"
+        ]
+        assert graph_records
+        encoded = "\n".join(
+            JsonLogFormatter().format(record) for record in graph_records
+        )
+        for marker in (
+            user_marker,
+            command_marker,
+            tool_output_marker,
+            model_output_marker,
+            provider_key_marker,
+        ):
+            assert marker not in encoded
+
+    asyncio.run(scenario())
+
+
+def test_execute_tool_failure_logs_node_failure_and_preserves_result(
+    agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Log the failing node and let AgentService retain its existing mapping."""
+
+    async def scenario() -> None:
+        marker = "graph-executor-failure-marker-6e9a"
+        model = FakeModelSequence(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[make_tool_call("call-failure", "pwd")],
+                )
+            ]
+        )
+        executor = RecordingExecutor(failure=RuntimeError(marker))
+        service, turn = _service(agent_storage, model, executor)
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+
+        result = await _run_turn(agent_storage, service, turn)
+
+        assert result.status is AgentRunStatus.FAILED
+        assert result.error_code == "SIDECAR_RUNTIME_FAILED"
+        failed = [
+            record
+            for record in caplog.records
+            if getattr(record, "harness_event", None) == "agent_node_failed"
+        ]
+        assert len(failed) == 1
+        assert failed[0].harness_fields["node"] == "execute_tool"
+        assert marker not in JsonLogFormatter().format(failed[0])
 
     asyncio.run(scenario())
 
@@ -295,6 +442,7 @@ def test_128_completed_iterations_may_return_a_final_answer(
 
 def test_129th_tool_call_is_paired_but_never_executed(
     agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Stop at the business limit without relying on LangGraph recursion limits."""
 
@@ -310,6 +458,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
         )
         executor = RecordingExecutor()
         service, turn = _service(agent_storage, model, executor)
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
 
         result = await _run_turn(agent_storage, service, turn)
 
@@ -320,6 +469,41 @@ def test_129th_tool_call_is_paired_but_never_executed(
         history = agent_storage.conversations.load_messages(result.conversation_id)
         assert json.loads(history[-1].content)["code"] == "REACT_LIMIT_REACHED"
         assert history[-1].tool_call_id == "call-129"
+        graph_records = [
+            record
+            for record in caplog.records
+            if record.name == "harness_shell_sidecar.agent.graph"
+        ]
+        observed_nodes = {
+            record.harness_fields["node"]
+            for record in graph_records
+            if getattr(record, "harness_event", None) == "agent_node_started"
+        }
+        assert {
+            "check_react_limit",
+            "execute_tool",
+            "reject_limit",
+        } <= observed_nodes
+        routes = [
+            record.harness_fields
+            for record in graph_records
+            if getattr(record, "harness_event", None) == "agent_route_selected"
+        ]
+        assert any(
+            fields["route_source"] == "call_model"
+            and fields["route_target"] == "check_react_limit"
+            for fields in routes
+        )
+        assert any(
+            fields["route_source"] == "check_react_limit"
+            and fields["route_target"] == "execute_tool"
+            for fields in routes
+        )
+        assert any(
+            fields["route_source"] == "check_react_limit"
+            and fields["route_target"] == "reject_limit"
+            for fields in routes
+        )
 
     asyncio.run(scenario())
 

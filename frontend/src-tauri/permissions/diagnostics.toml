@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "diagnostics"
+description = "Allows the main window to inspect and open the fixed application log directory."
+commands.allow = ["get_log_directory", "open_log_directory"]

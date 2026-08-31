@@ -28,8 +28,10 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 ## 当前源码真源
 
 - Tauri 构建和 command 注册：[frontend/src-tauri/src/lib.rs](../../frontend/src-tauri/src/lib.rs)
+- 持久化日志策略：[frontend/src-tauri/src/logging.rs](../../frontend/src-tauri/src/logging.rs)
 - App runtime state：[frontend/src-tauri/src/app_state.rs](../../frontend/src-tauri/src/app_state.rs)
 - Commands：[frontend/src-tauri/src/commands/](../../frontend/src-tauri/src/commands/)
+- 固定日志目录 commands：[frontend/src-tauri/src/commands/diagnostics.rs](../../frontend/src-tauri/src/commands/diagnostics.rs)
 - Agent commands：[frontend/src-tauri/src/commands/agent.rs](../../frontend/src-tauri/src/commands/agent.rs)、[frontend/src-tauri/src/commands/credentials.rs](../../frontend/src-tauri/src/commands/credentials.rs)
 - Protocol：[frontend/src-tauri/src/protocol/](../../frontend/src-tauri/src/protocol/)
 - 用户手动 SFTP coordinator、严格模型、typed transfer-progress sink、私有 wire、本地文件 owner 与 DPAPI journal actor：[frontend/src-tauri/src/sftp/](../../frontend/src-tauri/src/sftp/)
@@ -48,6 +50,8 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 - `src/sftp/`：用户手动 SFTP 的 Rust coordinator、跨进程严格模型、私有 runtime client、本地文件 owner 与 DPAPI-protected journal；coordinator 通过注入的 typed sink 发布 transfer projection，production sink 由 `lib.rs` 固定绑定 `main` window 与 `manual-sftp://transfer-state`。
 - `src/commands/sftp.rs`：21 个用户手动 SFTP typed commands；每个 command 在访问 coordinator 或 native dialog 前校验固定 `main` window。上传/下载 picker 由 Rust 打开，取消返回 `None`，本地绝对路径只进入不可序列化的 coordinator input。
 - `src/commands/agent.rs`：四个 Provider metadata CRUD commands 与一个 turn command；turn 先读取当前 config，再从 Vault 解析专用 API Key kind，并只通过 `agent.turn.run` secret frame 传给 Sidecar。`commands/credentials.rs` 另提供两个模型 API Key store/delete commands，因此 Agent 后端新增七个 main-window Tauri commands。
+- `src/logging.rs`：在 Runtime setup 前安装 INFO logger，目标固定为启动终端与 Tauri `LogDir`；setup 开始时写一条无业务字段的 Core 启动记录，单个活动文件上限 10 MiB，保留四个 archive 加一个 active `harness-shell.log`。
+- `src/commands/diagnostics.rs`：只解析 Tauri `app_log_dir()`，提供无参数 `get_log_directory` / `open_log_directory`；后者仅以单个 `Path` argument 启动 `explorer.exe`，不接受 WebView path 或 shell command string。
 - `src/vault/`：DPAPI-backed secret storage、secret type 和清理逻辑；不得提供 WebView 可序列化的原始 secret type。
 - `capabilities/`：按固定窗口分配权限集合。
 - `permissions/`：按 command 领域维护 permission set；生成 permission 是产物，不手工作为业务真源。
@@ -74,6 +78,8 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 - Manual SFTP mutation dispatch 由单一 actor 串行拥有。Tauri caller 超时或 drop 不能取消已经派发的 broker request；actor 必须等待真实 response、收敛 encrypted journal，再执行排队的 transfer abort，避免 forward/cleanup 并发。
 - Sidecar typed error 可携带受限 `operation_state=cleanup_required|outcome_unknown`；这两种状态必须保留 local recovery record，普通可信 terminal failure 才写 failed 后删除。
 - `RuntimeRequest` 的 `Debug` 必须持续脱敏 payload。
+- Sidecar stderr 由 Rust process owner 逐行先执行现有 whole-line secret marker scan，再仅解析 `component=python_sidecar` 与 `level=INFO|WARNING|ERROR` 选择日志严重级别；解析不得读取业务字段，扫描顺序不得后移。
+- 主窗口的 `diagnostics` permission 只含两个固定日志目录 commands；approval window、通用 shell、filesystem 或 dialog plugin capability 不得因此扩大。
 - 模型 API Key 只存在于 Rust DPAPI Vault；Sidecar metadata 仅保存 opaque secret reference。Rust 解析后使用 canonical Base64 发送 secret frame，不得进入 `Debug`、event、普通 error 或持久化明文。
 - Agent command 必须先读取当前 `agent.api_configs.get` 结果，再解析该 config 指向的专用 API Key；Sidecar 将该完整非秘密 config 作为 handler 快照，并在 conversation lock 内、创建 Run 和 Provider 调用前再次与持久化值逐字段比较。配置发生竞争变化时以 `MODEL_API_CONFIG_CHANGED` fail closed。
 - Connection command 将 Sidecar 返回的 `version` 建模为 `u64`；解析目标和跳板凭据后只能发送 JSON 数字 `profile_version`，不得发送或回退到 `profile_updated_at`。

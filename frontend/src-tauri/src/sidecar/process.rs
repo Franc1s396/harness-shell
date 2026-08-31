@@ -633,6 +633,25 @@ pub enum SidecarOutput {
     Terminated { code: Option<i32> },
 }
 
+#[derive(serde::Deserialize)]
+struct SidecarLogEnvelope {
+    component: String,
+    level: String,
+}
+
+fn structured_sidecar_level(line: &[u8]) -> Option<log::Level> {
+    let envelope: SidecarLogEnvelope = serde_json::from_slice(line).ok()?;
+    if envelope.component != "python_sidecar" {
+        return None;
+    }
+    match envelope.level.as_str() {
+        "INFO" => Some(log::Level::Info),
+        "WARNING" => Some(log::Level::Warn),
+        "ERROR" => Some(log::Level::Error),
+        _ => None,
+    }
+}
+
 pub struct SidecarProcess {
     events: Receiver<CommandEvent>,
     child: Option<CommandChild>,
@@ -798,6 +817,8 @@ impl SidecarProcess {
         let line = String::from_utf8_lossy(line);
         if truncated {
             log::warn!(target: "harness_shell::sidecar", "{line} [truncated]");
+        } else if let Some(level) = structured_sidecar_level(line.as_bytes()) {
+            log::log!(target: "harness_shell::sidecar", level, "{line}");
         } else {
             log::warn!(target: "harness_shell::sidecar", "{line}");
         }
@@ -1067,6 +1088,33 @@ fn publish_error_if_active(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structured_sidecar_levels_map_without_reading_business_fields() {
+        for (level, expected) in [
+            ("INFO", log::Level::Info),
+            ("WARNING", log::Level::Warn),
+            ("ERROR", log::Level::Error),
+        ] {
+            let line = format!(
+                r#"{{"component":"python_sidecar","level":"{level}","event":"agent_node_started","ignored":"not-read"}}"#
+            );
+            assert_eq!(structured_sidecar_level(line.as_bytes()), Some(expected));
+        }
+    }
+
+    #[test]
+    fn malformed_or_foreign_stderr_is_not_treated_as_structured_python_logging() {
+        assert_eq!(structured_sidecar_level(b"not-json"), None);
+        assert_eq!(
+            structured_sidecar_level(br#"{"component":"other","level":"ERROR"}"#),
+            None,
+        );
+        assert_eq!(
+            structured_sidecar_level(br#"{"component":"python_sidecar","level":"DEBUG"}"#,),
+            None,
+        );
+    }
 
     #[test]
     fn broker_command_wakes_ready_runtime_without_polling_delay() {

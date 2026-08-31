@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -23,6 +24,7 @@ from harness_shell_sidecar.agent.model_gateway import (
     ModelGateway,
     ModelGatewayError,
 )
+from harness_shell_sidecar.telemetry import JsonLogFormatter
 
 from .fakes import (
     CancellationAwareModel,
@@ -116,11 +118,14 @@ def test_chat_config_binds_the_same_single_strict_command_tool() -> None:
     asyncio.run(scenario())
 
 
-def test_network_timeout_retries_five_times_then_fails() -> None:
+def test_network_timeout_retries_five_times_then_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Attempt exactly once plus five deterministic timeout retries."""
 
     async def scenario() -> None:
-        model = FakeBoundModel([httpx.ReadTimeout("timeout")] * 6)
+        failure = httpx.ReadTimeout("timeout")
+        model = FakeBoundModel([failure] * 6)
         builder = RecordingModelBuilder(model)
         delays: list[float] = []
 
@@ -130,6 +135,10 @@ def test_network_timeout_retries_five_times_then_fails() -> None:
             delays.append(delay)
 
         gateway = ModelGateway(model_builder=builder, sleep=record_sleep)
+        caplog.set_level(
+            logging.INFO,
+            logger="harness_shell_sidecar.agent.model_gateway",
+        )
 
         with pytest.raises(ModelGatewayError) as error:
             await _invoke(gateway, chat_config())
@@ -138,6 +147,16 @@ def test_network_timeout_retries_five_times_then_fails() -> None:
         assert model.calls == 6
         assert delays == list(MODEL_RETRY_DELAYS_SECONDS)
         assert builder.calls == 1
+        terminal_records = [
+            record
+            for record in caplog.records
+            if getattr(record, "harness_event", None) == "model_network_timeout"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0].harness_fields["error_code"] == (
+            "MODEL_NETWORK_TIMEOUT"
+        )
+        assert error.value.__cause__ is failure
 
     asyncio.run(scenario())
 
@@ -162,14 +181,66 @@ def test_timeout_in_cause_chain_retries_then_succeeds() -> None:
     asyncio.run(scenario())
 
 
-def _status_error(error_type: type[openai.APIStatusError], status: int) -> Exception:
+def _status_error(
+    error_type: type[openai.APIStatusError],
+    status: int,
+    *,
+    body: object | None = None,
+    request_id: str | None = None,
+) -> Exception:
     """Build an OpenAI status exception without a live HTTP request."""
 
     response = httpx.Response(
         status,
+        headers={"x-request-id": request_id} if request_id is not None else None,
         request=httpx.Request("POST", "https://provider.example/v1/responses"),
     )
-    return error_type("provider rejected request", response=response, body=None)
+    return error_type("provider rejected request", response=response, body=body)
+
+
+def test_provider_failure_logs_safe_diagnostics_before_mapping(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Preserve safe Provider metadata and the internal cause before code mapping."""
+
+    async def scenario() -> None:
+        failure = _status_error(
+            openai.AuthenticationError,
+            401,
+            body={
+                "error": {
+                    "type": "authentication_error",
+                    "code": "invalid_api_key",
+                    "message": "provider-body-marker",
+                }
+            },
+            request_id="req-provider-123",
+        )
+        gateway = ModelGateway(
+            model_builder=RecordingModelBuilder(FakeBoundModel([failure])),
+            sleep=instant_sleep,
+        )
+        caplog.set_level(
+            logging.INFO,
+            logger="harness_shell_sidecar.agent.model_gateway",
+        )
+
+        with pytest.raises(ModelGatewayError) as raised:
+            await _invoke(gateway, responses_config())
+
+        record = next(
+            item
+            for item in caplog.records
+            if getattr(item, "harness_event", None) == "model_request_failed"
+        )
+        assert raised.value.error_code == "MODEL_REQUEST_FAILED"
+        assert raised.value.__cause__ is failure
+        assert record.harness_fields["http_status"] == 401
+        assert record.harness_fields["provider_error_code"] == "invalid_api_key"
+        assert record.harness_fields["provider_request_id"] == "req-provider-123"
+        assert "provider-body-marker" not in JsonLogFormatter().format(record)
+
+    asyncio.run(scenario())
 
 
 def _schema_error() -> ValidationError:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from harness_shell_sidecar.protocol import (
     Sensitivity,
 )
 from harness_shell_sidecar.runtime import RequestDispatcher, SidecarService
+from harness_shell_sidecar.telemetry import JsonLogFormatter
 
 
 class MemoryTransport:
@@ -47,6 +49,15 @@ class MemoryTransport:
         """记录服务已关闭传输。"""
 
         self.closed = True
+
+
+class FailingReadyTransport(MemoryTransport):
+    """Fail the first outbound frame to exercise the outer runtime boundary."""
+
+    async def send(self, frame: FrameEnvelope) -> None:
+        """Raise before READY is emitted without leaking the diagnostic marker."""
+
+        raise RuntimeError("sidecar-runtime-exception-marker")
 
 
 class CleanupProbe:
@@ -285,5 +296,70 @@ def test_service_cleanup_attempts_every_stage_after_an_earlier_failure() -> None
         assert order == ["manual_sftp", "ssh"]
         assert agent_cleared == [True]
         assert transport.closed is True
+
+    asyncio.run(scenario())
+
+
+def test_outer_runtime_failure_logs_safe_event_and_preserves_exit_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Map an unexpected run-loop failure to exit 1 after safe logging."""
+
+    async def scenario() -> None:
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.runtime")
+        service = SidecarService(FailingReadyTransport())
+
+        assert await service.run() == 1
+
+        record = next(
+            item
+            for item in caplog.records
+            if getattr(item, "harness_event", None) == "sidecar_runtime_failed"
+        )
+        assert record.harness_fields["error_code"] == "SIDECAR_RUNTIME_FAILED"
+        assert "sidecar-runtime-exception-marker" not in JsonLogFormatter().format(
+            record
+        )
+
+    asyncio.run(scenario())
+
+
+def test_request_handler_failure_logs_safe_event_and_stable_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Return the stable handler error while retaining safe local diagnostics."""
+
+    async def scenario() -> None:
+        async def fail_handler(
+            _request: FrameEnvelope,
+            _cancelled: asyncio.Event,
+        ) -> dict:
+            """Raise the marker which must stay out of logs and Protocol."""
+
+            raise RuntimeError("request-handler-exception-marker")
+
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.runtime")
+        dispatcher = RequestDispatcher()
+        dispatcher.register("failure.read", fail_handler)
+        transport = MemoryTransport()
+        service = SidecarService(transport, dispatcher=dispatcher)
+        request = frame(1, {"method": "failure.read"})
+
+        await service._dispatch_application_request(request)
+
+        response = await transport.output.get()
+        assert response.payload == {
+            "error_code": "REQUEST_HANDLER_FAILED",
+            "message": "application request handler failed",
+        }
+        record = next(
+            item
+            for item in caplog.records
+            if getattr(item, "harness_event", None) == "request_handler_failed"
+        )
+        assert record.harness_fields["error_code"] == "REQUEST_HANDLER_FAILED"
+        encoded = JsonLogFormatter().format(record)
+        assert "request-handler-exception-marker" not in encoded
+        assert "request-handler-exception-marker" not in str(response.payload)
 
     asyncio.run(scenario())

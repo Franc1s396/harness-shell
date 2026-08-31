@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -19,6 +21,7 @@ from harness_shell_sidecar.protocol import (
     MessageType,
     Sensitivity,
 )
+from harness_shell_sidecar.telemetry import log_event
 
 from .api_configs import ApiConfigRepository
 from .context import ContextService
@@ -54,6 +57,7 @@ _PUBLIC_RUN_FAILURE_CODES = frozenset(
         "SSH_SESSION_UNAVAILABLE",
     }
 )
+LOGGER = logging.getLogger("harness_shell_sidecar.agent.service")
 
 
 class AgentServiceError(RuntimeError):
@@ -125,10 +129,23 @@ class AgentService:
                 expected_config,
                 cancelled,
             )
+            started_ns = time.monotonic_ns()
             run = self._conversations.start_run(
                 conversation_id,
                 request.ssh_session_id,
                 request.api_config_id,
+            )
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "agent_run_started",
+                agent_run_id=str(run.agent_run_id),
+                conversation_id=str(conversation_id),
+                ssh_session_id=str(request.ssh_session_id),
+                api_config_id=str(config.api_config_id),
+                api_type=config.api_type.value,
+                model=config.model,
+                react_iteration=run.react_iteration,
             )
             initial_state: AgentGraphState = {
                 "agent_run_id": run.agent_run_id,
@@ -165,14 +182,16 @@ class AgentService:
                         AgentRunStatus.COMPLETED,
                         None,
                     )
+                    _log_terminal_run(finished, config, started_ns)
                     return _result_from_run(finished, final_text=final_text)
             except asyncio.CancelledError:
                 # A dispatcher shutdown still requires a durable terminal Run.
-                self._finish_if_running(
+                finished = self._finish_if_running(
                     run,
                     AgentRunStatus.CANCELLED,
                     "AGENT_CANCELLED",
                 )
+                _log_terminal_run(finished, config, started_ns)
                 raise
             except AgentCancelled as error:
                 finished = self._finish_if_running(
@@ -180,13 +199,15 @@ class AgentService:
                     AgentRunStatus.CANCELLED,
                     error.error_code,
                 )
+                _log_terminal_run(finished, config, started_ns)
                 return _result_from_run(finished, final_text=None)
             except AgentServiceError as error:
-                self._finish_if_running(
+                finished = self._finish_if_running(
                     run,
                     AgentRunStatus.FAILED,
                     error.error_code,
                 )
+                _log_terminal_run(finished, config, started_ns)
                 raise
             except Exception as error:
                 error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
@@ -197,11 +218,13 @@ class AgentService:
                     AgentRunStatus.FAILED,
                     error_code,
                 )
+                _log_terminal_run(finished, config, started_ns)
                 return _result_from_run(finished, final_text=None)
 
             finished = self._conversations.get_run(run.agent_run_id)
             if finished is None or finished.status is AgentRunStatus.RUNNING:
                 raise RuntimeError("Agent graph returned without a durable terminal Run")
+            _log_terminal_run(finished, config, started_ns)
             final_text = _final_text(state) if finished.status is AgentRunStatus.COMPLETED else None
             return _result_from_run(finished, final_text=final_text)
 
@@ -270,6 +293,39 @@ class AgentService:
             status,
             error_code,
         )
+
+
+def _log_terminal_run(
+    run: AgentRun,
+    config: ModelApiConfig,
+    started_ns: int,
+) -> None:
+    """Emit exactly one lifecycle event for a known durable terminal Run."""
+
+    event = {
+        AgentRunStatus.COMPLETED: "agent_run_completed",
+        AgentRunStatus.CANCELLED: "agent_run_cancelled",
+        AgentRunStatus.FAILED: "agent_run_failed",
+        AgentRunStatus.LIMIT_REACHED: "agent_run_failed",
+    }[run.status]
+    level = (
+        logging.ERROR
+        if run.status in {AgentRunStatus.FAILED, AgentRunStatus.LIMIT_REACHED}
+        else logging.INFO
+    )
+    fields = {
+        "agent_run_id": str(run.agent_run_id),
+        "conversation_id": str(run.conversation_id),
+        "ssh_session_id": str(run.ssh_session_id),
+        "api_config_id": str(run.api_config_id),
+        "api_type": config.api_type.value,
+        "model": config.model,
+        "react_iteration": run.react_iteration,
+        "duration_ms": (time.monotonic_ns() - started_ns) // 1_000_000,
+    }
+    if run.error_code is not None:
+        fields["error_code"] = run.error_code
+    log_event(LOGGER, level, event, **fields)
 
 
 def _final_text(state: dict[str, Any]) -> str:

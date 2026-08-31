@@ -7,7 +7,7 @@ use std::{
 use serde::Deserialize;
 use serde_json::Value;
 
-const CUSTOM_COMMANDS: [&str; 49] = [
+const CUSTOM_COMMANDS: [&str; 51] = [
     "get_runtime_status",
     "open_approval_window",
     "get_approval_context",
@@ -57,6 +57,8 @@ const CUSTOM_COMMANDS: [&str; 49] = [
     "update_model_api_config",
     "delete_model_api_config",
     "run_agent_turn",
+    "get_log_directory",
+    "open_log_directory",
 ];
 
 const FORBIDDEN_COMMAND_FRAGMENTS: [&str; 8] = [
@@ -240,6 +242,7 @@ fn window_capabilities_are_least_privilege() {
             "core:window:allow-close".to_owned(),
             "core:window:allow-destroy".to_owned(),
             "credentials".to_owned(),
+            "diagnostics".to_owned(),
             "runtime".to_owned(),
             "sftp".to_owned(),
             "terminal".to_owned(),
@@ -265,6 +268,8 @@ fn window_capabilities_are_least_privilege() {
     assert!(main_commands.contains("get_manual_sftp_context"));
     assert!(main_commands.contains("execute_manual_sftp_recovery"));
     assert!(main_commands.contains("run_agent_turn"));
+    assert!(main_commands.contains("get_log_directory"));
+    assert!(main_commands.contains("open_log_directory"));
     assert!(!main_commands.contains("execute_command"));
     assert!(!main_commands.contains("get_approval_context"));
     assert!(!main_commands.contains("submit_approval_decision"));
@@ -286,6 +291,8 @@ fn window_capabilities_are_least_privilege() {
     assert!(!approval_commands.contains("open_approval_window"));
     assert!(!approval_commands.contains("get_manual_sftp_context"));
     assert!(!approval_commands.contains("run_agent_turn"));
+    assert!(!approval_commands.contains("get_log_directory"));
+    assert!(!approval_commands.contains("open_log_directory"));
     assert!(!approval.permissions.contains(&"sftp".to_owned()));
     assert!(approval
         .permissions

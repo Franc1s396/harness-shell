@@ -33,6 +33,7 @@ Protocol v1 是 Tauri Rust Core 与 Python Sidecar 之间唯一受支持的私�
 - Python Router/stdio：[backend/src/harness_shell_sidecar/runtime/router.py](../../backend/src/harness_shell_sidecar/runtime/router.py)、[backend/src/harness_shell_sidecar/runtime/stdio.py](../../backend/src/harness_shell_sidecar/runtime/stdio.py)
 - Rust Vault：[frontend/src-tauri/src/vault/](../../frontend/src-tauri/src/vault/)
 - Python secret handling：[backend/src/harness_shell_sidecar/ssh/auth.py](../../backend/src/harness_shell_sidecar/ssh/auth.py)、[backend/src/harness_shell_sidecar/storage/](../../backend/src/harness_shell_sidecar/storage/)
+- Python 安全日志与 Rust stderr owner：[backend/src/harness_shell_sidecar/telemetry/logging.py](../../backend/src/harness_shell_sidecar/telemetry/logging.py)、[frontend/src-tauri/src/sidecar/process.rs](../../frontend/src-tauri/src/sidecar/process.rs)
 - Agent Protocol fixture：[docs/protocol/fixtures/agent/](../protocol/fixtures/agent/)
 - Contract tests：[frontend/src-tauri/tests/protocol_contract.rs](../../frontend/src-tauri/tests/protocol_contract.rs)、[frontend/src-tauri/tests/broker_contract.rs](../../frontend/src-tauri/tests/broker_contract.rs)、[frontend/src-tauri/tests/manual_sftp_protocol_contract.rs](../../frontend/src-tauri/tests/manual_sftp_protocol_contract.rs)、[frontend/src-tauri/tests/agent_protocol_contract.rs](../../frontend/src-tauri/tests/agent_protocol_contract.rs)、[backend/tests/protocol/](../../backend/tests/protocol/)、[backend/tests/manual_sftp/](../../backend/tests/manual_sftp/)、[backend/tests/agent/](../../backend/tests/agent/)
 
@@ -54,6 +55,7 @@ Protocol v1 是 Tauri Rust Core 与 Python Sidecar 之间唯一受支持的私�
 - application response/error 必须复用原 request 的 `request_id`；未知或重复 active ID fail closed。
 - decoder 发生 terminal violation 后清空 buffer，不扫描后续 bytes 猜测下一帧边界。
 - `sensitivity=secret` 限制观察与持久化，不宣称 pipe 已加密；secret payload 不进入 `Debug`、日志、Trace、Audit 或普通 error detail。
+- 日志禁止保存 user message、command/tool arguments、tool output、model response text、credential/API Key、raw Protocol frame、response body、URL、header、exception message/locals 或无界 stdout/stderr；只允许已建模 identity、duration、route、稳定 error code 与安全异常 metadata。
 - binary 只允许进入 method 明确定义的有界 canonical Base64 字段；当前没有通用 encrypted Artifact fallback，达到 method 上限必须显式失败。
 - 新增字段或 method 时先冻结双侧契约和失败语义，再实现 Rust、Python、fixture 与测试。
 
@@ -94,6 +96,7 @@ Protocol v1 当前固定值：
 - Host Key changed 必须先展示明确 old/new identity，再通过 compare-and-swap replacement；不得自动接受或覆盖。
 - heartbeat timeout 进入显式暂停/失败状态，不自动重启 Sidecar。
 - Audit、Trace、日志和 SQLite 不得保存 credential plaintext、runtime key 或 raw secret frame。
+- Rust 对每条 Sidecar stderr 的 whole-line secret marker redaction/拒绝必须发生在 UTF-8/JSON 严重级别解析之前；即使结构化 JSON malformed、foreign 或 unsupported level，也不能绕过该先行扫描。
 
 ## 项目命令
 

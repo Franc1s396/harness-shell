@@ -2,6 +2,7 @@ mod agent;
 mod approval;
 mod connections;
 mod credentials;
+mod diagnostics;
 mod runtime;
 mod sftp;
 mod terminal;
@@ -20,6 +21,7 @@ pub use credentials::{
     delete_model_api_key, delete_ssh_credential, import_private_key, store_model_api_key,
     store_private_key_passphrase, store_ssh_password,
 };
+pub use diagnostics::{get_log_directory, open_log_directory};
 pub use runtime::{get_runtime_status, open_approval_window};
 pub use sftp::{
     cancel_manual_sftp_operation, close_manual_sftp_listing, create_manual_sftp_directory,
@@ -61,5 +63,10 @@ impl CommandError {
             message: message.into(),
             details: Some(details),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn code(&self) -> &str {
+        &self.code
     }
 }

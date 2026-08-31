@@ -34,7 +34,7 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 | `runtime` | stdio transport、Router、Dispatcher、Service、Windows Job attachment | `stdio.py`、`router.py`、`dispatcher.py`、`service.py`、`windows_job.py` |
 | `ssh` | 认证、Host Key、session registry、AsyncSSH lifecycle | `auth.py`、`host_keys.py`、`sessions.py`、`runtime.py`、`handlers.py` |
 | `storage` | SQLite、migration、AES-GCM、Audit、Trace；`artifact_metadata` 仅为历史 migration schema | `database.py`、`migrations/`、`encrypted_records.py`、`audit.py`、`traces.py` |
-| `telemetry` | local-only OpenTelemetry exporter/provider | `local_exporter.py` |
+| `telemetry` | local-only OpenTelemetry exporter/provider 与安全 JSON stderr logging | `local_exporter.py`、`logging.py` |
 | `terminal` | 人工 PTY model、manager 与 request handler | `models.py`、`manager.py`、`handlers.py` |
 | `manual_sftp` | 用户手动 SFTP 的严格 payload、隔离 channel、mutation、transfer、encrypted operation record 与显式 recovery | `handlers.py`、`service.py`、`mutations.py`、`transfers.py`、`operation_store.py`、`recovery.py` |
 | `agent` | 模型 API 配置、ReAct graph、五轮 context、绑定 Session 的 command tool、Provider gateway 与加密 conversation/run/message | `handlers.py`、`service.py`、`graph.py`、`context.py`、`executor.py`、`model_gateway.py`、`conversations.py` |
@@ -64,6 +64,7 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 - 语言级 docstring、类字段、类型注解、异常、async 和 Review 规则以 [Python Style Guide](python-style.md) 为唯一真源。
 - 所有外部输入使用 strict Pydantic model 或等价显式校验；未知字段、非 canonical 编码和越界值 fail closed。
 - stdin/stdout 只承载 `Content-Length` frame；普通日志只能写 stderr，且必须有界、脱敏。
+- `telemetry/logging.py` 是普通日志唯一结构化入口：只序列化显式字段 allowlist，不序列化任意 message、exception text、URL、header、response body、locals 或远程输出；异常只可提取类型、HTTP status、批准的 request ID/provider type/code、body length/SHA-256 和 basename/line/function stack metadata。
 - Domain failure 使用稳定 `error_code` 和安全 message；不得把 raw exception、secret 或无界远程输出放入 response details。
 - Cancel、timeout、EOF、shutdown 和异常退出必须显式传播到任务 owner，并确定性关闭 channel、process、database 和 exporter。
 - 捕获 `BaseException` 仅用于确保 cleanup/zeroize 后重新抛出或保留首个 cleanup failure，不得吞掉取消或系统退出。
@@ -77,6 +78,7 @@ Sidecar 不提供 TCP/HTTP 端口，不读取 DPAPI Vault，不直接与 WebView
 - SSH handler 只接受严格整数 `profile_version`，目标与 ProxyJump 的版本必须在任何网络 I/O 前匹配当前 repository 记录；旧 `profile_updated_at` 请求不兼容且必须 fail closed。
 - Audit 是 append-only、tamper-evident；Trace 只保存 allowlist metadata；encrypted record 使用绑定身份的 AES-GCM。
 - stdout 不允许混入日志。stderr 不得包含 key、credential、raw payload 或未限制的远程输出。
+- 安全日志事件包括 logger 配置后、stdio service 构造前写入的 `sidecar_process_started`，以及 `sidecar_runtime_failed`、`request_handler_failed`、`model_request_failed`、`model_network_timeout`、`agent_node_started|completed|failed`、`agent_route_selected` 和 `agent_run_started|completed|cancelled|failed`。节点 wrapper 不改变七个节点、edge、patch、异常或取消语义；Run terminal 事件必须在 durable terminal state 后恰好写一次。
 - Sidecar 异常退出后由 Rust Supervisor 决定显式状态；Python 不自启、不隐式恢复、不重放请求。
 - Agent 的 API 类型只能是显式配置的 `CHAT_COMPLETIONS` 或 `RESPONSES`，禁止自动探测或切换；网络 timeout 仅按固定策略最多重试 5 次，其他 Provider failure 立即显式失败。
 - Agent 每次 turn 固定一个 live `ssh_session_id`，只开隔离 non-PTY exec channel；命令 30 秒超时、stdout/stderr 严格 UTF-8、危险模式与多 Tool Call fail closed，最多完成 128 次 ReAct Tool 循环。

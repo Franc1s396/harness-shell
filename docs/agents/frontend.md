@@ -15,7 +15,7 @@
 
 Frontend 是 React/TypeScript WebView 展示层，负责：
 
-- 呈现 Connection Navigator、Terminal Workspace、Agent 占位区、Context Bar 和 Status Bar；
+- 呈现 Connection Navigator、Terminal Workspace、实验性 Agent Workspace、Context Bar 和 Status Bar；
 - 收集用户输入并调用 typed Tauri API；
 - 保存经过白名单约束的非敏感 UI 偏好；
 - 将 Rust Core 投影的安全状态转换为明确的 UI 状态；
@@ -28,6 +28,11 @@ Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sid
 - 应用入口：[frontend/src/App.tsx](../../frontend/src/App.tsx)、[frontend/src/main.tsx](../../frontend/src/main.tsx)
 - 工作区编排：[frontend/src/features/workspace/WorkspaceController.tsx](../../frontend/src/features/workspace/WorkspaceController.tsx)
 - Tauri API wrapper：[frontend/src/api/](../../frontend/src/api/)
+- Agent typed API：[frontend/src/api/agent.ts](../../frontend/src/api/agent.ts)
+- Diagnostics typed API：[frontend/src/api/diagnostics.ts](../../frontend/src/api/diagnostics.ts)
+- Agent UI、reducer 与 controller：[frontend/src/features/agent/](../../frontend/src/features/agent/)
+- Agent Provider 偏好：[frontend/src/stores/agent-preferences-store.ts](../../frontend/src/stores/agent-preferences-store.ts)
+- Settings Dialog：[frontend/src/features/shell/SettingsDialog.tsx](../../frontend/src/features/shell/SettingsDialog.tsx)
 - 通用 UI primitive：[frontend/src/components/ui/](../../frontend/src/components/ui/)
 - Feature 模块：[frontend/src/features/](../../frontend/src/features/)
 - Zustand Store：[frontend/src/stores/](../../frontend/src/stores/)
@@ -52,12 +57,16 @@ Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sid
 - 使用严格 TypeScript；组件 props、Hook 输入输出、Store action 和 API payload 保持显式类型。
 - 组件负责展示与交互编排；可独立验证的状态转换、格式转换和生命周期逻辑提取为纯函数或 focused Hook。
 - Tauri 调用统一经过 `src/api/`；API wrapper 将 command 错误保留为结构化失败，不返回 success-shaped fallback。
+- Settings → General 的 Diagnostics 区只调用无参数 `get_log_directory` 与 `open_log_directory` 两个 typed commands；只显示只读目录路径和稳定错误，不读取、枚举或转发日志内容，也不接受 WebView 路径输入。
 - 用户手动 SFTP 的 21 个 wrappers、严格 progress event validator 和安全错误归一化位于 `src/api/manual-sftp.ts`；controller 进入 SFTP Activity 时只绑定 `sessions.find(tabId === activeTabId)` 得到的显式已连接 Session，不按列表顺序回退，也不因之后切换 active tab 隐式迁移。离开再进入才重新选择绑定。
 - manual SFTP listing、selection、preparation、progress、recovery 和每个 Session 的 `lastPath` 只存在于 controller/reducer 内存，不进入 Zustand persist 或 localStorage。切换目录先关闭旧 listing；完整 listing 不再发送 close，未完成 cursor 才显式关闭；stale listing identity/path/sequence 直接拒绝。
 - `features/sftp/ManualSftpWorkspace.tsx` 是用户手动文件管理 UI 真源：提供单选 lazy remote tree/table、path/up、显式上传/下载/新建、file/directory/symlink 的 Rename/Move/Delete/Properties 与 regular-file SHA-256、transfer strip 和 Recovery Center。Move 复用 rename；不提供 batch、drag/drop、directory merge 或 recursive upload/download。`cleanup_required`/`outcome_unknown` 只自动打开恢复界面和读取本地恢复记录，不自动联网或执行 mutation；`outcome_unknown` UI 只允许 Verify。900×600 时只隐藏 remote tree，不使用缩放变换。
 - Remote entry type 与 transfer phase 只显示本地化文案，不能把 wire enum 原值直接渲染给用户；符号链接的 Properties/Read link target 通过同一个 typed inspect command 先 lstat、再显式 readlink。
 - SFTP grid 键盘契约为 ArrowUp/ArrowDown、Enter、Backspace、F2、Delete 与 Ctrl+R；native Open/Save As 由 Rust command 打开，本地 path 不进入 TypeScript。SFTP 状态只在 workspace/controller 内存中，persist schema v3 只新增 `activeActivity="sftp"` 这一非敏感 UI 偏好。
 - 用户请求 Disconnect 或 application close 时，Frontend 必须显示 Continue waiting / Cancel and clean up；committing 只能等待，cleanup 失败后才可显式 Keep recovery record and close。决策前不得先断连、取消或关闭。
+- Agent UI 只调用 `src/api/agent.ts` 的七个固定 Tauri commands。Run 状态按 terminal tab 保存在内存；草稿、conversation、risk acknowledgement、当前 Run 和结果不得跨 tab 迁移。每次发送在 dispatch 前刷新 Provider，并冻结 Provider 展示快照和当时的 connected `ssh_session_id`。
+- Agent turn 是非流式单 Promise；运行时禁用 composer、Provider 切换和 New conversation，不暴露 Stop、工具参数、raw stdout/stderr 或任意 shell 控件。运行中先阻止所属 Session 的 close/disconnect；应用退出只有在 SFTP 未拥有关闭决策时才允许显式 Force exit。
+- `agent-preferences-store.ts` 只持久化一个 allowlisted Provider UUID，未知版本 fail closed；API Key 只存在于受控表单内存并在关闭或提交完成/失败后清空，Frontend 不持久化或回显 secret。
 - `useEffect` 必须有清晰依赖和 cleanup；event listener、timer、xterm instance、ResizeObserver 等资源必须确定性释放。
 - Zustand 只保存前端需要的非敏感状态。持久化使用显式 `version`、`partialize`、migration 和 sanitize。
 - 不得持久化凭据、PTY output、Host Key candidate、approval payload、runtime error detail、live connection/session ID 或远程命令内容。
@@ -71,8 +80,9 @@ Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sid
 - `WorkspaceController` 负责编排当前 WebView 工作流，但不成为 SSH、PTY 或凭据的第二权威。
 - Runtime、Connection 和 Terminal 的权威状态来自 Rust/Sidecar 返回或允许事件；UI optimistic state 不得覆盖失败事实。
 - `ConnectionProfile.version` 是 Sidecar 返回的 JS-safe 正整数快照，Frontend 只按 typed API 保留和展示连接数据；凭据解析后的陈旧检查由 Rust 传递数字 `profile_version`、Sidecar 在网络 I/O 前执行，不能用 `updated_at` 替代。
-- UI 持久化只允许稳定偏好。当前持久化白名单和版本逻辑以 `workspace-ui-store.ts`、`locale-store.ts` 及其测试为真源。
-- 主界面保持 terminal-first；实验性 M3 Agent 后端虽已存在，但 Agent Workspace 尚未接入，必须继续呈现诚实的 unavailable/placeholder 状态，不提供虚假聊天或工具控制。
+- UI 持久化只允许稳定偏好。当前持久化白名单和版本逻辑以 `workspace-ui-store.ts`、`locale-store.ts`、`agent-preferences-store.ts` 及其测试为真源。
+- 主界面保持 terminal-first；实验性 M3 Agent Workspace 已接入现有七个命令，但只代表本地非流式 UI 编排，不代表真实 Provider、审批、自动恢复、生产 SSH、部署或迁移已经验收。
+- Diagnostics 的 generation counter 必须忽略 Settings 关闭、重开或切换分类后的旧异步结果；打开目录期间按钮禁用，失败保持显式可重试状态。
 - 布局、i18n 和交互的自动测试不能替代 Tauri 桌面实际窗口、焦点和 Runtime 刷新验收。
 
 ## 项目命令
@@ -98,6 +108,7 @@ npm run tauri info
 
 - 纯函数、Store 或 Hook：运行对应 test file，再运行 `npm run test`。
 - React 交互：覆盖正常、失败、取消/关闭、键盘和焦点路径；相关时检查未知持久化版本。
+- Agent 前端聚焦验证：`npm run test -- src/api/agent.test.ts src/stores/agent-preferences-store.test.ts src/features/agent src/features/terminal/TerminalWorkspace.test.tsx src/features/shell/SettingsDialog.test.tsx src/features/shell/WorkspaceFrame.test.tsx src/features/workspace`。
 - API wrapper：验证 command 名、payload shape、返回类型和结构化错误。
 - UI 结构或样式：运行 `npm run test` 和 `npm run build`；涉及真实窗口、xterm、焦点或 Runtime 刷新时执行 Tauri 桌面验收。
 - 跨 Rust/Sidecar 变更：除前端测试外，运行 [Testing Guide](testing.md) 指定的相关 Rust/Python/门禁验证。

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+import inspect
+import logging
+import time
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Protocol, TypedDict
 from uuid import UUID
@@ -14,6 +17,8 @@ from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from pydantic import SecretStr, ValidationError
+
+from harness_shell_sidecar.telemetry import log_event, log_exception_event
 
 from .context import ContextService
 from .contracts import (
@@ -28,6 +33,9 @@ from .tools import (
     CommandSafetyReviewer,
     tool_message,
 )
+
+
+LOGGER = logging.getLogger("harness_shell_sidecar.agent.graph")
 
 
 class AgentGraphState(TypedDict):
@@ -99,6 +107,63 @@ class AgentGraphDependencies:
     executor: CommandExecutor
 
 
+NodePatch = dict[str, object]
+NodeHandler = Callable[
+    [AgentGraphState, Runtime[AgentGraphContext]],
+    NodePatch | Awaitable[NodePatch],
+]
+
+
+def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
+    """Wrap one node with safe start, completion, failure, and duration events."""
+
+    async def wrapped(
+        state: AgentGraphState,
+        runtime: Runtime[AgentGraphContext],
+    ) -> NodePatch:
+        """Observe one node without changing its patch or failure semantics."""
+
+        fields = {
+            "agent_run_id": str(state["agent_run_id"]),
+            "conversation_id": str(state["conversation_id"]),
+            "ssh_session_id": str(state["ssh_session_id"]),
+            "api_config_id": str(state["api_config_id"]),
+            "api_type": runtime.context.api_config.api_type.value,
+            "model": runtime.context.api_config.model,
+            "node": node,
+            "react_iteration": state["react_iteration"],
+        }
+        started = time.monotonic_ns()
+        log_event(LOGGER, logging.INFO, "agent_node_started", **fields)
+        try:
+            result = handler(state, runtime)
+            patch = await result if inspect.isawaitable(result) else result
+        except BaseException as error:
+            # Cancellation and system-exit signals are logged only at this
+            # boundary and immediately re-raised; the graph keeps ownership.
+            error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
+            if not isinstance(error_code, str):
+                error_code = "SIDECAR_RUNTIME_FAILED"
+            log_exception_event(
+                LOGGER,
+                "agent_node_failed",
+                error,
+                error_code=error_code,
+                **fields,
+            )
+            raise
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "agent_node_completed",
+            duration_ms=(time.monotonic_ns() - started) // 1_000_000,
+            **fields,
+        )
+        return patch
+
+    return wrapped
+
+
 def build_agent_graph(
     dependencies: AgentGraphDependencies,
 ) -> CompiledStateGraph[AgentGraphState, AgentGraphContext, AgentGraphState, AgentGraphState]:
@@ -117,7 +182,10 @@ def build_agent_graph(
         )
         return {"messages": messages}
 
-    def trim_context(state: AgentGraphState) -> dict[str, object]:
+    def trim_context(
+        state: AgentGraphState,
+        _runtime: Runtime[AgentGraphContext],
+    ) -> dict[str, object]:
         """Build the current System plus last-five-turn model view."""
 
         return {
@@ -149,9 +217,24 @@ def build_agent_graph(
         """Route complete text to END and every tool decision through the limit gate."""
 
         message = _last_ai_message(state)
-        return "check_react_limit" if message.tool_calls else "return_response"
+        target = "check_react_limit" if message.tool_calls else "return_response"
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "agent_route_selected",
+            agent_run_id=str(state["agent_run_id"]),
+            conversation_id=str(state["conversation_id"]),
+            api_config_id=str(state["api_config_id"]),
+            react_iteration=state["react_iteration"],
+            route_source="call_model",
+            route_target=target,
+        )
+        return target
 
-    async def check_react_limit(state: AgentGraphState) -> dict[str, object]:
+    async def check_react_limit(
+        state: AgentGraphState,
+        _runtime: Runtime[AgentGraphContext],
+    ) -> dict[str, object]:
         """Reject a 129th decision or atomically count the next completed loop."""
 
         if state["react_iteration"] >= 128:
@@ -167,11 +250,23 @@ def build_agent_graph(
     ) -> Literal["execute_tool", "reject_limit"]:
         """Route solely from the explicit persisted business-limit decision."""
 
-        return (
+        target = (
             "reject_limit"
             if state["last_error_code"] == "REACT_LIMIT_REACHED"
             else "execute_tool"
         )
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "agent_route_selected",
+            agent_run_id=str(state["agent_run_id"]),
+            conversation_id=str(state["conversation_id"]),
+            api_config_id=str(state["api_config_id"]),
+            react_iteration=state["react_iteration"],
+            route_source="check_react_limit",
+            route_target=target,
+        )
+        return target
 
     async def execute_tool(
         state: AgentGraphState,
@@ -207,7 +302,10 @@ def build_agent_graph(
         )
         return {"messages": messages}
 
-    async def return_response(state: AgentGraphState) -> dict[str, object]:
+    async def return_response(
+        state: AgentGraphState,
+        _runtime: Runtime[AgentGraphContext],
+    ) -> dict[str, object]:
         """Report final model text while AgentService validates transport budget."""
 
         message = _last_ai_message(state)
@@ -218,7 +316,10 @@ def build_agent_graph(
             "last_error_code": None,
         }
 
-    async def reject_limit(state: AgentGraphState) -> dict[str, object]:
+    async def reject_limit(
+        state: AgentGraphState,
+        _runtime: Runtime[AgentGraphContext],
+    ) -> dict[str, object]:
         """Pair every refused call and finish without invoking SSH or the model again."""
 
         messages = [
@@ -248,13 +349,19 @@ def build_agent_graph(
         }
 
     builder = StateGraph(AgentGraphState, context_schema=AgentGraphContext)
-    builder.add_node("load_context", load_context)
-    builder.add_node("trim_context", trim_context)
-    builder.add_node("call_model", call_model)
-    builder.add_node("check_react_limit", check_react_limit)
-    builder.add_node("execute_tool", execute_tool)
-    builder.add_node("return_response", return_response)
-    builder.add_node("reject_limit", reject_limit)
+    builder.add_node("load_context", _instrument_agent_node("load_context", load_context))
+    builder.add_node("trim_context", _instrument_agent_node("trim_context", trim_context))
+    builder.add_node("call_model", _instrument_agent_node("call_model", call_model))
+    builder.add_node(
+        "check_react_limit",
+        _instrument_agent_node("check_react_limit", check_react_limit),
+    )
+    builder.add_node("execute_tool", _instrument_agent_node("execute_tool", execute_tool))
+    builder.add_node(
+        "return_response",
+        _instrument_agent_node("return_response", return_response),
+    )
+    builder.add_node("reject_limit", _instrument_agent_node("reject_limit", reject_limit))
     builder.add_edge(START, "load_context")
     builder.add_edge("load_context", "trim_context")
     builder.add_edge("trim_context", "call_model")

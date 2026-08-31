@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -39,6 +40,21 @@ from .fakes import (
     make_turn_input,
 )
 from .test_graph import RecordingExecutor
+
+
+def _run_lifecycle_records(
+    caplog: pytest.LogCaptureFixture,
+    agent_run_id: UUID,
+) -> list[logging.LogRecord]:
+    """Return lifecycle records for one durable Run in emission order."""
+
+    return [
+        record
+        for record in caplog.records
+        if getattr(record, "harness_fields", {}).get("agent_run_id")
+        == str(agent_run_id)
+        and getattr(record, "harness_event", "").startswith("agent_run_")
+    ]
 
 
 @dataclass(slots=True)
@@ -108,6 +124,7 @@ async def _run_turn(
 def test_model_failure_marks_run_failed_exactly_once(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Convert one model exception into one terminal Run transition."""
 
@@ -132,12 +149,22 @@ def test_model_failure_marks_run_failed_exactly_once(
             return real_finish(agent_run_id, status, error_code)
 
         monkeypatch.setattr(agent_storage.conversations, "finish_run", count_finish)
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
 
         result = await _run_turn(agent_storage, service, turn, "key", asyncio.Event())
 
         assert result.status is AgentRunStatus.FAILED
         assert result.error_code == "MODEL_REQUEST_FAILED"
         assert statuses == [AgentRunStatus.FAILED]
+        run_events = _run_lifecycle_records(caplog, result.agent_run_id)
+        assert [record.harness_event for record in run_events] == [
+            "agent_run_started",
+            "agent_run_failed",
+        ]
+        assert run_events[-1].harness_fields["error_code"] == (
+            "MODEL_REQUEST_FAILED"
+        )
+        assert run_events[-1].harness_fields["duration_ms"] >= 0
 
     asyncio.run(scenario())
 
@@ -231,6 +258,7 @@ def test_same_conversation_turns_are_serialized(
 
 def test_cancellation_is_returned_as_cancelled_run(
     agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Map user cancellation to a durable CANCELLED result without final text."""
 
@@ -243,6 +271,7 @@ def test_cancellation_is_returned_as_cancelled_run(
             update={"api_config_id": config.api_config_id}
         )
         cancelled = asyncio.Event()
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
 
         task = asyncio.create_task(
             _run_turn(agent_storage, service, turn, "key", cancelled)
@@ -255,6 +284,13 @@ def test_cancellation_is_returned_as_cancelled_run(
         assert result.status is AgentRunStatus.CANCELLED
         assert result.error_code == "AGENT_CANCELLED"
         assert result.final_text is None
+        run_events = _run_lifecycle_records(caplog, result.agent_run_id)
+        assert [record.harness_event for record in run_events] == [
+            "agent_run_started",
+            "agent_run_cancelled",
+        ]
+        assert run_events[-1].harness_fields["error_code"] == "AGENT_CANCELLED"
+        assert run_events[-1].harness_fields["duration_ms"] >= 0
 
     asyncio.run(scenario())
 
@@ -467,6 +503,7 @@ def test_queued_turn_rejects_config_change_before_starting_second_run(
 
 def test_successful_turn_removes_unused_conversation_lock(
     agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Avoid retaining one lock entry for every historical conversation."""
 
@@ -480,8 +517,9 @@ def test_successful_turn_removes_unused_conversation_lock(
         turn = make_turn_input().model_copy(
             update={"api_config_id": config.api_config_id}
         )
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
 
-        await service.run_turn(
+        result = await service.run_turn(
             turn,
             SecretStr("key"),
             asyncio.Event(),
@@ -489,6 +527,52 @@ def test_successful_turn_removes_unused_conversation_lock(
         )
 
         assert service._conversation_locks == {}
+        run_events = _run_lifecycle_records(caplog, result.agent_run_id)
+        assert [record.harness_event for record in run_events] == [
+            "agent_run_started",
+            "agent_run_completed",
+        ]
+        assert "error_code" not in run_events[-1].harness_fields
+        assert run_events[-1].harness_fields["duration_ms"] >= 0
+
+    asyncio.run(scenario())
+
+
+def test_react_limit_logs_one_failed_terminal_lifecycle(
+    agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Treat LIMIT_REACHED as the single failed terminal lifecycle event."""
+
+    async def scenario() -> None:
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        model = FakeModelSequence(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[make_tool_call(f"call-{index}", "pwd")],
+                )
+                for index in range(1, 130)
+            ]
+        )
+        service = _service(agent_storage, model, RecordingExecutor())
+        turn = make_turn_input().model_copy(
+            update={"api_config_id": config.api_config_id}
+        )
+        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
+
+        result = await _run_turn(agent_storage, service, turn, "key", asyncio.Event())
+
+        assert result.status is AgentRunStatus.LIMIT_REACHED
+        run_events = _run_lifecycle_records(caplog, result.agent_run_id)
+        assert [record.harness_event for record in run_events] == [
+            "agent_run_started",
+            "agent_run_failed",
+        ]
+        assert run_events[-1].harness_fields["error_code"] == (
+            "REACT_LIMIT_REACHED"
+        )
+        assert run_events[-1].harness_fields["duration_ms"] >= 0
 
     asyncio.run(scenario())
 

@@ -35,6 +35,7 @@ User → React WebView → typed API wrapper → Tauri command
 
 - WebView 入口与工作区控制：[frontend/src/App.tsx](../../frontend/src/App.tsx)、[frontend/src/features/workspace/WorkspaceController.tsx](../../frontend/src/features/workspace/WorkspaceController.tsx)
 - WebView typed API：[frontend/src/api/](../../frontend/src/api/)
+- Frontend Agent typed API 与状态编排：[frontend/src/api/agent.ts](../../frontend/src/api/agent.ts)、[frontend/src/features/agent/](../../frontend/src/features/agent/)
 - Rust 应用状态：[frontend/src-tauri/src/app_state.rs](../../frontend/src-tauri/src/app_state.rs)
 - Tauri command 注册：[frontend/src-tauri/src/lib.rs](../../frontend/src-tauri/src/lib.rs)、[frontend/src-tauri/src/commands/](../../frontend/src-tauri/src/commands/)
 - Rust Agent command 与模型凭据边界：[frontend/src-tauri/src/commands/agent.rs](../../frontend/src-tauri/src/commands/agent.rs)、[frontend/src-tauri/src/commands/credentials.rs](../../frontend/src-tauri/src/commands/credentials.rs)
@@ -53,6 +54,7 @@ User → React WebView → typed API wrapper → Tauri command
 - WebView 与本地能力的边界统一经过 `frontend/src/api/` 和已注册的 Tauri command。
 - 凭据、进程生命周期、特权暴露与事件过滤放在 `frontend/src-tauri/`。
 - Protocol framing 和 envelope 模型分别位于 Rust/Python 的 `protocol/`，两侧共同实现同一份 Protocol v1 契约。
+- 本地诊断链固定为 Python Sidecar 单行 JSON stderr → Rust Sidecar 进程 owner 逐行 secret scan 与严重级别投影 → `tauri-plugin-log` 同时写启动终端和 Tauri `LogDir`；WebView 不接收 stderr 或日志内容。
 - SSH、PTY、远程 I/O、runtime storage、Audit 和 Trace 放在 Python Sidecar 的明确子包中。
 - 新模块按“谁拥有状态和失败责任”落位，不按调用方便、当前 import 方向或临时复用落位。
 - 跨层数据先定义严格契约，再分别实现 transport、handler、projection 和验证；不得让未建模的字典或字符串穿透所有层。
@@ -75,13 +77,15 @@ User → React WebView → typed API wrapper → Tauri command
 - SQLite 保存持久化 runtime facts；live session ID、SSH channel、PTY process 和内存 task 不是可重放持久状态。
 - Runtime SQLite 当前为 schema v4。Connection profile 的持久化权威仍是单调 `version`：创建为 `1`，每次成功更新原子 `+1`，上限为 `2^53-1`；Rust 在解析凭据后把目标与 ProxyJump 的快照作为数字 `profile_version` 发送，Sidecar 在任何网络 I/O 前校验，`updated_at` 只用于展示。
 - Sidecar 崩溃、heartbeat 超时或协议终止错误必须显式进入失败或暂停状态，不得静默重启并重放请求。
-- 旧的宽泛 Agent exec/SFTP/Artifact 运行时已删除。实验性 ReAct Agent 只通过 `agent.turn.run` 在调用时冻结一个 connected `ssh_session_id`，模型唯一工具是严格 `execute_command`；命令使用该 Session 的隔离 non-PTY exec channel，不自动重试、不接入 SFTP/Artifact。五个 Agent 配置/turn Tauri commands 加两个模型 API Key Vault commands 仅授予固定 `main` window；Agent UI 尚未接入。
+- 旧的宽泛 Agent exec/SFTP/Artifact 运行时已删除。实验性 React Agent UI 只经 `list/create/update/delete_model_api_config`、`store/delete_model_api_key` 与 `run_agent_turn` 七个固定 Tauri commands 接入。每次发送先刷新 Provider 列表，在前端 Run projection 中冻结 Provider 展示快照与当时的 connected `ssh_session_id`，再由 Rust/Sidecar 在 `agent.turn.run` 中重复验证权威配置和 Session；模型唯一工具仍是严格 `execute_command`。命令使用该 Session 的隔离 non-PTY exec channel，不自动重试、不接入 SFTP/Artifact；七个 commands 仅授予固定 `main` window。
+- React 只拥有 per-terminal-tab 的内存草稿、conversation id、首轮风险确认、non-streaming Promise 状态与安全结果投影；Sidecar 仍拥有 conversation/run/message 持久化和模型执行权威，Rust 仍独占 API Key。运行中的 Provider/Session 不因切换 tab、折叠 Agent 或编辑配置而迁移；所属 Session 的 close/disconnect 在任何 PTY/SSH cleanup 前被前端双层门禁拒绝。
 - 用户手动 SFTP 的私有 Rust coordinator/wire、Python remote I/O/mutation、仅限固定 `main` window 的 21 个 typed Tauri commands/单一 `sftp` permission，以及非持久化 typed Frontend API/controller/workspace 已完成实现。SFTP Activity 在进入时只绑定当时显式选中的 connected terminal tab，并保持该绑定直到离开后重新进入；切换普通 active tab 不迁移 listing 或 transfer owner。进入时隐藏 Agent pane 但保留其偏好。该能力永远不得成为 Agent 工具、approval window 或 WebView raw Protocol 能力。
 - Agent conversation、run 与 LangChain message 顺序由 Sidecar schema v4 持久化；message content、Tool Call 参数和原始 stdout/stderr 只进入绑定身份的 AES-GCM encrypted record。模型上下文只取 system message 与最近五轮 human turn；未匹配 Tool Call 在下一次模型调用前以 `PREVIOUS_TOOL_CALL_INTERRUPTED` 结构闭合，不使用 LangGraph checkpointer。
 - Agent turn 在 per-conversation lock 内再次比对 handler 冻结的完整 Provider config，并确认绑定 `ssh_session_id` 仍存在于 connected Session registry；任一权威变化都必须在创建 Run 和模型调用前失败。成功 Run 只有在完整 Protocol response budget 校验通过后才能持久化为 `COMPLETED`。
 - WebView 只表达路径、名称和显式决策；Rust 在 mutation dispatch 前取得 canonical no-follow snapshot/hash，并独占 native picker、本地 handle、transfer bytes、DPAPI journal、下载 `.part` 重启检查和 disconnect/application-exit transfer gate；Python 对远端 snapshot 立即复核并拥有实际 SFTP mutation。任一层不得把 WebView 显示数据提升为文件身份权威。
 - transfer progress sink 失败只产生字段白名单化的本地诊断，不得中断、重试或改变已 dispatch 的远程操作；可信 terminal 仍由 coordinator workflow 返回，不能伪造成 progress phase。
 - transfer command future 在 remote begin 后被丢弃时，Rust mutation owner 必须继续执行 detached abort，并把 remote abort、本地 `.part` 清理和 journal 收敛作为独立 cleanup owner 纳入 shutdown drain；不得因原 command future 已结束而提前报告 drained。
+- 本地诊断的跨层所有权不改变业务权威：Python 只产生已脱敏结构化事件，Rust 独占持久化文件、轮转和目录打开能力，Frontend 只显示 Rust 解析出的固定日志目录。
 - 自动测试、容器实验室和桌面验收分别陈述，不能推导出生产部署、生产主机或迁移已经验收。
 
 ## 项目命令
