@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
+import { isTopDialog, registerDialog } from "./dialog-stack";
+
 const FOCUSABLE =
   "button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[href],[tabindex]:not([tabindex='-1'])";
 
@@ -31,6 +33,8 @@ export function Dialog({
   useEffect(() => {
     if (!open) return;
 
+    const unregister = registerDialog(titleId);
+
     triggerRef.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -42,6 +46,7 @@ export function Dialog({
     focusable()[0]?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!isTopDialog(titleId)) return;
       if (event.key === "Escape" && !busyRef.current) {
         event.preventDefault();
         closeRef.current();
@@ -70,9 +75,10 @@ export function Dialog({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      unregister();
       triggerRef.current?.focus();
     };
-  }, [open]);
+  }, [open, titleId]);
 
   if (!open) return null;
 
@@ -82,7 +88,13 @@ export function Dialog({
         placement === "left" ? "place-items-stretch justify-items-start" : "place-items-center p-6"
       }`}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
+        if (
+          event.target === event.currentTarget &&
+          !busy &&
+          isTopDialog(titleId)
+        ) {
+          onClose();
+        }
       }}
     >
       <div

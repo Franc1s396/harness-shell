@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -9,7 +11,7 @@ from uuid import uuid4
 import httpx
 import openai
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, HumanMessage
 from pydantic import SecretStr, ValidationError
 
 from harness_shell_sidecar.agent.contracts import (
@@ -94,6 +96,66 @@ def test_responses_config_selects_responses_without_previous_response_id() -> No
         assert builder.kwargs["timeout"] == MODEL_REQUEST_TIMEOUT_SECONDS
         assert builder.kwargs["model"] == "test-model"
         assert builder.kwargs["base_url"] == "https://provider.example/v1/"
+
+    asyncio.run(scenario())
+
+
+def test_responses_streams_and_aggregates_one_complete_tool_call() -> None:
+    """Use the Responses event stream and return one complete AIMessage."""
+
+    class ResponsesStreamingModel(FakeBoundModel):
+        """Expose only the Provider-compatible streaming invocation path."""
+
+        async def astream(
+            self,
+            messages: Sequence[AnyMessage],
+        ) -> AsyncIterator[AIMessageChunk]:
+            """Yield a complete function call across two standard message chunks."""
+
+            self.message_calls.append(list(messages))
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "name": "execute_command",
+                        "args": '{"command":"pw',
+                        "id": "call-stream-1",
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            )
+            yield AIMessageChunk(
+                content="",
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": 'd"}',
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            )
+
+    async def scenario() -> None:
+        model = ResponsesStreamingModel()
+        gateway = ModelGateway(
+            model_builder=RecordingModelBuilder(model),
+            sleep=instant_sleep,
+        )
+
+        result = await _invoke(gateway, responses_config())
+
+        assert type(result) is AIMessage
+        assert result.tool_calls == [
+            {
+                "name": "execute_command",
+                "args": {"command": "pwd"},
+                "id": "call-stream-1",
+                "type": "tool_call",
+            }
+        ]
 
     asyncio.run(scenario())
 
@@ -198,10 +260,10 @@ def _status_error(
     return error_type("provider rejected request", response=response, body=body)
 
 
-def test_provider_failure_logs_safe_diagnostics_before_mapping(
+def test_provider_failure_logs_complete_exception_and_response_before_mapping(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Preserve safe Provider metadata and the internal cause before code mapping."""
+    """Preserve complete Provider failure details before stable code mapping."""
 
     async def scenario() -> None:
         failure = _status_error(
@@ -235,10 +297,13 @@ def test_provider_failure_logs_safe_diagnostics_before_mapping(
         )
         assert raised.value.error_code == "MODEL_REQUEST_FAILED"
         assert raised.value.__cause__ is failure
-        assert record.harness_fields["http_status"] == 401
-        assert record.harness_fields["provider_error_code"] == "invalid_api_key"
-        assert record.harness_fields["provider_request_id"] == "req-provider-123"
-        assert "provider-body-marker" not in JsonLogFormatter().format(record)
+        encoded = JsonLogFormatter().format(record)
+        payload = json.loads(encoded)
+        assert payload["http_status"] == 401
+        assert payload["provider_error_code"] == "invalid_api_key"
+        assert payload["provider_request_id"] == "req-provider-123"
+        assert "provider rejected request" in payload["exception_text"]
+        assert "provider-body-marker" in payload["http_response_body"]
 
     asyncio.run(scenario())
 

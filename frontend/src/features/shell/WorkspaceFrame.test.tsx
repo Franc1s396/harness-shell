@@ -50,12 +50,14 @@ const renderFrame = (overrides: Partial<React.ComponentProps<typeof WorkspaceFra
     onEditConnection: vi.fn(),
     onFocusTerminal: vi.fn(),
     onOpenApproval: vi.fn(),
+    onSettingsOpening: vi.fn(),
   };
   render(
     <WorkspaceFrame
       connectionNavigator={<div>Connection navigator</div>}
       primaryWorkspace={<div>Terminal surface</div>}
       agentWorkspace={<div>Agent surface</div>}
+      modelProviders={<div>Provider panel</div>}
       runtimeState="READY"
       hostKeyState="trusted"
       ptySize={{ cols: 120, rows: 32 }}
@@ -65,11 +67,22 @@ const renderFrame = (overrides: Partial<React.ComponentProps<typeof WorkspaceFra
       targetSummary="admin@example.com"
       agentWidth={null}
       activeTerminalAvailable
+      activeAgentRunCount={0}
+      agentBadge="NONE"
       {...callbacks}
       {...overrides}
     />,
   );
   return callbacks;
+};
+
+const requestWindowClose = async () => {
+  const event = { preventDefault: vi.fn() };
+  await vi.waitFor(() =>
+    expect(tauriWindow.emitCloseRequested).toBeTypeOf("function"),
+  );
+  await act(async () => tauriWindow.emitCloseRequested!(event));
+  return event;
 };
 
 describe("WorkspaceFrame", () => {
@@ -173,6 +186,29 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("button", { name: "Continue waiting" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Cancel and clean up" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Exit Harness Shell" })).not.toBeInTheDocument();
+  });
+
+  it("offers Force exit for Agent-only work but never bypasses an SFTP committing gate", async () => {
+    renderFrame({ activeAgentRunCount: 1, activeSftpTransfer: null });
+    await requestWindowClose();
+    expect(screen.getByRole("button", { name: "Force exit" })).toBeVisible();
+
+    cleanup();
+    renderFrame({
+      activeAgentRunCount: 1,
+      activeSftpTransfer: {
+        ...activeTransfer,
+        phase: "committing",
+        cancellable: false,
+      },
+    });
+    await requestWindowClose();
+    expect(
+      screen.queryByRole("button", { name: "Force exit" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continue waiting" }),
+    ).toBeVisible();
   });
 
   it("renders the wide four-region workbench with independent separators", () => {

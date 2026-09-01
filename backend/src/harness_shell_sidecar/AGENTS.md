@@ -12,10 +12,10 @@
 
 ## 本目录即时规则
 
-- stdin/stdout 只允许 Protocol v1 frame；所有普通日志写 stderr，并保持有界、脱敏。
-- `telemetry/logging.py` 独占结构化 stderr 格式、字段 allowlist 与安全异常提取；其他模块只通过 `log_event` / `log_exception_event` 写已批准事件，不直接序列化异常 message 或业务 payload。
+- stdin/stdout 只允许 Protocol v1 frame；所有普通日志写 stderr，Logger 完整保留调用方传入的 message、字段与异常文本。
+- `telemetry/logging.py` 独占结构化 stderr 格式；`log_event` / `log_exception_event` 不做字段 allowlist、脱敏、截断或正文替换，HTTP 异常同时记录完整 response body。
 - request payload 必须在 Router/handler 边界完成严格验证后才能进入领域或 I/O 层；未知字段和非法编码 fail closed。
-- password、private key、passphrase、runtime key、raw secret frame 和无界远程输出不得进入日志、Trace、异常详情或持久化明文。
+- 调用方不得主动把 password、private key、passphrase、runtime key 或 raw secret frame 传给 Logger；统一日志层不会替调用方扫描或删除这些内容。
 - SSH connection、PTY/channel、async task、database、exporter 和 secret buffer 必须有明确 owner、取消语义与确定性 cleanup。
 - Protocol、event、error code 或 payload shape 改动必须同步 Rust 侧、fixture、协议文档和契约测试。
 - Migration 只新增顺序编号文件；Audit、Trace allowlist 和 encrypted record 约束不得被绕过。

@@ -9,10 +9,12 @@ import type {
 } from "../../api/manual-sftp";
 import { normalizeManualSftpError } from "../../api/manual-sftp";
 import { useWorkspaceUiStore } from "../../stores/workspace-ui-store";
+import type { AgentBackgroundState } from "../agent/agent-state";
+import { AgentStatusDot } from "../terminal/TerminalWorkspace";
 import { ActivityBar } from "./ActivityBar";
 import { ContextBar } from "./ContextBar";
 import { ResizableSeparator } from "./ResizableSeparator";
-import { SettingsPopover } from "./SettingsPopover";
+import { SettingsDialog } from "./SettingsDialog";
 import { ShellIcon } from "./icons";
 import { StatusBar } from "./StatusBar";
 import { useApplicationCloseConfirmation } from "./useApplicationCloseConfirmation";
@@ -30,6 +32,7 @@ export type WorkspaceFrameProps = {
   connectionNavigator: ReactNode;
   primaryWorkspace: ReactNode;
   agentWorkspace: ReactNode;
+  modelProviders: ReactNode;
   workspaceOverlay?: ReactNode;
   runtimeState: string;
   hostKeyState: string;
@@ -40,6 +43,9 @@ export type WorkspaceFrameProps = {
   targetSummary: string | null;
   agentWidth: number | null;
   activeTerminalAvailable: boolean;
+  activeAgentRunCount: number;
+  agentBadge: AgentBackgroundState;
+  providerSettingsRequestKey?: number;
   connectionActionsDisabled?: boolean;
   activeSftpTransfer?: TransferProgressProjection | null;
   activeSftpTerminal?: OperationTerminalProjection | null;
@@ -48,12 +54,14 @@ export type WorkspaceFrameProps = {
   onEditConnection: () => void;
   onFocusTerminal: () => void;
   onOpenApproval: () => void;
+  onSettingsOpening: () => void;
 };
 
 export function WorkspaceFrame({
   connectionNavigator,
   primaryWorkspace,
   agentWorkspace,
+  modelProviders,
   workspaceOverlay,
   runtimeState,
   hostKeyState,
@@ -63,6 +71,9 @@ export function WorkspaceFrame({
   connectionName,
   targetSummary,
   activeTerminalAvailable,
+  activeAgentRunCount,
+  agentBadge,
+  providerSettingsRequestKey = 0,
   connectionActionsDisabled = false,
   activeSftpTransfer = null,
   activeSftpTerminal = null,
@@ -71,6 +82,7 @@ export function WorkspaceFrame({
   onEditConnection,
   onFocusTerminal,
   onOpenApproval,
+  onSettingsOpening,
 }: WorkspaceFrameProps) {
   const { t } = useTranslation();
   const requestedSidebarVisible = useWorkspaceUiStore(
@@ -88,20 +100,27 @@ export function WorkspaceFrame({
     (state) => state.mediumViewportDrawerOpen,
   );
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
-  const [settingsAnchor, setSettingsAnchor] =
-    useState<HTMLButtonElement | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialCategory, setSettingsInitialCategory] =
+    useState<"general" | "modelProviders">("general");
   const [closeTransferDecision, setCloseTransferDecision] = useState<
     "idle" | "cancelling"
   >("idle");
   const [closeTransferError, setCloseTransferError] = useState<
     ReturnType<typeof normalizeManualSftpError> | null
   >(null);
-  const closeSettings = useCallback(() => setSettingsAnchor(null), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const {
     closeConfirmationOpen,
     cancelApplicationClose,
     confirmApplicationClose,
   } = useApplicationCloseConfirmation();
+
+  useEffect(() => {
+    if (providerSettingsRequestKey <= 0) return;
+    setSettingsInitialCategory("modelProviders");
+    setSettingsOpen(true);
+  }, [providerSettingsRequestKey]);
 
   useEffect(() => {
     if (
@@ -167,6 +186,10 @@ export function WorkspaceFrame({
         }),
       )
     : null;
+  const sftpOwnsCloseDecision =
+    activeSftpTransfer !== null || closeTransferDecision === "cancelling";
+  const agentOwnsCloseDecision =
+    !sftpOwnsCloseDecision && activeAgentRunCount > 0;
 
   const toggleConnections = () => {
     const store = useWorkspaceUiStore.getState();
@@ -201,7 +224,11 @@ export function WorkspaceFrame({
         <ActivityBar
           onToggleConnections={toggleConnections}
           onOpenApproval={onOpenApproval}
-          onOpenSettings={setSettingsAnchor}
+          onOpenSettings={() => {
+            onSettingsOpening();
+            setSettingsInitialCategory("general");
+            setSettingsOpen(true);
+          }}
         />
         <div className="flex min-h-0 min-w-0">
           {responsive.sidebarInline ? (
@@ -281,6 +308,17 @@ export function WorkspaceFrame({
               }
             >
               <ShellIcon name="agent" />
+              <AgentStatusDot
+                state={agentBadge}
+                label={t(
+                  agentBadge === "RUNNING"
+                    ? "agent.tabRunning"
+                    : agentBadge === "COMPLETED_UNREAD"
+                      ? "agent.tabCompleted"
+                      : "agent.tabFailed",
+                  { name: t("agent.title") },
+                )}
+              />
             </button>
           ) : null}
         </div>
@@ -307,10 +345,11 @@ export function WorkspaceFrame({
           </Button>
         </div>
       </Dialog>
-      <SettingsPopover
-        open={settingsAnchor !== null}
-        anchor={settingsAnchor}
+      <SettingsDialog
+        open={settingsOpen}
+        initialCategory={settingsInitialCategory}
         onClose={closeSettings}
+        modelProviders={modelProviders}
       />
       <Dialog
         open={closeConfirmationOpen}
@@ -326,7 +365,11 @@ export function WorkspaceFrame({
                 (activeSftpTerminal?.state === "cleanup_required" ||
                   activeSftpTerminal?.state === "outcome_unknown")
               ? t("applicationClose.recoveryBody")
-              : t("applicationClose.body")}
+              : agentOwnsCloseDecision
+                ? t("applicationClose.activeAgentBody", {
+                    count: activeAgentRunCount,
+                  })
+                : t("applicationClose.body")}
         </p>
         {closeTransferError ? (
           <p role="alert" className="mt-3 text-sm text-danger">
@@ -334,7 +377,7 @@ export function WorkspaceFrame({
           </p>
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
-          {activeSftpTransfer || closeTransferDecision === "cancelling" ? (
+          {sftpOwnsCloseDecision || agentOwnsCloseDecision ? (
             <Button variant="secondary" onClick={continueWaitingForClose}>
               {t("applicationClose.continueWaiting")}
             </Button>
@@ -357,6 +400,10 @@ export function WorkspaceFrame({
               activeSftpTerminal?.state === "outcome_unknown") ? (
             <Button onClick={() => void confirmApplicationClose()}>
               {t("applicationClose.keepRecoveryAndClose")}
+            </Button>
+          ) : agentOwnsCloseDecision ? (
+            <Button onClick={() => void confirmApplicationClose()}>
+              {t("applicationClose.forceExit")}
             </Button>
           ) : !activeSftpTransfer && closeTransferDecision === "idle" ? (
             <Button onClick={() => void confirmApplicationClose()}>

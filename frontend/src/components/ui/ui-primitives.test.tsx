@@ -113,6 +113,41 @@ describe("UI primitives", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("closes only the topmost stacked dialog and restores its trigger", () => {
+    const closeSettings = vi.fn();
+    const closeProvider = vi.fn();
+    const Harness = () => {
+      const [providerOpen, setProviderOpen] = useState(false);
+      return (
+        <Dialog open title="Settings" onClose={closeSettings}>
+          <button type="button" onClick={() => setProviderOpen(true)}>
+            Edit provider
+          </button>
+          <Dialog
+            open={providerOpen}
+            title="Edit provider"
+            onClose={() => {
+              closeProvider();
+              setProviderOpen(false);
+            }}
+          >
+            <button type="button">Save</button>
+          </Dialog>
+        </Dialog>
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit provider" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(closeProvider).toHaveBeenCalledOnce();
+    expect(closeSettings).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Edit provider" }),
+    ).toHaveFocus();
+  });
+
   it("links field errors to the form control", () => {
     render(
       <FormField id="host" label="Host" error="Host is required">

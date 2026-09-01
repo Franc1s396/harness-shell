@@ -46,3 +46,23 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   white-space: nowrap;
   border: 0;
 }
+
+.agent-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.agent-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.agent-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-ink-dim);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.agent-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-muted);
+  background-clip: content-box;
+}

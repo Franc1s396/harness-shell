@@ -43,7 +43,9 @@ import { RuntimeFailureState } from "../errors/RuntimeFailureState";
 import { ManualSftpWorkspace } from "../sftp/ManualSftpWorkspace";
 import { useManualSftpController } from "../sftp/useManualSftpController";
 import { normalizeManualSftpError } from "../../api/manual-sftp";
-import { AgentWorkspace } from "../shell/AgentWorkspace";
+import { AgentWorkspace } from "../agent/AgentWorkspace";
+import { ModelProvidersPanel } from "../agent/ModelProvidersPanel";
+import { useAgentController } from "../agent/useAgentController";
 import { WorkspaceFrame } from "../shell/WorkspaceFrame";
 import { useSshEvents } from "../ssh/useSshEvents";
 import { base64ToBytes } from "../terminal/base64";
@@ -157,6 +159,8 @@ export function WorkspaceController() {
   const [runtimeRefreshRevision, setRuntimeRefreshRevision] = useState(0);
   const [disconnectTransferDecision, setDisconnectTransferDecision] =
     useState<DisconnectTransferDecision | null>(null);
+  const [providerSettingsRequestKey, setProviderSettingsRequestKey] =
+    useState(0);
 
   const connectionDialog = useWorkspaceUiStore(
     (state) => state.connectionDialog,
@@ -171,6 +175,23 @@ export function WorkspaceController() {
     sessions,
     activeTabId,
   });
+  const agent = useAgentController({ sessions, activeTabId });
+
+  useEffect(() => {
+    const currentTabIds = new Set(sessions.map((session) => session.tabId));
+    for (const session of sessions) agent.ensureTab(session.tabId);
+    for (const tabId of Object.keys(agent.state.tabs)) {
+      if (!currentTabIds.has(tabId) && !agent.hasActiveRunForTab(tabId)) {
+        agent.removeTab(tabId);
+      }
+    }
+  }, [
+    agent.ensureTab,
+    agent.hasActiveRunForTab,
+    agent.removeTab,
+    agent.state.tabs,
+    sessions,
+  ]);
 
   const sessionsRef = useRef(new Map<string, TerminalSessionModel>());
   const sshBindingsRef = useRef(new Map<string, SessionBinding>());
@@ -726,6 +747,7 @@ export function WorkspaceController() {
   };
 
   const disconnectSession = async (requested: TerminalSessionModel) => {
+    if (agent.hasActiveRunForTab(requested.tabId)) return;
     const activeTransfer = manualSftp.state.transferProgress;
     if (
       activeTransfer &&
@@ -769,6 +791,7 @@ export function WorkspaceController() {
   ]);
 
   const closeSessionOptimistically = (requested: TerminalSessionModel) => {
+    if (agent.hasActiveRunForTab(requested.tabId)) return;
     const current = sessionsRef.current.get(requested.tabId);
     if (!current) return;
     cancelledSessionsRef.current.add(current.tabId);
@@ -1083,6 +1106,8 @@ export function WorkspaceController() {
             outputBuffer={outputBuffer}
             runtimeReady={interactiveReady}
             fitRequestKey={layoutRevision}
+            agentBackgroundByTab={agent.backgroundByTab}
+            activeAgentRunTabIds={agent.activeAgentRunTabIds}
             errorNotice={
               terminalFailure ? (
                 <ErrorNotice
@@ -1200,9 +1225,54 @@ export function WorkspaceController() {
         agentWorkspace={
           <AgentWorkspace
             width={agentWidth}
+            tabTitle={activeSession?.title ?? null}
+            tab={agent.activeTab}
+            configs={agent.configs}
+            configsLoading={agent.configsLoading}
             onCollapse={() =>
               useWorkspaceUiStore.getState().setAgentVisible(false)
             }
+            onDraftChange={(value) => {
+              if (activeTabId) agent.changeDraft(activeTabId, value);
+            }}
+            onProviderSelect={(apiConfigId) => {
+              if (activeTabId) agent.selectProvider(activeTabId, apiConfigId);
+            }}
+            onOpenProviderSettings={() => {
+              setProviderSettingsRequestKey((current) => current + 1);
+              void agent.refreshConfigs().catch(() => undefined);
+            }}
+            onRequestSend={() => {
+              if (activeTabId) void agent.requestSend(activeTabId);
+            }}
+            onConfirmRiskAndSend={() => {
+              if (activeTabId) void agent.confirmRiskAndSend(activeTabId);
+            }}
+            onCancelRisk={() => {
+              if (activeTabId) agent.cancelRisk(activeTabId);
+            }}
+            onResetConversation={() => {
+              if (activeTabId) agent.resetConversation(activeTabId);
+            }}
+            onMarkRead={() => {
+              if (activeTabId) agent.markRead(activeTabId);
+            }}
+          />
+        }
+        modelProviders={
+          <ModelProvidersPanel
+            configs={agent.configs}
+            loading={agent.configsLoading}
+            error={agent.configsError}
+            mutationError={agent.providerMutationError}
+            cleanupError={agent.providerCleanupError}
+            activeApiConfigIds={agent.activeApiConfigIds}
+            onCreate={agent.createProvider}
+            onUpdate={agent.updateProvider}
+            onDelete={agent.deleteProvider}
+            onRetry={async () => {
+              await agent.refreshConfigs();
+            }}
           />
         }
         workspaceOverlay={
@@ -1237,6 +1307,9 @@ export function WorkspaceController() {
         activeTerminalAvailable={
           interactiveReady && activeSession?.state === "CONNECTED"
         }
+        activeAgentRunCount={agent.activeAgentRunCount}
+        agentBadge={agent.aggregateBackground}
+        providerSettingsRequestKey={providerSettingsRequestKey}
         connectionActionsDisabled={!interactiveReady}
         activeSftpTransfer={manualSftp.state.transferProgress}
         activeSftpTerminal={manualSftp.state.terminal}
@@ -1251,6 +1324,9 @@ export function WorkspaceController() {
             .openEditConnection(selected.connection_id);
         }}
         onOpenApproval={showApprovalWindow}
+        onSettingsOpening={() => {
+          void agent.refreshConfigs().catch(() => undefined);
+        }}
         onFocusTerminal={() =>
           useTerminalUiStore.getState().requestFocus()
         }

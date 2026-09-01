@@ -1,4 +1,4 @@
-"""Emit allowlisted Sidecar diagnostics without serializing business payloads."""
+"""Emit complete Python logging records as JSON on Sidecar stderr."""
 
 from __future__ import annotations
 
@@ -13,70 +13,44 @@ from pathlib import Path
 from typing import TextIO, TypeAlias
 
 JsonScalar: TypeAlias = str | int | float | bool | None
-SafeStackFrame: TypeAlias = dict[str, str | int]
-SafeLogValue: TypeAlias = JsonScalar | list[SafeStackFrame]
-
-_ALLOWED_FIELDS = frozenset(
-    {
-        "agent_run_id",
-        "conversation_id",
-        "ssh_session_id",
-        "api_config_id",
-        "api_type",
-        "model",
-        "node",
-        "react_iteration",
-        "duration_ms",
-        "route_source",
-        "route_target",
-        "error_code",
-        "exception_type",
-        "http_status",
-        "provider_error_type",
-        "provider_error_code",
-        "provider_request_id",
-        "response_body_length",
-        "response_body_sha256",
-        "stack_frames",
-    }
-)
+StackFrame: TypeAlias = dict[str, str | int]
+LogValue: TypeAlias = object
 _PROVIDER_REQUEST_ID_HEADERS = ("x-request-id", "x-client-request-id")
 
 
 class JsonLogFormatter(logging.Formatter):
-    """Serialize only the structured event envelope and validated safe fields."""
+    """Serialize complete messages, fields, and exceptions into one JSON record."""
 
     def format(self, record: logging.LogRecord) -> str:
-        """Return one compact JSON record without arbitrary message or exc_info text."""
+        """Return one compact JSON record without filtering caller-provided content."""
 
         timestamp = datetime.fromtimestamp(record.created, timezone.utc).isoformat(
             timespec="milliseconds"
         )
         event = getattr(record, "harness_event", None)
         fields = getattr(record, "harness_fields", None)
-        try:
-            if not isinstance(event, str) or not isinstance(fields, dict):
-                raise TypeError
-            _validate_fields(fields)
-        except (TypeError, ValueError):
-            # A third-party LogRecord must not gain structured-log trust by
-            # spoofing our extra attribute names with arbitrary business data.
-            event = "unstructured_python_log"
+        if not isinstance(event, str):
+            event = "python_log"
+        if not isinstance(fields, Mapping):
             fields = {}
 
-        payload: dict[str, SafeLogValue] = {
+        payload: dict[str, object] = {
             "timestamp": timestamp.replace("+00:00", "Z"),
             "level": _normalized_level(record.levelno),
             "component": "python_sidecar",
             "event": event,
             "logger": record.name,
+            "message": record.getMessage(),
         }
         payload.update(fields)
+        if record.exc_info is not None and record.exc_info[1] is not None:
+            payload.update(extract_exception_fields(record.exc_info[1]))
         return json.dumps(
             payload,
             ensure_ascii=False,
             separators=(",", ":"),
             allow_nan=False,
+            default=str,
         )
 
 
@@ -88,52 +62,6 @@ def _normalized_level(level: int) -> str:
     if level >= logging.WARNING:
         return "WARNING"
     return "INFO"
-
-
-def _is_json_scalar(value: object) -> bool:
-    """Return whether a value is an approved scalar log-field value."""
-
-    return value is None or isinstance(value, (str, int, float, bool))
-
-
-def _is_safe_stack_frames(value: object) -> bool:
-    """Validate the exact metadata-only shape allowed for stack frames."""
-
-    if not isinstance(value, list):
-        return False
-    for frame in value:
-        if not isinstance(frame, dict) or set(frame) != {"file", "line", "function"}:
-            return False
-        if not isinstance(frame["file"], str):
-            return False
-        if not isinstance(frame["line"], int) or isinstance(frame["line"], bool):
-            return False
-        if not isinstance(frame["function"], str):
-            return False
-    return True
-
-
-def _validate_fields(fields: Mapping[str, object]) -> None:
-    """Reject unknown names or values that cannot enter the safe JSON envelope."""
-
-    unsupported = set(fields) - _ALLOWED_FIELDS
-    if unsupported:
-        name = sorted(unsupported)[0]
-        raise ValueError(f"unsupported log field: {name}")
-    for name, value in fields.items():
-        valid = (
-            _is_safe_stack_frames(value)
-            if name == "stack_frames"
-            else _is_json_scalar(value)
-        )
-        if not valid:
-            raise TypeError(f"unsupported log field value: {name}")
-    json.dumps(
-        fields,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
 
 
 def configure_stderr_logging(stream: TextIO | None = None) -> None:
@@ -148,11 +76,10 @@ def log_event(
     logger: logging.Logger,
     level: int,
     event: str,
-    **fields: SafeLogValue,
+    **fields: LogValue,
 ) -> None:
-    """Log one named event after validating its explicit safe-field allowlist."""
+    """Log one named event with every caller-provided field unchanged."""
 
-    _validate_fields(fields)
     logger.log(
         level,
         event,
@@ -238,10 +165,10 @@ def _response_request_id(response: object) -> str | None:
     return None
 
 
-def _safe_stack_frames(error: BaseException) -> list[SafeStackFrame]:
-    """Extract file basename, line, and function without locals or messages."""
+def _stack_frames(error: BaseException) -> list[StackFrame]:
+    """Extract file basename, line, and function for structured navigation."""
 
-    frames: list[SafeStackFrame] = []
+    frames: list[StackFrame] = []
     for current in _walk_exception_chain(error):
         if current.__traceback__ is None:
             continue
@@ -256,16 +183,20 @@ def _safe_stack_frames(error: BaseException) -> list[SafeStackFrame]:
     return frames
 
 
-def extract_safe_exception_fields(
+def extract_exception_fields(
     error: BaseException,
-) -> dict[str, SafeLogValue]:
-    """Extract allowlisted exception metadata without message, URL, headers, or body."""
+) -> dict[str, LogValue]:
+    """Extract complete exception text, HTTP body, and useful typed metadata."""
 
-    fields: dict[str, SafeLogValue] = {
-        "exception_type": _qualified_exception_type(error)
+    fields: dict[str, LogValue] = {
+        "exception_type": _qualified_exception_type(error),
+        "exception_text": "".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        ),
     }
     body: object | None = None
     request_id: str | None = None
+    response_body: str | None = None
 
     for current in _walk_exception_chain(error):
         status_code = getattr(current, "status_code", None)
@@ -281,8 +212,15 @@ def extract_safe_exception_fields(
             request_id = current_request_id
 
         response = getattr(current, "response", None)
+        response_status = getattr(response, "status_code", None)
+        if "http_status" not in fields and isinstance(response_status, int):
+            fields["http_status"] = response_status
         if request_id is None and response is not None:
             request_id = _response_request_id(response)
+        if response_body is None and response is not None:
+            current_response_body = getattr(response, "text", None)
+            if isinstance(current_response_body, str):
+                response_body = current_response_body
 
         current_body = getattr(current, "body", None)
         if body is None and current_body is not None:
@@ -296,8 +234,18 @@ def extract_safe_exception_fields(
         if digest is not None:
             fields["response_body_length"] = digest[0]
             fields["response_body_sha256"] = digest[1]
+    if not response_body and body is not None:
+        response_body = json.dumps(
+            body,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+            default=str,
+        )
+    if response_body is not None:
+        fields["http_response_body"] = response_body
 
-    stack_frames = _safe_stack_frames(error)
+    stack_frames = _stack_frames(error)
     if stack_frames:
         fields["stack_frames"] = stack_frames
     return fields
@@ -309,11 +257,15 @@ def log_exception_event(
     error: BaseException,
     *,
     error_code: str,
-    **fields: SafeLogValue,
+    **fields: LogValue,
 ) -> None:
-    """Log a failed event with safe cause metadata and a stable public error code."""
+    """Log a failed event with its complete exception and a stable error code."""
 
     event_fields = dict(fields)
     event_fields["error_code"] = error_code
-    event_fields.update(extract_safe_exception_fields(error))
-    log_event(logger, logging.ERROR, event, **event_fields)
+    logger.log(
+        logging.ERROR,
+        event,
+        exc_info=(type(error), error, error.__traceback__),
+        extra={"harness_event": event, "harness_fields": event_fields},
+    )

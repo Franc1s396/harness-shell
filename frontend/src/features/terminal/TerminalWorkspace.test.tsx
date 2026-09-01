@@ -20,6 +20,7 @@ import {
 
 import { i18n, i18nReady } from "../../i18n";
 import { useTerminalUiStore } from "../../stores/terminal-ui-store";
+import type { AgentBackgroundState } from "../agent/agent-state";
 import { TerminalOutputBuffer } from "./terminal-output-buffer";
 import type {
   TerminalSessionModel,
@@ -51,6 +52,8 @@ const makeProps = () => ({
   outputBuffer: new TerminalOutputBuffer(),
   runtimeReady: true,
   fitRequestKey: 0,
+  agentBackgroundByTab: {} as Readonly<Record<string, AgentBackgroundState>>,
+  activeAgentRunTabIds: new Set<string>() as ReadonlySet<string>,
   onWrite: vi.fn().mockResolvedValue(undefined),
   onResize: vi.fn(),
   onReconnect: vi.fn(),
@@ -61,8 +64,11 @@ const makeProps = () => ({
   onCreateConnection: vi.fn(),
 });
 
-const renderWorkspace = (sessions: TerminalSessionModel[]) => {
-  const props = makeProps();
+const renderWorkspace = (
+  sessions: TerminalSessionModel[],
+  overrides: Partial<React.ComponentProps<typeof TerminalWorkspace>> = {},
+) => {
+  const props = { ...makeProps(), ...overrides };
   for (const item of sessions) {
     props.outputBuffer.registerTab(item.tabId, item.generation);
   }
@@ -123,6 +129,43 @@ describe("TerminalWorkspace", () => {
     expect(props.onCloseConfirmed).toHaveBeenCalledWith(
       expect.objectContaining({ tabId: "a" }),
     );
+  });
+
+  it("shows Agent background state on the owning terminal tab", () => {
+    renderWorkspace([connected("a"), connected("b")], {
+      agentBackgroundByTab: { a: "RUNNING", b: "FAILED_UNREAD" },
+    });
+
+    expect(screen.getByLabelText("Agent running for Tab a")).toBeVisible();
+    expect(screen.getByLabelText("Agent failed for Tab b")).toBeVisible();
+  });
+
+  it("blocks tab close and disconnect while the owning Session has an active Run", () => {
+    const onCloseConfirmed = vi.fn();
+    const onDisconnect = vi.fn();
+    renderWorkspace([connected("a")], {
+      activeAgentRunTabIds: new Set(["a"]),
+      onCloseConfirmed,
+      onDisconnect,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Tab a" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close session" }));
+    expect(
+      screen.getByRole("dialog", { name: "Agent Run is still active" }),
+    ).toBeVisible();
+    expect(onCloseConfirmed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue waiting" }));
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /Tab a/ }), {
+      clientX: 20,
+      clientY: 40,
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Disconnect" }));
+    expect(
+      screen.getByRole("dialog", { name: "Agent Run is still active" }),
+    ).toBeVisible();
+    expect(onDisconnect).not.toHaveBeenCalled();
   });
 
   it("keeps close controls outside tabs and reconciles the selected sibling", async () => {

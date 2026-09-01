@@ -14,7 +14,7 @@
 
 Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前架构为 React/TypeScript WebView、Tauri 2 Rust Core 和 Python Sidecar；Rust Core 通过私有 stdio Protocol v1 独占管理 Sidecar，并作为凭据、进程和 WebView 暴露面的安全边界。
 
-当前 M2 已实现连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多标签人工 PTY 和仅用户显式操作的手动 SFTP。Runtime 数据库为 schema v4；连接配置仍用 JS-safe 单调 `version` 拒绝凭据解析后的陈旧目标或跳板配置，`updated_at` 仅用于展示。实验性 M3 ReAct Shell Agent 后端已实现：Rust Vault 独占模型 API Key，Sidecar 保存非秘密 Provider 配置与认证加密的 conversation/run/message，通过绑定的 connected SSH Session 只执行严格 `execute_command` 工具；Agent 不可使用手动 SFTP、Artifact 或任意兼容路由。主界面 Agent Workspace 仍是 placeholder，真实 Provider、Tauri Desktop Agent UI、审批、自动恢复、生产部署和迁移尚未验收。`verify-manual-sftp.ps1` 与 `verify-m3-agent.ps1` 自动门禁已通过；构建、自动测试、容器 SSH Lab 或本地桌面验收均不得表述为生产主机验收。
+当前 M2 已实现连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多标签人工 PTY 和仅用户显式操作的手动 SFTP。Runtime 数据库为 schema v4；连接配置仍用 JS-safe 单调 `version` 拒绝凭据解析后的陈旧目标或跳板配置，`updated_at` 仅用于展示。实验性 M3 ReAct Shell Agent 后端与 React 前端已接入：Rust Vault 独占模型 API Key，Sidecar 保存非秘密 Provider 配置与认证加密的 conversation/run/message；前端提供 Model Provider 管理、按终端 tab 隔离的非流式 Agent Workspace、首轮风险确认、后台状态标记和 Run 期间的 Session/退出门禁。每个 turn 冻结所选 Provider 与 connected SSH Session，只允许严格 `execute_command` 工具；Agent 不可使用手动 SFTP、Artifact 或任意兼容路由。真实 Provider、完整 Tauri Desktop Agent matrix、审批、自动恢复、生产 SSH、部署和迁移仍未验收。`verify-manual-sftp.ps1` 与 `verify-m3-agent.ps1` 自动门禁已通过；构建、自动测试、容器 SSH Lab 或局部桌面观察均不得表述为生产主机验收。
 
 详细架构与能力边界见 [Architecture Guide](docs/agents/architecture.md)。
 

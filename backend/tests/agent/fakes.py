@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 from uuid import UUID, uuid4
 
-from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage
 
 from harness_shell_sidecar.agent.contracts import AgentTurnInput
 
@@ -49,6 +49,27 @@ class FakeBoundModel:
         if isinstance(outcome, BaseException):
             raise outcome
         return outcome
+
+    async def astream(
+        self,
+        messages: Sequence[AnyMessage],
+    ) -> AsyncIterator[object]:
+        """Expose queued outcomes through the Responses streaming boundary."""
+
+        self.calls += 1
+        self.message_calls.append(list(messages))
+        if not self.outcomes:
+            raise AssertionError("FakeBoundModel outcome queue is empty")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, asyncio.Event):
+            await outcome.wait()
+            outcome = AIMessage(content="released")
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if isinstance(outcome, AIMessage):
+            yield AIMessageChunk(content=outcome.content, tool_calls=outcome.tool_calls)
+            return
+        yield outcome
 
 
 class RecordingModelBuilder:

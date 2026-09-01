@@ -300,10 +300,10 @@ def test_service_cleanup_attempts_every_stage_after_an_earlier_failure() -> None
     asyncio.run(scenario())
 
 
-def test_outer_runtime_failure_logs_safe_event_and_preserves_exit_code(
+def test_outer_runtime_failure_logs_complete_exception_and_preserves_exit_code(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Map an unexpected run-loop failure to exit 1 after safe logging."""
+    """Map an unexpected run-loop failure after logging its complete exception."""
 
     async def scenario() -> None:
         caplog.set_level(logging.INFO, logger="harness_shell_sidecar.runtime")
@@ -317,24 +317,24 @@ def test_outer_runtime_failure_logs_safe_event_and_preserves_exit_code(
             if getattr(item, "harness_event", None) == "sidecar_runtime_failed"
         )
         assert record.harness_fields["error_code"] == "SIDECAR_RUNTIME_FAILED"
-        assert "sidecar-runtime-exception-marker" not in JsonLogFormatter().format(
+        assert "sidecar-runtime-exception-marker" in JsonLogFormatter().format(
             record
         )
 
     asyncio.run(scenario())
 
 
-def test_request_handler_failure_logs_safe_event_and_stable_response(
+def test_request_handler_failure_logs_complete_exception_and_stable_response(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Return the stable handler error while retaining safe local diagnostics."""
+    """Keep the Protocol response stable while logging the complete exception."""
 
     async def scenario() -> None:
         async def fail_handler(
             _request: FrameEnvelope,
             _cancelled: asyncio.Event,
         ) -> dict:
-            """Raise the marker which must stay out of logs and Protocol."""
+            """Raise the marker which is logged but must stay out of Protocol."""
 
             raise RuntimeError("request-handler-exception-marker")
 
@@ -359,7 +359,7 @@ def test_request_handler_failure_logs_safe_event_and_stable_response(
         )
         assert record.harness_fields["error_code"] == "REQUEST_HANDLER_FAILED"
         encoded = JsonLogFormatter().format(record)
-        assert "request-handler-exception-marker" not in encoded
+        assert "request-handler-exception-marker" in encoded
         assert "request-handler-exception-marker" not in str(response.payload)
 
     asyncio.run(scenario())

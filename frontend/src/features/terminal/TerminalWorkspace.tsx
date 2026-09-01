@@ -11,6 +11,7 @@ import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/controls";
 import { EmptyState } from "../../components/ui/feedback";
 import { useTerminalUiStore } from "../../stores/terminal-ui-store";
+import type { AgentBackgroundState } from "../agent/agent-state";
 import { SessionActionMenu } from "./SessionActionMenu";
 import { TerminalTab } from "./TerminalTab";
 import type { TerminalOutputBuffer } from "./terminal-output-buffer";
@@ -25,6 +26,8 @@ type Props = {
   outputBuffer: TerminalOutputBuffer;
   runtimeReady: boolean;
   fitRequestKey: number;
+  agentBackgroundByTab: Readonly<Record<string, AgentBackgroundState>>;
+  activeAgentRunTabIds: ReadonlySet<string>;
   errorNotice?: ReactNode;
   cleanupNotices?: ReactNode;
   onWrite: (tabId: string, data: Uint8Array) => Promise<void>;
@@ -51,11 +54,36 @@ const toneClass = (session: TerminalSessionModel) =>
     danger: "bg-danger",
   })[sessionStatusTone(session.state)];
 
+const agentDotClass: Record<Exclude<AgentBackgroundState, "NONE">, string> = {
+  RUNNING: "bg-accent",
+  COMPLETED_UNREAD: "bg-success",
+  FAILED_UNREAD: "bg-danger",
+};
+
+export function AgentStatusDot({
+  state,
+  label,
+}: {
+  state: AgentBackgroundState;
+  label: string;
+}) {
+  if (state === "NONE") return null;
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      className={`size-2 shrink-0 rounded-full ${agentDotClass[state]}`}
+    />
+  );
+}
+
 export function TerminalWorkspace({
   sessions,
   outputBuffer,
   runtimeReady,
   fitRequestKey,
+  agentBackgroundByTab,
+  activeAgentRunTabIds,
   errorNotice,
   cleanupNotices,
   onWrite,
@@ -78,6 +106,8 @@ export function TerminalWorkspace({
   const [closeTarget, setCloseTarget] = useState<TerminalSessionModel | null>(
     null,
   );
+  const [agentBlockTarget, setAgentBlockTarget] =
+    useState<TerminalSessionModel | null>(null);
 
   useEffect(() => {
     reconcileTabs(sessions.map((session) => session.tabId));
@@ -155,6 +185,18 @@ export function TerminalWorkspace({
                     className={`size-2 rounded-full ${toneClass(session)}`}
                   />
                   <span>{session.title}</span>
+                  <AgentStatusDot
+                    state={agentBackgroundByTab[session.tabId] ?? "NONE"}
+                    label={t(
+                      agentBackgroundByTab[session.tabId] === "RUNNING"
+                        ? "agent.tabRunning"
+                        : agentBackgroundByTab[session.tabId] ===
+                            "COMPLETED_UNREAD"
+                          ? "agent.tabCompleted"
+                          : "agent.tabFailed",
+                      { name: session.title },
+                    )}
+                  />
                   <span className="sr-only">
                     {t(sessionStatusKey(session.state))}
                   </span>
@@ -247,7 +289,14 @@ export function TerminalWorkspace({
           anchor={sessionMenu.anchor}
           onClose={() => setSessionMenu(null)}
           onReconnect={() => onReconnect(sessionMenu.session)}
-          onDisconnect={() => onDisconnect(sessionMenu.session)}
+          onDisconnect={() => {
+            const target = sessionMenu.session;
+            if (activeAgentRunTabIds.has(target.tabId)) {
+              setAgentBlockTarget(target);
+              return;
+            }
+            onDisconnect(target);
+          }}
         />
       ) : null}
 
@@ -271,10 +320,34 @@ export function TerminalWorkspace({
             onClick={() => {
               const target = closeTarget;
               setCloseTarget(null);
-              if (target) onCloseConfirmed(target);
+              if (!target) return;
+              if (activeAgentRunTabIds.has(target.tabId)) {
+                setAgentBlockTarget(target);
+                return;
+              }
+              onCloseConfirmed(target);
             }}
           >
             {t("terminal.confirmClose")}
+          </Button>
+        </div>
+      </Dialog>
+      <Dialog
+        open={agentBlockTarget !== null}
+        title={t("agent.activeRunTitle")}
+        onClose={() => setAgentBlockTarget(null)}
+      >
+        <p className="mt-3 text-sm text-ink-muted">
+          {t("agent.activeRunBody", {
+            name: agentBlockTarget?.title ?? "",
+          })}
+        </p>
+        <div className="mt-5 flex justify-end">
+          <Button
+            variant="secondary"
+            onClick={() => setAgentBlockTarget(null)}
+          >
+            {t("applicationClose.continueWaiting")}
           </Button>
         </div>
       </Dialog>

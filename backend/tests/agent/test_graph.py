@@ -248,7 +248,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
     asyncio.run(scenario())
 
 
-def test_execute_tool_failure_logs_node_failure_and_preserves_result(
+def test_execute_tool_failure_logs_complete_exception_and_preserves_result(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -279,7 +279,7 @@ def test_execute_tool_failure_logs_node_failure_and_preserves_result(
         ]
         assert len(failed) == 1
         assert failed[0].harness_fields["node"] == "execute_tool"
-        assert marker not in JsonLogFormatter().format(failed[0])
+        assert marker in JsonLogFormatter().format(failed[0])
 
     asyncio.run(scenario())
 

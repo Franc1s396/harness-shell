@@ -36,7 +36,6 @@ use crate::{
     vault::RuntimeKeys,
 };
 
-const STDERR_LINE_LIMIT: usize = 16 * 1_024;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -112,11 +111,7 @@ pub async fn supervise_runtime<R: Runtime>(
     let mut supervisor = Supervisor::new(state.status());
     let runtime_data_key_b64 = Zeroizing::new(STANDARD.encode(&runtime_keys.runtime_data_key));
     let audit_hmac_key_b64 = Zeroizing::new(STANDARD.encode(&runtime_keys.audit_hmac_key));
-    let forbidden = vec![
-        Zeroizing::new(runtime_data_key_b64.as_bytes().to_vec()),
-        Zeroizing::new(audit_hmac_key_b64.as_bytes().to_vec()),
-    ];
-    let mut process = match SidecarProcess::spawn(&app, extraction_directory, forbidden) {
+    let mut process = match SidecarProcess::spawn(&app, extraction_directory) {
         Ok(process) => process,
         Err(error) => {
             publish(&state, supervisor.transition(SupervisorEvent::SpawnFailed));
@@ -652,14 +647,20 @@ fn structured_sidecar_level(line: &[u8]) -> Option<log::Level> {
     }
 }
 
+fn sidecar_stderr_entry(line: &[u8]) -> Option<(log::Level, String)> {
+    if line.is_empty() {
+        return None;
+    }
+    let level = structured_sidecar_level(line).unwrap_or(log::Level::Warn);
+    Some((level, String::from_utf8_lossy(line).into_owned()))
+}
+
 pub struct SidecarProcess {
     events: Receiver<CommandEvent>,
     child: Option<CommandChild>,
     decoder: FrameDecoder,
     pending_frames: VecDeque<FrameEnvelope>,
     stderr_buffer: Vec<u8>,
-    discarding_stderr_line: bool,
-    forbidden_stderr_fragments: Vec<Zeroizing<Vec<u8>>>,
     job: WindowsJob,
 }
 
@@ -667,7 +668,6 @@ impl SidecarProcess {
     pub fn spawn<R: Runtime>(
         app: &AppHandle<R>,
         extraction_directory: &Path,
-        forbidden_stderr_fragments: Vec<Zeroizing<Vec<u8>>>,
     ) -> Result<Self, ProcessError> {
         let extraction_directory = extraction_directory
             .to_str()
@@ -699,8 +699,6 @@ impl SidecarProcess {
             decoder: FrameDecoder::new(),
             pending_frames: VecDeque::new(),
             stderr_buffer: Vec::new(),
-            discarding_stderr_line: false,
-            forbidden_stderr_fragments,
             job,
         })
     }
@@ -758,20 +756,6 @@ impl SidecarProcess {
     fn consume_stderr(&mut self, bytes: &[u8]) {
         self.stderr_buffer.extend_from_slice(bytes);
         loop {
-            if self.discarding_stderr_line {
-                let Some(delimiter) = self
-                    .stderr_buffer
-                    .iter()
-                    .position(|byte| matches!(*byte, b'\r' | b'\n'))
-                else {
-                    self.stderr_buffer.clear();
-                    return;
-                };
-                self.stderr_buffer.drain(..=delimiter);
-                self.discarding_stderr_line = false;
-                continue;
-            }
-
             if let Some(delimiter) = self
                 .stderr_buffer
                 .iter()
@@ -784,54 +768,24 @@ impl SidecarProcess {
                 {
                     line.pop();
                 }
-                self.log_stderr_line(&line, false);
+                self.log_stderr_line(&line);
                 continue;
-            }
-
-            if self.stderr_buffer.len() > STDERR_LINE_LIMIT {
-                self.stderr_buffer.clear();
-                self.discarding_stderr_line = true;
-                log::warn!(
-                    target: "harness_shell::sidecar",
-                    "sidecar stderr line exceeded {STDERR_LINE_LIMIT} bytes and was redacted"
-                );
             }
             return;
         }
     }
 
-    fn log_stderr_line(&self, line: &[u8], truncated: bool) {
-        if line.is_empty() {
-            return;
-        }
-        if self.forbidden_stderr_fragments.iter().any(|fragment| {
-            !fragment.is_empty()
-                && line
-                    .windows(fragment.len())
-                    .any(|window| window == fragment.as_slice())
-        }) {
-            log::warn!(target: "harness_shell::sidecar", "sidecar stderr line redacted");
-            return;
-        }
-
-        let line = String::from_utf8_lossy(line);
-        if truncated {
-            log::warn!(target: "harness_shell::sidecar", "{line} [truncated]");
-        } else if let Some(level) = structured_sidecar_level(line.as_bytes()) {
-            log::log!(target: "harness_shell::sidecar", level, "{line}");
-        } else {
-            log::warn!(target: "harness_shell::sidecar", "{line}");
+    fn log_stderr_line(&self, line: &[u8]) {
+        if let Some((level, rendered)) = sidecar_stderr_entry(line) {
+            log::log!(target: "harness_shell::sidecar", level, "{rendered}");
         }
     }
 
     fn flush_stderr(&mut self) {
-        if !self.discarding_stderr_line && !self.stderr_buffer.is_empty() {
+        if !self.stderr_buffer.is_empty() {
             let line = std::mem::take(&mut self.stderr_buffer);
-            self.log_stderr_line(&line, false);
-        } else {
-            self.stderr_buffer.clear();
+            self.log_stderr_line(&line);
         }
-        self.discarding_stderr_line = false;
     }
 }
 
@@ -1114,6 +1068,20 @@ mod tests {
             structured_sidecar_level(br#"{"component":"python_sidecar","level":"DEBUG"}"#,),
             None,
         );
+    }
+
+    #[test]
+    fn sidecar_stderr_entry_preserves_long_content_and_runtime_markers() {
+        let marker = "runtime-key-looking-marker";
+        let body = "x".repeat(20 * 1_024);
+        let line = format!(
+            r#"{{"component":"python_sidecar","level":"ERROR","message":"{marker}{body}"}}"#
+        );
+
+        let (level, rendered) = sidecar_stderr_entry(line.as_bytes()).unwrap();
+
+        assert_eq!(level, log::Level::Error);
+        assert_eq!(rendered, line);
     }
 
     #[test]

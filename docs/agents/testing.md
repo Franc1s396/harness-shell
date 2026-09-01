@@ -34,7 +34,7 @@
 - Rust contract tests：[frontend/src-tauri/tests/](../../frontend/src-tauri/tests/)
 - Python 测试配置：[backend/pyproject.toml](../../backend/pyproject.toml)
 - Python tests：[backend/tests/](../../backend/tests/)
-- 安全日志 focused tests：[backend/tests/test_main.py](../../backend/tests/test_main.py)、[backend/tests/runtime/test_logging.py](../../backend/tests/runtime/test_logging.py)、[backend/tests/runtime/test_service_dispatch.py](../../backend/tests/runtime/test_service_dispatch.py)、[backend/tests/agent/](../../backend/tests/agent/)
+- 日志 focused tests：[backend/tests/test_main.py](../../backend/tests/test_main.py)、[backend/tests/runtime/test_logging.py](../../backend/tests/runtime/test_logging.py)、[backend/tests/runtime/test_service_dispatch.py](../../backend/tests/runtime/test_service_dispatch.py)、[backend/tests/agent/](../../backend/tests/agent/)
 - Sidecar build：[backend/scripts/build_sidecar.ps1](../../backend/scripts/build_sidecar.ps1)
 - M1 gate：[scripts/verify-m1.ps1](../../scripts/verify-m1.ps1)
 - M2 gate：[scripts/verify-m2.ps1](../../scripts/verify-m2.ps1)
@@ -77,7 +77,7 @@
 - 旧 Agent exec/SFTP/Artifact 单元与 SSH integration 测试已经随运行时删除；用户手动 SFTP 由独立 manual-SFTP gate 和桌面清单验收，不构成 Agent SFTP 证据。
 - 私有 manual SFTP runtime/coordinator 的 Rust/Python contract、command/capability contract、typed frontend/controller 与 workspace 交互测试已覆盖本地实现、wire 行为、51-command 注册、main-only permission、进入 Activity 时固定 Session binding、Rust canonical snapshot/TxF、本地 download-part recovery、disconnect/exit lifecycle、单项 action matrix、lazy tree、非持久化状态、确认/键盘/焦点和 960×640 响应式边界。实现和自动门禁完成仍不等于 Tauri Desktop 或真实 host 验收。
 - Agent tests 必须覆盖两个显式 API type、5 次 timeout retry、128 次 Tool 循环、多 Tool Call 拒绝、五轮 context、中断闭合、canonical SystemMessage 的只读/secret/状态变更确认边界与高危操作双确认、无 checkpointer、认证加密原始 message/output、Vault secret non-exposure、六个 Protocol method、七个 main-window Tauri commands、1 MiB response 拒绝以及 Direct/ProxyJump Session 绑定。
-- 日志回归必须用唯一 secret marker 扫描 Python stderr、Rust Sidecar 转发和持久化日志候选，覆盖成功/失败 Run、七个 graph node、route、Provider failure、malformed/foreign stderr 以及先扫描后解析顺序；packaged Sidecar/Rust all-target 证据必须使用本次构建的 `HARNESS_SIDECAR_EXE`。
+- 日志回归必须覆盖普通 message、任意结构化字段、完整 exception traceback、HTTP response body、成功/失败 Run、七个 graph node、route、Provider failure、malformed/foreign stderr 与超过旧 16 KiB 阈值的长行原样转发；另用 marker 验证业务调用点没有主动记录 runtime/API key。packaged Sidecar/Rust all-target 证据必须使用本次构建的 `HARNESS_SIDECAR_EXE`。
 - Runtime schema 回归必须覆盖 v2→v3→v4 migration、schema v4 Agent 表的 STRICT、列类型/nullability、外键、唯一索引与关键 CHECK 自检，以及连接 profile 在固定时钟下连续更新仍逐次 `+1`、`2^53-1` 耗尽不写入、目标/ProxyJump 陈旧版本在网络 I/O 前失败和 Rust 只发送数字 `profile_version` 的跨语言契约。
 - M2 成功标志必须是脚本最终明确输出：`M2 automated gate passed: local Windows checkout plus containerized OpenSSH lab only.`
 - Manual SFTP gate 的唯一总成功标志必须在 cleanup 与 evidence scan 完成后输出：`Manual SFTP automated gate passed: local Windows checkout plus containerized OpenSSH lab only.`
@@ -86,7 +86,7 @@
 - SSH Lab 的 `jump` 同时连接 `ssh_ingress` 与内部 `ssh_lab`，只将 `127.0.0.1:2222` 暴露到 host；`target` 仅连接 internal `ssh_lab`。
 - Manual SFTP 容器 integration 直接经过 Python runtime，不证明凭据经过桌面 Core/Vault。M3 Agent 容器 integration 证明 bound-session command executor 的 Direct/ProxyJump 目标用户、stdout/stderr、timeout、cancel 与 channel cleanup 行为，但 fake ChatModel 不证明 Provider；两者都不证明 Agent UI、审批、sudo、生产主机或部署。
 - 自动测试不能替代 Tauri Desktop 的真实焦点、窗口、xterm 输入、Runtime 刷新和进程清理验收。
-- Tauri Desktop 日志验收单独核对：启动终端 INFO 记录、固定 `LogDir` active file、Settings Diagnostics 路径、Explorer 打开同一路径、fake/local Agent 的 Run/node/route/terminal 事件无业务 payload、重启 append 行为，以及测试 seam 下目录打开失败显示结构化错误；不得为人工验收强制生成 10 MiB 日志。
+- Tauri Desktop 日志验收单独核对：启动终端 INFO 记录、固定 `LogDir` active file、Settings Diagnostics 路径、Explorer 打开同一路径、fake/local Agent 的 Run/node/route/terminal 事件、异常 traceback/HTTP body、重启 append 行为，以及测试 seam 下目录打开失败显示结构化错误；不得为人工验收强制生成 10 MiB 日志。
 - 当前 M2 手工记录完成只证明该 checkout 与选定 local/container hosts，仍不是 production-host acceptance。
 
 生成物和本地状态不得提交：

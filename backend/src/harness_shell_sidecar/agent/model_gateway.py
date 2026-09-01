@@ -8,17 +8,16 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 import httpx
-from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage
+from langchain_core.messages.utils import message_chunk_to_message
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from harness_shell_sidecar.telemetry import log_exception_event
-
 from .contracts import ApiType, ModelApiConfig
 from .executor import AgentCancelled
 from .tools import build_execute_command_schema_tool
-
 
 MODEL_REQUEST_TIMEOUT_SECONDS = 60
 MODEL_RETRY_DELAYS_SECONDS = (1, 2, 4, 8, 16)
@@ -46,9 +45,9 @@ class ChatModelFactory:
         self._model_builder = model_builder  # ChatOpenAI-compatible constructor.
 
     def create(
-        self,
-        config: ModelApiConfig,
-        api_key: SecretStr,
+            self,
+            config: ModelApiConfig,
+            api_key: SecretStr,
     ) -> Runnable[Any, Any]:
         """Bind the same strict command schema with SDK retries disabled."""
 
@@ -72,10 +71,10 @@ class ModelGateway:
     """Invoke one bound model with cancellation and timeout-only retry semantics."""
 
     def __init__(
-        self,
-        *,
-        model_builder: ModelBuilder = ChatOpenAI,
-        sleep: Sleep = asyncio.sleep,
+            self,
+            *,
+            model_builder: ModelBuilder = ChatOpenAI,
+            sleep: Sleep = asyncio.sleep,
     ) -> None:
         """Bind the explicit model factory and injectable retry sleeper."""
 
@@ -83,11 +82,11 @@ class ModelGateway:
         self._sleep = sleep  # Backoff waits remain cancellable by the caller.
 
     async def invoke(
-        self,
-        config: ModelApiConfig,
-        api_key: SecretStr,
-        messages: Sequence[AnyMessage],
-        cancelled: asyncio.Event,
+            self,
+            config: ModelApiConfig,
+            api_key: SecretStr,
+            messages: Sequence[AnyMessage],
+            cancelled: asyncio.Event,
     ) -> AIMessage:
         """Return an AIMessage or raise one stable terminal gateway error."""
 
@@ -97,7 +96,7 @@ class ModelGateway:
         for attempt in range(len(MODEL_RETRY_DELAYS_SECONDS) + 1):
             try:
                 value = await _await_with_cancellation(
-                    model.ainvoke(messages),
+                    self.model_invoke(model, messages),
                     cancelled,
                 )
             except AgentCancelled:
@@ -135,10 +134,32 @@ class ModelGateway:
             return value
         raise AssertionError("model retry loop exhausted without a terminal result")
 
+    async def model_invoke(
+            self,
+            model: Runnable[Any, Any],
+            messages: Sequence[AnyMessage],
+    ) -> AIMessage | None:
+        """Aggregate one model stream into a complete AIMessage."""
+
+        full_message: AIMessageChunk | None = None
+
+        async for chunk in model.astream(messages):
+            if not isinstance(chunk, AIMessageChunk):
+                return None
+            full_message = (
+                chunk
+                if full_message is None
+                else full_message + chunk
+            )
+
+        if full_message is None:
+            return None
+        message = message_chunk_to_message(full_message)
+        return message if isinstance(message, AIMessage) else None
 
 async def _await_with_cancellation(
-    operation: Awaitable[Any],
-    cancelled: asyncio.Event,
+        operation: Awaitable[Any],
+        cancelled: asyncio.Event,
 ) -> Any:
     """Race one operation against cancellation and await all cancelled tasks."""
 

@@ -62,13 +62,13 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 ## 代码规范
 
 - 公共 type、关键字段和安全边界使用 rustdoc 或邻近注释说明职责、不变量和敏感性。
-- command 输入先验证，再读取或注入秘密；秘密只在最小生命周期内存在，不进入 `Debug`、日志、event 或普通 error details。
+- command 输入先验证，再读取或注入秘密；调用方不得主动把秘密传给 `Debug`、日志、event 或普通 error details，日志基础设施不提供内容过滤。
 - 新增 command 必须同时更新：实现模块、`commands/mod.rs` re-export、`lib.rs` handler 注册、permission、capability、Frontend typed wrapper 和对应测试。
 - Broker request 使用唯一 `request_id` 和 oneshot reply；未知、重复或类型错误的 response 必须 fail closed。
 - Supervisor 状态转换和退出原因显式发布；不得把 Sidecar 失败转换为 READY，不自动重放不确定请求。
 - async task、channel、child process、temporary extraction 和 Job Object 必须有明确 owner、关闭顺序和错误传播。
 - 锁中只做最小同步工作；不得在持锁期间执行阻塞 I/O 或跨进程 await。
-- 错误通过稳定 code 与安全 message 返回；内部原始错误只在不含秘密时写受控日志。
+- 错误通过稳定 code 与安全 message 返回；内部 Logger 完整记录调用方提交的 message 与 exception。
 
 ## 长期约束
 
@@ -78,7 +78,7 @@ Rust Core 不应复制 Python Sidecar 的 SSH/PTY 领域逻辑，也不得把原
 - Manual SFTP mutation dispatch 由单一 actor 串行拥有。Tauri caller 超时或 drop 不能取消已经派发的 broker request；actor 必须等待真实 response、收敛 encrypted journal，再执行排队的 transfer abort，避免 forward/cleanup 并发。
 - Sidecar typed error 可携带受限 `operation_state=cleanup_required|outcome_unknown`；这两种状态必须保留 local recovery record，普通可信 terminal failure 才写 failed 后删除。
 - `RuntimeRequest` 的 `Debug` 必须持续脱敏 payload。
-- Sidecar stderr 由 Rust process owner 逐行先执行现有 whole-line secret marker scan，再仅解析 `component=python_sidecar` 与 `level=INFO|WARNING|ERROR` 选择日志严重级别；解析不得读取业务字段，扫描顺序不得后移。
+- Sidecar stderr 由 Rust process owner 逐行原样转发；仅解析 `component=python_sidecar` 与 `level=INFO|WARNING|ERROR` 选择日志严重级别，不扫描业务字段、不按内容丢弃，也不设置单行截断上限。
 - 主窗口的 `diagnostics` permission 只含两个固定日志目录 commands；approval window、通用 shell、filesystem 或 dialog plugin capability 不得因此扩大。
 - 模型 API Key 只存在于 Rust DPAPI Vault；Sidecar metadata 仅保存 opaque secret reference。Rust 解析后使用 canonical Base64 发送 secret frame，不得进入 `Debug`、event、普通 error 或持久化明文。
 - Agent command 必须先读取当前 `agent.api_configs.get` 结果，再解析该 config 指向的专用 API Key；Sidecar 将该完整非秘密 config 作为 handler 快照，并在 conversation lock 内、创建 Run 和 Provider 调用前再次与持久化值逐字段比较。配置发生竞争变化时以 `MODEL_API_CONFIG_CHANGED` fail closed。

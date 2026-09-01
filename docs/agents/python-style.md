@@ -99,9 +99,9 @@ class SessionRegistry:
 
 - 预期领域失败使用具体 exception type 和稳定 error code；调用边界统一映射安全 message。
 - 禁止 `except Exception: pass`、空返回、默认成功对象或 broad catch 后继续执行。
-- 未知失败保留失败语义并在安全日志中留下 code；不得通过 fallback 数据掩盖根因。
+- 未知失败保留失败语义并在完整日志中留下 code、message 与 traceback；不得通过 fallback 数据掩盖根因。
 - Cleanup 失败不得覆盖更早的业务失败；需要汇总时明确保存并重新抛出首个失败。
-- 异常 message、`repr` 和 traceback 不得包含 secret、raw payload 或无界远程输出。
+- 异常 message、`repr` 和 traceback 会被 Logger 完整记录；产生异常的调用点负责避免主动拼入 credential、runtime key 或 raw secret frame。
 
 ### Async、取消与资源
 
@@ -113,8 +113,8 @@ class SessionRegistry:
 
 ### 敏感数据、日志与持久化
 
-- password、private key、passphrase、runtime key、secret frame 和明文远程敏感内容不得写入日志、异常、Trace attribute 或普通数据库列。
-- 日志写 stderr，使用稳定 error code 和有界字段；stdout 只用于 Protocol frame。
+- password、private key、passphrase、runtime key 和 secret frame 不得由调用点主动写入日志、异常、Trace attribute 或普通数据库列；Logger 不提供自动过滤。
+- 日志写 stderr，完整保留 message、结构化字段、exception traceback 和 HTTP response body；stdout 只用于 Protocol frame。
 - 可变 secret buffer 用完后主动覆盖；避免不必要的 `bytes`/`str` 拷贝和长生命周期闭包捕获。
 - 新增持久化字段前明确分类、加密、关联数据、migration、删除和自检策略。
 - Audit 与 Trace 只保存允许的结构化元数据，不把 payload 当作“调试信息”落盘。
@@ -157,7 +157,7 @@ class SessionRegistry:
 - Docstring/field 注释应与签名、raise path 和实际 owner 对照，不以“存在注释”代替准确性。
 - 类型边界检查 unknown field、`None`、空值、越界、canonical encoding 和序列化 round-trip。
 - async 测试检查 cancel、timeout、task 泄漏、double close 和 cleanup failure。
-- 安全测试检查 secret marker 不进入 SQLite、日志、Trace 或 response；历史 `artifact_metadata` schema 不代表仍存在 Artifact runtime。
+- 安全测试检查业务调用点不主动把 secret marker 交给 Logger，且 marker 不进入 SQLite、Trace 或 response；日志格式器测试反向确认传入内容不会被删除。历史 `artifact_metadata` schema 不代表仍存在 Artifact runtime。
 - 仅文档变更至少执行链接、标题、占位标记和 `git diff --check`；不声称 Python 行为已被重新验收。
 
 ## 何时需要更新本文档
@@ -179,7 +179,7 @@ class SessionRegistry:
 - [ ] 模块和接口职责单一，未新增循环依赖、全局可变状态或 convenience dumping ground。
 - [ ] 失败使用具体 exception/error code，未知失败未被吞掉、降级或转换为成功形态。
 - [ ] async task、取消、timeout、connection/channel/process/database 和 cleanup owner 清楚且有测试。
-- [ ] 日志、异常、Trace、response 和持久化均不包含 secret 或无界远程输出。
+- [ ] 业务调用点未主动把 secret 交给日志、异常、Trace、response 或持久化；Logger 对已传入内容不做过滤。
 - [ ] migration、Audit、Trace 和加密约束在涉及存储时已核对。
 - [ ] 测试覆盖正常、失败、边界、取消/清理路径，Fake/fixture 清楚说明模拟契约。
 - [ ] 已读取并检查相关根、领域和局部 `AGENTS.md`；长期事实变化已同步更新唯一真源。

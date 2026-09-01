@@ -1,11 +1,11 @@
-"""Local OpenTelemetry and safe structured logging interfaces."""
+"""Local OpenTelemetry and complete structured logging interfaces."""
 
 from .local_exporter import LocalSpanExporter, build_local_tracer_provider
 from .logging import (
     JsonLogFormatter,
-    SafeLogValue,
+    LogValue,
     configure_stderr_logging,
-    extract_safe_exception_fields,
+    extract_exception_fields,
     log_event,
     log_exception_event,
 )
@@ -13,10 +13,10 @@ from .logging import (
 __all__ = [
     "JsonLogFormatter",
     "LocalSpanExporter",
-    "SafeLogValue",
+    "LogValue",
     "build_local_tracer_provider",
     "configure_stderr_logging",
-    "extract_safe_exception_fields",
+    "extract_exception_fields",
     "log_event",
     "log_exception_event",
 ]
