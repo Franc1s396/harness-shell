@@ -39,9 +39,9 @@ $unitTemp = Join-Path $env:TEMP "harness-shell-m2-unit-$PID"
 & $pythonExe -m pytest --basetemp $unitTemp -p no:cacheprovider $backendRoot
 if ($LASTEXITCODE -ne 0) { throw 'Python unit and contract tests failed' }
 
-Write-Output '[4/8] Sidecar package build'
+Write-Output '[4/8] Packaged backend build and HTTP/WebSocket smoke'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $backendRoot 'scripts\build_sidecar.ps1')
-if ($LASTEXITCODE -ne 0) { throw 'Sidecar package build failed' }
+if ($LASTEXITCODE -ne 0) { throw 'Packaged backend build failed' }
 $env:HARNESS_SIDECAR_EXE = Join-Path $backendRoot 'dist\harness-shell-sidecar.exe'
 
 Write-Output '[5/8] Rust all-target tests'

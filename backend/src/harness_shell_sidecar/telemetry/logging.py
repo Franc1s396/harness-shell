@@ -67,7 +67,10 @@ def _normalized_level(level: int) -> str:
 def configure_stderr_logging(stream: TextIO | None = None) -> None:
     """Install the process-wide INFO logger on stderr or an injected test stream."""
 
-    handler = logging.StreamHandler(stream if stream is not None else sys.stderr)
+    target = stream if stream is not None else sys.stderr
+    if stream is None and hasattr(target, "reconfigure"):
+        target.reconfigure(encoding="utf-8", errors="strict")
+    handler = logging.StreamHandler(target)
     handler.setFormatter(JsonLogFormatter())
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 

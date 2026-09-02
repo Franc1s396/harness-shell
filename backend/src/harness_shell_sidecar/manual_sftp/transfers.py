@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import posixpath
 from dataclasses import dataclass
@@ -275,8 +274,9 @@ class UploadManager:
         state.expected_offset += len(chunk)
         return UploadChunkAck(
             operation_id=operation_id,
-            next_sequence=state.expected_sequence,
-            next_offset=state.expected_offset,
+            sequence=sequence,
+            offset=offset,
+            accepted_bytes=len(chunk),
         )
 
     async def finish(self, operation_id: UUID) -> OperationTerminalProjection:
@@ -664,7 +664,7 @@ class DownloadManager:
             operation_id=operation_id,
             sequence=current_sequence,
             offset=current_offset,
-            chunk_b64=base64.b64encode(chunk).decode("ascii"),
+            data=chunk,
             next_offset=state.expected_offset,
             eof=state.eof,
         )

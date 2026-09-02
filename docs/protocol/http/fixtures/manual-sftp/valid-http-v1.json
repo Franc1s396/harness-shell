@@ -1,0 +1,38 @@
+{
+  "cases": [
+    {
+      "name": "open-context",
+      "request": {
+        "request_id": "69c865b7-cd72-43d0-8d4a-8342aab2b2ce",
+        "body": {
+          "ssh_session_id": "47fa3662-9acc-4dd3-a145-54371a1e1ee1"
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "sftp_context_id": "a2303c59-7d2c-4906-a991-238016037c85"
+        }
+      }
+    },
+    {
+      "name": "upload-one-chunk",
+      "request": {
+        "request_id": "18d48f2b-770e-4c8b-b83a-0ed77b44da01",
+        "operation_id": "57835af5-ecbd-42de-9e35-8f18e6d774be",
+        "sequence": 0,
+        "content_type": "application/octet-stream",
+        "decoded_bytes": 262144
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "operation_id": "57835af5-ecbd-42de-9e35-8f18e6d774be",
+          "sequence": 0,
+          "offset": 0,
+          "accepted_bytes": 262144
+        }
+      }
+    }
+  ]
+}

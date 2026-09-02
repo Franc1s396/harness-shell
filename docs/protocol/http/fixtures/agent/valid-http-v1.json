@@ -1,0 +1,35 @@
+{
+  "cases": [
+    {
+      "name": "list-api-configs",
+      "request": {
+        "request_id": "8597e2a6-508c-4f70-8321-bd4454a4fcfd"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "items": []
+        }
+      }
+    },
+    {
+      "name": "start-agent-turn",
+      "request": {
+        "request_id": "12cc3e7a-5358-48fd-af76-aa3ced75f45b",
+        "body": {
+          "conversation_id": "998db68a-df92-4495-b20b-17f339c42b38",
+          "ssh_session_id": "6be7788c-bf12-443b-b8f9-f88c6ec80f19",
+          "api_config_id": "64ecaf43-c1f6-470b-b9c3-dd4c9e1cf71c",
+          "user_text": "检查当前目录中的文件。"
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "run_id": "48f3954b-717b-4c18-96cb-7d4e6014e6bc",
+          "state": "running"
+        }
+      }
+    }
+  ]
+}

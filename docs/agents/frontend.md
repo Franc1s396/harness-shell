@@ -9,7 +9,7 @@
 - `frontend/src/api/` 中的 Tauri command/event wrapper；
 - 前端单元测试、交互测试、生产构建或桌面 UI 验收。
 
-若改动涉及 Tauri command、权限、凭据、Protocol 或 Sidecar 生命周期，还必须读取 [Rust Core Guide](rust-core.md) 和 [Protocol & Security Guide](protocol-security.md)。
+若改动涉及 Tauri command、权限、凭据、HTTP/WebSocket contract 或 Sidecar 生命周期，还必须读取 [Rust Core Guide](rust-core.md) 和 [Protocol & Security Guide](protocol-security.md)。
 
 ## 范围与职责
 
@@ -21,7 +21,7 @@ Frontend 是 React/TypeScript WebView 展示层，负责：
 - 将 Rust Core 投影的安全状态转换为明确的 UI 状态；
 - 支持 `zh-CN`、`zh-TW` 和 `en` 界面资源。
 
-Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sidecar 状态机或 Protocol framing。
+Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sidecar 状态机或 HTTP/WebSocket transport。
 
 ## 当前源码真源
 
@@ -76,9 +76,10 @@ Frontend 不拥有凭据、原始 Host Key 数据、SSH/PTY runtime object、Sid
 
 ## 长期约束
 
-- WebView 只能获得 Rust Core 明确投影的安全数据，不得访问 Vault、raw frame、stderr 或任意 shell。
+- WebView 只能获得 Rust Core 明确投影的安全数据，不得访问 Vault、Python base URL、raw HTTP/WebSocket、stderr 或任意 shell。
 - `WorkspaceController` 负责编排当前 WebView 工作流，但不成为 SSH、PTY 或凭据的第二权威。
 - Runtime、Connection 和 Terminal 的权威状态来自 Rust/Sidecar 返回或允许事件；UI optimistic state 不得覆盖失败事实。
+- `RuntimeStatus` 只保留 public lifecycle、稳定 error、node、recoverable、correlation 与 heartbeat time；Frontend 不拥有 transport-global ordering，也不自行重建已删除的 `last_sequence`。
 - `ConnectionProfile.version` 是 Sidecar 返回的 JS-safe 正整数快照，Frontend 只按 typed API 保留和展示连接数据；凭据解析后的陈旧检查由 Rust 传递数字 `profile_version`、Sidecar 在网络 I/O 前执行，不能用 `updated_at` 替代。
 - UI 持久化只允许稳定偏好。当前持久化白名单和版本逻辑以 `workspace-ui-store.ts`、`locale-store.ts`、`agent-preferences-store.ts` 及其测试为真源。
 - 主界面保持 terminal-first；实验性 M3 Agent Workspace 已接入现有七个命令，但只代表本地非流式 UI 编排，不代表真实 Provider、审批、自动恢复、生产 SSH、部署或迁移已经验收。

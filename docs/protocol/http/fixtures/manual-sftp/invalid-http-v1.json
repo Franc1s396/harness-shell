@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "name": "upload-chunk-exceeds-limit",
+      "request": {
+        "request_id": "13ae8b2b-8eed-4b28-8d78-621d7d1c016b",
+        "operation_id": "c2fafc9f-1526-4d08-acd4-ef887a480aff",
+        "sequence": 0,
+        "content_type": "application/octet-stream",
+        "decoded_bytes": 262145
+      },
+      "expected_http_status": 413,
+      "expected_error_code": "SFTP_CHUNK_TOO_LARGE"
+    },
+    {
+      "name": "upload-chunk-out-of-sequence",
+      "request": {
+        "request_id": "036334ea-2cf2-4852-a7be-83dfad59306f",
+        "operation_id": "b9e84795-743c-4bf5-8f9e-b34392834df3",
+        "sequence": 3,
+        "content_type": "application/octet-stream",
+        "decoded_bytes": 128
+      },
+      "expected_http_status": 409,
+      "expected_error_code": "SFTP_CHUNK_SEQUENCE_MISMATCH"
+    },
+    {
+      "name": "execute-delete-with-expired-preflight",
+      "request": {
+        "request_id": "4d3ae369-aee5-4f71-a057-f728265ce21c",
+        "operation_id": "aa60495b-ecb2-4055-95da-ae860d95b993"
+      },
+      "expected_http_status": 409,
+      "expected_error_code": "SFTP_PREFLIGHT_EXPIRED"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "cases": [
+    {
+      "name": "initialize-runtime",
+      "request": {
+        "request_id": "5d24cf74-879a-4ca4-83d2-3ddf590a40fa",
+        "body": {
+          "schema_version": 1,
+          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\Harness Shell\\runtime.db",
+          "runtime_key_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "state": "ready",
+          "schema_version": 1
+        }
+      }
+    },
+    {
+      "name": "cancel-active-request",
+      "request": {
+        "request_id": "a8d28ba8-c42d-4265-8f6c-e4f27c95472f",
+        "path_request_id": "af24477a-b5c1-47f8-bb86-a7d3876166c8"
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "cancel_requested": true
+        }
+      }
+    }
+  ]
+}

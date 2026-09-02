@@ -57,7 +57,7 @@ if ($null -eq $webView2Executable) {
     throw 'Microsoft Edge WebView2 Runtime executable was not found'
 }
 
-Write-Output '[1/6] Python environment'
+Write-Output '[1/7] Python environment'
 if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
     $pythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($null -eq $pythonCommand) {
@@ -75,12 +75,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Locked Python dependency installation failed' 
 & $pythonExe -m pip install --no-deps -e "$backendRoot[dev]"
 if ($LASTEXITCODE -ne 0) { throw 'backend[dev] installation failed' }
 
-Write-Output '[2/6] Python tests'
+Write-Output '[2/7] Python tests'
 $pytestTemp = Join-Path $env:TEMP "harness-shell-m1-pytest-$PID"
 & $pythonExe -m pytest --basetemp $pytestTemp -p no:cacheprovider $backendRoot
 if ($LASTEXITCODE -ne 0) { throw 'Python tests failed' }
 
-Write-Output '[3/6] Sidecar package'
+Write-Output '[3/7] Packaged backend build and HTTP/WebSocket smoke'
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $backendRoot 'scripts\build_sidecar.ps1')
 if ($LASTEXITCODE -ne 0) { throw 'Sidecar package build failed' }
 $env:HARNESS_SIDECAR_EXE = Join-Path $backendRoot 'dist\harness-shell-sidecar.exe'
@@ -88,16 +88,61 @@ if (-not (Test-Path -LiteralPath $env:HARNESS_SIDECAR_EXE -PathType Leaf)) {
     throw 'Packaged Sidecar output is missing'
 }
 
-Write-Output '[4/6] Rust tests'
+Write-Output '[4/7] Rust tests'
 & cargo.exe test --manifest-path (Join-Path $tauriRoot 'Cargo.toml') --all-targets
 if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed' }
 
-Write-Output '[5/6] Web build'
+Write-Output '[5/7] Web build'
 & npm.cmd ci --prefix $frontendRoot
 if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
 & npm.cmd run build --prefix $frontendRoot
 if ($LASTEXITCODE -ne 0) { throw 'Web build failed' }
 
-Write-Output '[6/6] Tauri prerequisites'
+Write-Output '[6/7] Tauri prerequisites'
 & npm.cmd run tauri info --prefix $frontendRoot
 if ($LASTEXITCODE -ne 0) { throw 'Tauri prerequisite inspection failed' }
+
+Write-Output '[7/7] Removed transport evidence scan'
+$removedTransportPaths = @(
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\protocol\__init__.py'),
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\protocol\codec.py'),
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\protocol\errors.py'),
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\protocol\models.py'),
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\runtime\stdio.py'),
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\runtime\router.py'),
+    (Join-Path $backendRoot 'src\harness_shell_sidecar\runtime\service.py'),
+    (Join-Path $tauriRoot 'src\protocol\mod.rs'),
+    (Join-Path $tauriRoot 'src\protocol\codec.rs'),
+    (Join-Path $tauriRoot 'src\protocol\models.rs'),
+    (Join-Path $tauriRoot 'src\sidecar\mod.rs'),
+    (Join-Path $tauriRoot 'src\sidecar\broker.rs'),
+    (Join-Path $tauriRoot 'src\sidecar\job.rs'),
+    (Join-Path $tauriRoot 'src\sidecar\process.rs'),
+    (Join-Path $tauriRoot 'src\sidecar\supervisor.rs')
+)
+foreach ($path in $removedTransportPaths) {
+    if (Test-Path -LiteralPath $path) {
+        throw "Removed transport path still exists: $path"
+    }
+}
+$transportSources = Get-ChildItem -File -Recurse -Path `
+    (Join-Path $backendRoot 'src'), `
+    (Join-Path $backendRoot 'tests'), `
+    (Join-Path $tauriRoot 'src'), `
+    (Join-Path $tauriRoot 'tests') |
+    Where-Object { $_.Extension -in @('.py', '.rs') }
+$transportReferences = @($transportSources | Select-String -Pattern @(
+    'harness_shell_sidecar\.protocol',
+    'crate::protocol',
+    'crate::sidecar',
+    'harness_shell_lib::protocol',
+    'harness_shell_lib::sidecar',
+    'StdioTransport',
+    'RuntimeBrokerHandle',
+    'PendingReplies'
+))
+if ($transportReferences.Count -ne 0) {
+    throw "Removed transport references remain: $($transportReferences -join ', ')"
+}
+
+Write-Output 'M1 automated gate passed: local Windows build and packaged loopback backend contracts only.'

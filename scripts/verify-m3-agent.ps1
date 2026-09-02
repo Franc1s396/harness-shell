@@ -24,7 +24,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Manual SFTP regression gate failed' }
     $packagedSidecar = Join-Path $backendRoot 'dist\harness-shell-sidecar.exe'
     if (-not (Test-Path -LiteralPath $packagedSidecar -PathType Leaf)) {
-        throw 'Manual SFTP gate did not produce the packaged Sidecar'
+        throw 'Manual SFTP gate did not produce the packaged backend'
     }
     # A child PowerShell cannot export this path back to the parent gate. Own
     # it here so the following Rust all-target tests use the verified binary.
@@ -34,7 +34,8 @@ try {
     $agentTemp = Join-Path $env:TEMP "harness-shell-m3-agent-$PID"
     & $pythonExe -m pytest --basetemp $agentTemp -p no:cacheprovider `
         (Join-Path $backendRoot 'tests\agent') `
-        (Join-Path $backendRoot 'tests\runtime\test_service_dispatch.py') `
+        (Join-Path $backendRoot 'tests\web\test_agent_routes.py') `
+        (Join-Path $backendRoot 'tests\runtime\test_dispatcher.py') `
         (Join-Path $backendRoot 'tests\storage\test_database.py') -q
     if ($LASTEXITCODE -ne 0) { throw 'Focused Agent Python tests failed' }
 
@@ -42,10 +43,10 @@ try {
     & $cargoExe test --manifest-path $tauriManifest --all-targets
     if ($LASTEXITCODE -ne 0) { throw 'Rust all-target contracts failed' }
 
-    Write-Output '[4/6] Packaged Sidecar build'
+    Write-Output '[4/6] Packaged backend build and HTTP/WebSocket smoke'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
         (Join-Path $backendRoot 'scripts\build_sidecar.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'Sidecar package build failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged backend build failed' }
 
     Write-Output '[5/6] Bound-session OpenSSH Agent integration'
     $labStarted = $false
@@ -73,7 +74,7 @@ try {
     }
 
     Write-Output '[6/6] Evidence boundary'
-    Write-Output 'M3 Agent automated gate passed: local Windows checkout, fake ChatModels, packaged Sidecar, and containerized OpenSSH lab only.'
+    Write-Output 'M3 Agent automated gate passed: local Windows checkout, fake ChatModels, packaged loopback backend, and containerized OpenSSH lab only.'
 }
 finally {
     Remove-Item Env:HARNESS_SIDECAR_EXE -ErrorAction SilentlyContinue

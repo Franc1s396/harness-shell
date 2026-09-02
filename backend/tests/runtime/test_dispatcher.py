@@ -1,35 +1,59 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from uuid import uuid4
+from collections.abc import Mapping
+from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.protocol import (
-    FrameEnvelope,
-    MessageType,
-    Sensitivity,
-)
 from harness_shell_sidecar.runtime.dispatcher import (
     DispatchError,
     DispatchResult,
     RequestDispatcher,
 )
+from harness_shell_sidecar.runtime.request_context import RequestContext
 
 
-def request(method: str, *, request_id=None) -> FrameEnvelope:
-    return FrameEnvelope(
-        protocol_version=1,
-        message_type=MessageType.REQUEST,
-        request_id=request_id or uuid4(),
-        task_id=None,
-        workflow_run_id=None,
-        sequence=2,
-        timestamp=datetime.now(timezone.utc),
-        sensitivity=Sensitivity.NORMAL,
-        payload={"method": method},
-    )
+def test_dispatcher_passes_only_request_context_and_params() -> None:
+    """Keep protocol envelopes outside the application dispatcher contract."""
+
+    async def scenario() -> None:
+        observed: list[tuple[UUID, Mapping[str, object]]] = []
+
+        async def handler(
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            observed.append((context.request_id, params))
+            return {"result": "ok"}
+
+        request_id = uuid4()
+        dispatcher = RequestDispatcher()
+        dispatcher.register("probe.read", handler)
+
+        result = await dispatcher.dispatch(request_id, "probe.read", {"value": 7})
+
+        assert result.payload == {"result": "ok"}
+        assert observed == [(request_id, {"value": 7})]
+
+    asyncio.run(scenario())
+
+
+def test_dispatcher_executes_non_json_application_work_under_same_owner() -> None:
+    """Keep raw binary work inside duplicate, capacity, and cancellation ownership."""
+
+    async def scenario() -> None:
+        request_id = uuid4()
+        dispatcher = RequestDispatcher()
+
+        async def raw_work(context: RequestContext) -> bytes:
+            assert context.request_id == request_id
+            context.require_active()
+            return b"raw"
+
+        assert await dispatcher.execute(request_id, raw_work) == b"raw"
+
+    asyncio.run(scenario())
 
 
 def test_dispatcher_allows_heartbeat_loop_to_continue_while_request_runs() -> None:
@@ -37,14 +61,21 @@ def test_dispatcher_allows_heartbeat_loop_to_continue_while_request_runs() -> No
         started = asyncio.Event()
         release = asyncio.Event()
 
-        async def slow(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
+        async def slow(
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            del params
             started.set()
             await release.wait()
-            return {"result": "done", "cancelled": cancelled.is_set()}
+            return {"result": "done", "cancelled": context.cancelled.is_set()}
 
+        request_id = uuid4()
         dispatcher = RequestDispatcher()
         dispatcher.register("slow.read", slow)
-        active = asyncio.create_task(dispatcher.dispatch(request("slow.read")))
+        active = asyncio.create_task(
+            dispatcher.dispatch(request_id, "slow.read", {})
+        )
         await started.wait()
 
         heartbeat_progressed = True
@@ -52,7 +83,6 @@ def test_dispatcher_allows_heartbeat_loop_to_continue_while_request_runs() -> No
         assert active.done() is False
         release.set()
         assert await active == DispatchResult(
-            message_type=MessageType.RESPONSE,
             payload={"result": "done", "cancelled": False},
         )
 
@@ -64,33 +94,72 @@ def test_dispatcher_rejects_unknown_duplicate_and_over_capacity() -> None:
         started = asyncio.Event()
         release = asyncio.Event()
 
-        async def slow(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
+        async def slow(
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            del context, params
             started.set()
             await release.wait()
             return {"result": "done"}
 
         dispatcher = RequestDispatcher(capacity=1)
         dispatcher.register("slow.read", slow)
-        first_frame = request("slow.read")
-        first = asyncio.create_task(dispatcher.dispatch(first_frame))
+        first_request_id = uuid4()
+        first = asyncio.create_task(
+            dispatcher.dispatch(first_request_id, "slow.read", {})
+        )
         await started.wait()
 
         with pytest.raises(DispatchError) as duplicate:
-            await dispatcher.dispatch(
-                request("slow.read", request_id=first_frame.request_id)
-            )
+            await dispatcher.dispatch(first_request_id, "slow.read", {})
         assert duplicate.value.error_code == "DUPLICATE_REQUEST_ID"
 
         with pytest.raises(DispatchError) as capacity:
-            await dispatcher.dispatch(request("slow.read"))
+            await dispatcher.dispatch(uuid4(), "slow.read", {})
         assert capacity.value.error_code == "REQUEST_CAPACITY_EXCEEDED"
 
         with pytest.raises(DispatchError) as unknown:
-            await RequestDispatcher().dispatch(request("unknown"))
+            await RequestDispatcher().dispatch(uuid4(), "unknown", {})
         assert unknown.value.error_code == "UNKNOWN_METHOD"
 
         release.set()
         await first
+
+    asyncio.run(scenario())
+
+
+def test_dispatcher_capacity_defaults_to_sixteen() -> None:
+    """Reject request seventeen while sixteen handlers remain active."""
+
+    async def scenario() -> None:
+        release = asyncio.Event()
+        started = asyncio.Semaphore(0)
+
+        async def slow(
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            del context, params
+            started.release()
+            await release.wait()
+            return {"result": "done"}
+
+        dispatcher = RequestDispatcher()
+        dispatcher.register("slow.read", slow)
+        active = [
+            asyncio.create_task(dispatcher.dispatch(uuid4(), "slow.read", {}))
+            for _ in range(16)
+        ]
+        for _ in active:
+            await started.acquire()
+
+        with pytest.raises(DispatchError) as capacity:
+            await dispatcher.dispatch(uuid4(), "slow.read", {})
+        assert capacity.value.error_code == "REQUEST_CAPACITY_EXCEEDED"
+
+        release.set()
+        await asyncio.gather(*active)
 
     asyncio.run(scenario())
 
@@ -100,22 +169,56 @@ def test_cancel_sets_only_the_target_request_event() -> None:
         started = asyncio.Event()
 
         async def wait_for_cancel(
-            frame: FrameEnvelope, cancelled: asyncio.Event
-        ) -> dict:
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            del params
             started.set()
-            await cancelled.wait()
+            await context.cancelled.wait()
             return {"cancelled": True}
 
         dispatcher = RequestDispatcher()
         dispatcher.register("wait", wait_for_cancel)
-        frame = request("wait")
-        active = asyncio.create_task(dispatcher.dispatch(frame))
+        request_id = uuid4()
+        active = asyncio.create_task(dispatcher.dispatch(request_id, "wait", {}))
         await started.wait()
 
         assert await dispatcher.cancel(uuid4()) is False
-        assert await dispatcher.cancel(frame.request_id) is True
+        assert await dispatcher.cancel(request_id) is True
         assert (await active).payload == {"cancelled": True}
-        assert await dispatcher.cancel(frame.request_id) is False
+        assert await dispatcher.cancel(request_id) is False
+
+    asyncio.run(scenario())
+
+
+def test_request_context_cancellation_maps_to_stable_dispatch_error() -> None:
+    """Map cooperative cancellation without exposing transport types to handlers."""
+
+    async def scenario() -> None:
+        started = asyncio.Event()
+        continue_handler = asyncio.Event()
+
+        async def require_active(
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            del params
+            started.set()
+            await continue_handler.wait()
+            context.require_active()
+            return {"result": "unexpected"}
+
+        dispatcher = RequestDispatcher()
+        dispatcher.register("wait", require_active)
+        request_id = uuid4()
+        active = asyncio.create_task(dispatcher.dispatch(request_id, "wait", {}))
+        await started.wait()
+        assert await dispatcher.cancel(request_id) is True
+        continue_handler.set()
+
+        with pytest.raises(DispatchError) as cancelled:
+            await active
+        assert cancelled.value.error_code == "REQUEST_CANCELLED"
 
     asyncio.run(scenario())
 
@@ -125,21 +228,23 @@ def test_close_rejects_new_work_and_releases_active_handlers() -> None:
         started = asyncio.Event()
 
         async def wait_for_cancel(
-            frame: FrameEnvelope, cancelled: asyncio.Event
-        ) -> dict:
+            context: RequestContext,
+            params: Mapping[str, object],
+        ) -> dict[str, object]:
+            del params
             started.set()
-            await cancelled.wait()
+            await context.cancelled.wait()
             return {"cancelled": True}
 
         dispatcher = RequestDispatcher()
         dispatcher.register("wait", wait_for_cancel)
-        active = asyncio.create_task(dispatcher.dispatch(request("wait")))
+        active = asyncio.create_task(dispatcher.dispatch(uuid4(), "wait", {}))
         await started.wait()
         await dispatcher.close()
         assert (await active).payload == {"cancelled": True}
 
         with pytest.raises(DispatchError) as stopped:
-            await dispatcher.dispatch(request("wait"))
+            await dispatcher.dispatch(uuid4(), "wait", {})
         assert stopped.value.error_code == "RUNTIME_STOPPING"
 
     asyncio.run(scenario())

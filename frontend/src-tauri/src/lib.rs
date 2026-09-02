@@ -1,9 +1,8 @@
 pub mod app_state;
 pub mod commands;
 mod logging;
-pub mod protocol;
+pub mod runtime;
 pub mod sftp;
-pub mod sidecar;
 pub mod vault;
 
 use std::{fs, sync::Arc, time::Duration};
@@ -25,6 +24,8 @@ use commands::{
     run_agent_turn, store_model_api_key, store_private_key_passphrase, store_ssh_password,
     submit_approval_decision, update_connection, update_model_api_config, write_pty,
 };
+use runtime::desktop::supervise_desktop_runtime;
+use runtime::{RuntimeState, RuntimeStatus};
 use sftp::{
     coordinator::{
         SftpCoordinator, SftpCoordinatorState, TransferProgressSink, TransferProgressSinkError,
@@ -32,9 +33,6 @@ use sftp::{
     journal::LocalSftpOperationJournal,
     models::TransferProgressProjection,
     protocol::ManualSftpRuntimeClient,
-};
-use sidecar::{
-    broker::runtime_broker_channel, process::supervise_runtime, RuntimeState, RuntimeStatus,
 };
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use vault::{SecretVault, VaultState};
@@ -132,26 +130,26 @@ pub fn run() {
             app.manage(VaultState::new(vault));
 
             let state = RuntimeStateHandle::new(RuntimeStatus::starting("desktop"));
+            let runtime_client = runtime::RuntimeClientHandle::pending();
+            app.manage(runtime_client.clone());
             let (control_sender, control_receiver) = tokio::sync::mpsc::unbounded_channel();
             state.attach_control(control_sender);
             app.manage(state.clone());
-            let (runtime_broker, broker_commands) = runtime_broker_channel();
             let coordinator = SftpCoordinatorState::new(SftpCoordinator::new_with_progress_sink(
-                ManualSftpRuntimeClient::new(runtime_broker.clone()),
+                ManualSftpRuntimeClient::new(runtime_client.clone()),
                 manual_sftp_journal,
                 Arc::new(MainWindowTransferProgressSink {
                     app: app.handle().clone(),
                 }),
             ));
-            app.manage(runtime_broker);
             app.manage(coordinator);
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = supervise_runtime(
+                if let Err(error) = supervise_desktop_runtime(
                     app_handle,
                     state,
+                    runtime_client,
                     control_receiver,
-                    broker_commands,
                     &runtime_db_path,
                     &extraction_directory,
                     runtime_keys,

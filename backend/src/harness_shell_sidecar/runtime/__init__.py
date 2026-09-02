@@ -1,25 +1,20 @@
 """Public Sidecar runtime API."""
 
 from .dispatcher import DispatchError, DispatchResult, RequestDispatcher
-from .messages import (
-    InitializeRequestPayload,
-    RuntimeCapabilities,
+from .models import (
     RuntimeInitializationFailure,
+    RuntimeInitializeRequest,
     RuntimePhase,
 )
-from .router import Router
-from .service import SidecarService
-from .stdio import StdioTransport
+from .request_context import RequestCancelledError, RequestContext
 
 __all__ = [
     "DispatchError",
     "DispatchResult",
-    "InitializeRequestPayload",
-    "Router",
-    "RuntimeCapabilities",
     "RuntimeInitializationFailure",
+    "RuntimeInitializeRequest",
     "RuntimePhase",
     "RequestDispatcher",
-    "SidecarService",
-    "StdioTransport",
+    "RequestCancelledError",
+    "RequestContext",
 ]

@@ -3,24 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
-from harness_shell_sidecar.protocol import (
-    MAX_PAYLOAD_BYTES,
-    FrameEnvelope,
-    MessageType,
-    Sensitivity,
-)
+from harness_shell_sidecar.runtime.models import MAX_JSON_BODY_BYTES
 from harness_shell_sidecar.telemetry import log_event
 
 from .api_configs import ApiConfigRepository
@@ -359,7 +354,7 @@ def _require_agent_result_fits(
     *,
     react_iteration: int,
 ) -> None:
-    """Validate a successful result against the worst legal Protocol envelope."""
+    """Validate a successful result against its exact typed HTTP JSON shape."""
 
     result = AgentTurnResult(
         conversation_id=run.conversation_id,
@@ -369,17 +364,16 @@ def _require_agent_result_fits(
         react_iteration=react_iteration,
         error_code=None,
     )
-    candidate = FrameEnvelope(
-        protocol_version=1,
-        message_type=MessageType.RESPONSE,
-        request_id=uuid4(),
-        task_id=uuid4(),
-        workflow_run_id=uuid4(),
-        sequence=(2**64) - 1,
-        timestamp=datetime.now(timezone.utc),
-        sensitivity=Sensitivity.NORMAL,
-        payload=result.model_dump(mode="json"),
+    candidate = {
+        "request_id": str(UUID(int=0)),
+        **result.model_dump(mode="json"),
+    }
+    encoded_size = len(
+        json.dumps(
+            candidate,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
     )
-    encoded_size = len(candidate.model_dump_json(exclude_none=False).encode("utf-8"))
-    if encoded_size > MAX_PAYLOAD_BYTES:
+    if encoded_size > MAX_JSON_BODY_BYTES:
         raise AgentServiceError("AGENT_RESPONSE_TOO_LARGE")

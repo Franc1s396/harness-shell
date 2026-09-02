@@ -16,6 +16,10 @@ hiddenimports = sorted(
     set(
         collect_submodules("pydantic")
         + collect_submodules("cryptography")
+        + collect_submodules("fastapi")
+        + collect_submodules("starlette")
+        + collect_submodules("uvicorn")
+        + collect_submodules("websockets")
         + collect_submodules("langchain_core")
         + collect_submodules(
             "langchain_openai",

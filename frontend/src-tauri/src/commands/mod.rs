@@ -8,14 +8,21 @@ mod sftp;
 mod terminal;
 
 pub use agent::{
-    create_model_api_config, delete_model_api_config, list_model_api_configs, run_agent_turn,
-    run_agent_turn_with_dependencies, update_model_api_config, AgentRunStatus, AgentTurnResult,
+    create_model_api_config, create_model_api_config_with_runtime, delete_model_api_config,
+    delete_model_api_config_with_runtime, list_model_api_configs,
+    list_model_api_configs_with_runtime, run_agent_turn, run_agent_turn_with_dependencies,
+    update_model_api_config, update_model_api_config_with_runtime, AgentRunStatus, AgentTurnResult,
     ApiType, ModelApiConfig, ModelApiConfigInput,
 };
 pub use approval::{get_approval_context, submit_approval_decision};
 pub use connections::{
-    confirm_host_key, connect_ssh, create_connection, delete_connection, disconnect_ssh,
-    inspect_host_key, list_connections, replace_host_key, update_connection,
+    confirm_host_key, confirm_host_key_with_runtime, connect_ssh, connect_ssh_with_dependencies,
+    create_connection, create_connection_with_runtime, delete_connection,
+    delete_connection_with_runtime, disconnect_ssh, disconnect_ssh_with_runtime, inspect_host_key,
+    inspect_host_key_with_dependencies, list_connections, list_connections_with_runtime,
+    replace_host_key, replace_host_key_with_runtime, update_connection,
+    update_connection_with_runtime, AuthKind, ConnectionProfile, ConnectionProfileInput,
+    ConnectionState, ConnectionStatus, HostKeyCandidate, HostKeyRecord, HostKeyStatus,
 };
 pub use credentials::{
     delete_model_api_key, delete_ssh_credential, import_private_key, store_model_api_key,
@@ -32,7 +39,11 @@ pub use sftp::{
     open_manual_sftp_link, preflight_manual_sftp_delete, prepare_manual_sftp_download,
     prepare_manual_sftp_upload, remove_manual_sftp_entry, rename_manual_sftp_entry,
 };
-pub use terminal::{close_pty, open_pty, resize_pty, write_pty};
+pub use terminal::{
+    close_pty, close_pty_with_runtime, open_pty, open_pty_with_runtime, resize_pty,
+    resize_pty_with_runtime, write_pty, write_pty_with_runtime,
+};
+pub use terminal::{PtySession, PtyState};
 
 use serde::Serialize;
 

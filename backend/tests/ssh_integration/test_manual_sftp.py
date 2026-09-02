@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 import os
@@ -86,8 +85,12 @@ async def _upload(
             offset=offset,
             chunk=chunk,
         )
-        sequence = acknowledgement.next_sequence
-        offset = acknowledgement.next_offset
+        assert acknowledgement.operation_id == operation_id
+        assert acknowledgement.sequence == sequence
+        assert acknowledgement.offset == offset
+        assert acknowledgement.accepted_bytes == len(chunk)
+        sequence += 1
+        offset += acknowledgement.accepted_bytes
     terminal = await service.upload_finish(operation_id)
     assert terminal.state == "succeeded"
     assert terminal.sha256 == hashlib.sha256(payload).hexdigest()
@@ -116,7 +119,11 @@ async def _download(
             sequence=sequence,
             offset=offset,
         )
-        payload.extend(base64.b64decode(chunk.chunk_b64, validate=True))
+        assert chunk.operation_id == operation_id
+        assert chunk.sequence == sequence
+        assert chunk.offset == offset
+        assert chunk.next_offset == offset + len(chunk.data)
+        payload.extend(chunk.data)
         sequence += 1
         offset = chunk.next_offset
         if chunk.eof:

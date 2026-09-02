@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
@@ -152,20 +151,6 @@ where
     let value = Option::<String>::deserialize(deserializer)?;
     if let Some(value) = value.as_deref() {
         validate_sha256::<D::Error>(value)?;
-    }
-    Ok(value)
-}
-
-fn deserialize_chunk_b64<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = String::deserialize(deserializer)?;
-    let decoded = STANDARD.decode(&value).map_err(D::Error::custom)?;
-    if decoded.is_empty() || decoded.len() > SFTP_CHUNK_BYTES || STANDARD.encode(decoded) != value {
-        return Err(D::Error::custom(
-            "expected non-empty canonical Base64 within the SFTP chunk limit",
-        ));
     }
     Ok(value)
 }
@@ -349,17 +334,12 @@ pub struct DownloadReady {
     pub next_offset: u64,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DownloadChunk {
     pub operation_id: Uuid,
-    #[serde(deserialize_with = "deserialize_sequence")]
     pub sequence: u32,
-    #[serde(deserialize_with = "deserialize_js_safe")]
     pub offset: u64,
-    #[serde(deserialize_with = "deserialize_chunk_b64")]
-    pub chunk_b64: String,
-    #[serde(deserialize_with = "deserialize_js_safe")]
+    pub bytes: bytes::Bytes,
     pub next_offset: u64,
     pub eof: bool,
 }
@@ -520,45 +500,4 @@ pub struct TransferProgressProjection {
     #[serde(deserialize_with = "deserialize_js_safe")]
     pub bytes_total: u64,
     pub cancellable: bool,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-enum ManualSftpProgressEventName {
-    #[serde(rename = "manual_sftp.operation.progress")]
-    Progress,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ManualSftpProgressEvent {
-    event: ManualSftpProgressEventName,
-    pub operation_id: Uuid,
-    pub kind: MutationKind,
-    pub phase: MutationPhase,
-    pub display_name: String,
-    pub remote_path: String,
-    pub host_label: String,
-    #[serde(deserialize_with = "deserialize_optional_js_safe")]
-    pub items_completed: Option<u64>,
-    #[serde(deserialize_with = "deserialize_optional_js_safe")]
-    pub items_total: Option<u64>,
-    #[serde(deserialize_with = "deserialize_false")]
-    pub cancellable: bool,
-}
-
-impl From<ManualSftpProgressEvent> for MutationProgressProjection {
-    fn from(event: ManualSftpProgressEvent) -> Self {
-        let _ = event.event;
-        Self {
-            operation_id: event.operation_id,
-            kind: event.kind,
-            phase: event.phase,
-            display_name: event.display_name,
-            remote_path: event.remote_path,
-            host_label: event.host_label,
-            items_completed: event.items_completed,
-            items_total: event.items_total,
-            cancellable: event.cancellable,
-        }
-    }
 }

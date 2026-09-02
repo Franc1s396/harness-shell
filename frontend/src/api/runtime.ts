@@ -6,7 +6,6 @@ export type RuntimeStatus = {
   node: string;
   recoverable: boolean;
   correlation_id: string;
-  last_sequence: number;
   last_heartbeat_at: string | null;
 };
 

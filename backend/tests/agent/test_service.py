@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -23,12 +23,7 @@ from harness_shell_sidecar.agent.model_gateway import ModelGateway
 from harness_shell_sidecar.agent import service as agent_service_module
 from harness_shell_sidecar.agent.graph import CommandExecutor
 from harness_shell_sidecar.agent.service import AgentService, AgentServiceError
-from harness_shell_sidecar.protocol import (
-    MAX_PAYLOAD_BYTES,
-    FrameEnvelope,
-    MessageType,
-    Sensitivity,
-)
+from harness_shell_sidecar.runtime.models import MAX_JSON_BODY_BYTES
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
@@ -585,7 +580,7 @@ def test_oversized_final_response_marks_run_failed_before_returning_error(
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
         model = FakeModelSequence(
-            [AIMessage(content="x" * (MAX_PAYLOAD_BYTES + 1))]
+            [AIMessage(content="x" * (MAX_JSON_BODY_BYTES + 1))]
         )
         service = _service(agent_storage, model, RecordingExecutor())
         turn = make_turn_input().model_copy(
@@ -628,21 +623,18 @@ def test_response_budget_uses_final_react_iteration(
             react_iteration=0,
             error_code=None,
         )
-        candidate = FrameEnvelope(
-            protocol_version=1,
-            message_type=MessageType.RESPONSE,
-            request_id=uuid4(),
-            task_id=uuid4(),
-            workflow_run_id=uuid4(),
-            sequence=(2**64) - 1,
-            timestamp=datetime.now(UTC),
-            sensitivity=Sensitivity.NORMAL,
-            payload=zero_iteration.model_dump(mode="json"),
-        )
+        candidate = {
+            "request_id": str(UUID(int=0)),
+            **zero_iteration.model_dump(mode="json"),
+        }
         zero_size = len(
-            candidate.model_dump_json(exclude_none=False).encode("utf-8")
+            json.dumps(
+                candidate,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
         )
-        monkeypatch.setattr(agent_service_module, "MAX_PAYLOAD_BYTES", zero_size)
+        monkeypatch.setattr(agent_service_module, "MAX_JSON_BODY_BYTES", zero_size)
 
         outputs = [
             AIMessage(

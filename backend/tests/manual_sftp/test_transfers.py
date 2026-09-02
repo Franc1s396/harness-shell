@@ -310,7 +310,7 @@ def test_download_detects_remote_snapshot_change(tmp_path: Path) -> None:
             chunk = await downloads.read_chunk(
                 transfer.operation_id, sequence=0, offset=0
             )
-            assert chunk.chunk_b64 == "cGF5bG9hZA=="
+            assert chunk.data == b"payload"
             remote.mtime += 1
             with pytest.raises(ManualSftpError, match="SFTP_TARGET_CHANGED"):
                 await downloads.finish(transfer.operation_id)

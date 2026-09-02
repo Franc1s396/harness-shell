@@ -1,22 +1,27 @@
-"""Strict Protocol v1 handlers for manual SFTP browse and metadata methods."""
+"""Strict transport-independent handlers for manual SFTP domain operations."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 import json
+from collections.abc import Mapping
 from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from harness_shell_sidecar.protocol import FrameEnvelope, Sensitivity
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_shell_sidecar.runtime.request_context import RequestContext
 
 from .errors import ManualSftpError
-from .models import ChunkSequence, JsSafeInt, Sha256Hex, TransferSnapshot
-from .transfers import SFTP_CHUNK_BYTES
+from .models import (
+    ChunkSequence,
+    DownloadChunk,
+    JsSafeInt,
+    Sha256Hex,
+    TransferSnapshot,
+    UploadChunkAck,
+)
 
 
 class _ManualSftpServiceProtocol(Protocol):
@@ -104,25 +109,10 @@ class _UploadBeginParams(_SessionPathParams):
     target_snapshot: TransferSnapshot
 
 
-class _UploadChunkParams(_OperationParams):
-    """Carry one sequential upload chunk in canonical Base64."""
-
-    sequence: ChunkSequence
-    offset: JsSafeInt
-    chunk_b64: str
-
-
 class _DownloadBeginParams(_SessionPathParams):
     """Begin a pull-based download from one remote path."""
 
     operation_id: UUID
-
-
-class _DownloadChunkParams(_OperationParams):
-    """Request one sequential download chunk by exact position."""
-
-    sequence: ChunkSequence
-    offset: JsSafeInt
 
 
 class _MkdirParams(_SessionParams):
@@ -183,72 +173,135 @@ class _RecoveryExecuteParams(_RecoveryParams):
     ]
 
 
+class ManualSftpApplication:
+    """Expose binary SFTP chunks without choosing a wire encoding."""
+
+    def __init__(self, service: _ManualSftpServiceProtocol) -> None:
+        """Bind the application boundary to the sole SFTP domain owner."""
+
+        self._service = service
+
+    async def upload_chunk(
+        self,
+        context: RequestContext,
+        operation_id: UUID,
+        *,
+        sequence: int,
+        offset: int,
+        chunk: bytes,
+    ) -> UploadChunkAck:
+        """Accept one bounded binary chunk for the owned upload operation."""
+
+        context.require_active()
+        return await self._service.upload_chunk(
+            operation_id,
+            sequence=sequence,
+            offset=offset,
+            chunk=chunk,
+        )
+
+    async def download_chunk(
+        self,
+        context: RequestContext,
+        operation_id: UUID,
+        *,
+        sequence: int,
+        offset: int,
+    ) -> DownloadChunk:
+        """Return one raw bounded binary chunk from the owned download."""
+
+        context.require_active()
+        return await self._service.download_chunk(
+            operation_id,
+            sequence=sequence,
+            offset=offset,
+        )
+
+
 def register_manual_sftp_handlers(
     dispatcher: RequestDispatcher, service: _ManualSftpServiceProtocol
 ) -> None:
-    """Register exactly the eight user-operated read methods from Task 2."""
+    """Register typed JSON SFTP operations on the shared dispatcher."""
 
-    async def open_context(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _SessionParams)
-        _require_active(cancelled)
+    async def open_context(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _SessionParams)
+        context.require_active()
         try:
             context = await service.open(params.ssh_session_id)
         except ManualSftpError as exc:
             raise _dispatch_error(exc) from exc
         return {"context": context.model_dump(mode="json")}
 
-    async def list_begin(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _SessionPathParams)
-        _require_active(cancelled)
+    async def list_begin(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _SessionPathParams)
+        context.require_active()
         try:
             batch = await service.list_begin(params.ssh_session_id, params.path)
         except ManualSftpError as exc:
             raise _dispatch_error(exc) from exc
         return {"batch": batch.model_dump(mode="json")}
 
-    async def list_next(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _ListingNextParams)
-        _require_active(cancelled)
+    async def list_next(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _ListingNextParams)
+        context.require_active()
         try:
             batch = await service.list_next(params.listing_id, params.sequence)
         except ManualSftpError as exc:
             raise _dispatch_error(exc) from exc
         return {"batch": batch.model_dump(mode="json")}
 
-    async def list_close(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _ListingCloseParams)
-        _require_active(cancelled)
+    async def list_close(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _ListingCloseParams)
+        context.require_active()
         try:
             await service.list_close(params.listing_id)
         except ManualSftpError as exc:
             raise _dispatch_error(exc) from exc
         return {"closed": True}
 
-    async def lstat(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        return await _entry_result(frame, cancelled, service.lstat)
+    async def lstat(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _entry_result(context, raw_params, service.lstat)
 
-    async def readlink(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        return await _entry_result(frame, cancelled, service.readlink)
+    async def readlink(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _entry_result(context, raw_params, service.readlink)
 
-    async def realpath(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        return await _entry_result(frame, cancelled, service.realpath)
+    async def realpath(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _entry_result(context, raw_params, service.realpath)
 
-    async def sha256(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _SessionPathParams)
-        _require_active(cancelled)
+    async def sha256(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _SessionPathParams)
+        context.require_active()
         try:
             result = await service.sha256(
-                params.ssh_session_id, params.path, cancelled=cancelled
+                params.ssh_session_id,
+                params.path,
+                cancelled=context.cancelled,
             )
         except ManualSftpError as exc:
             raise _dispatch_error(exc) from exc
         return {"hash": result.model_dump(mode="json")}
 
     async def upload_preflight(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _SessionPathParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _SessionPathParams)
+        context.require_active()
         try:
             snapshot = await service.upload_preflight(
                 params.ssh_session_id, params.path
@@ -257,9 +310,11 @@ def register_manual_sftp_handlers(
             raise _dispatch_error(exc) from exc
         return {"snapshot": snapshot.model_dump(mode="json")}
 
-    async def upload_begin(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _UploadBeginParams)
-        _require_active(cancelled)
+    async def upload_begin(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _UploadBeginParams)
+        context.require_active()
         try:
             upload = await service.upload_begin(
                 operation_id=params.operation_id,
@@ -273,33 +328,21 @@ def register_manual_sftp_handlers(
             raise _dispatch_error(exc) from exc
         return {"upload": upload.model_dump(mode="json")}
 
-    async def upload_chunk(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        _require_secret(frame, "manual_sftp.upload.chunk")
-        params = _params(frame, _UploadChunkParams)
-        chunk = _decode_chunk(params.chunk_b64)
-        _require_active(cancelled)
-        try:
-            result = await service.upload_chunk(
-                params.operation_id,
-                sequence=params.sequence,
-                offset=params.offset,
-                chunk=chunk,
-            )
-        except ManualSftpError as exc:
-            raise _dispatch_error(exc) from exc
-        return {"chunk": result.model_dump(mode="json")}
+    async def upload_finish(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _terminal_result(context, raw_params, service.upload_finish)
 
-    async def upload_finish(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        return await _terminal_result(frame, cancelled, service.upload_finish)
-
-    async def upload_abort(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        return await _terminal_result(frame, cancelled, service.upload_abort)
+    async def upload_abort(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _terminal_result(context, raw_params, service.upload_abort)
 
     async def download_begin(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _DownloadBeginParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _DownloadBeginParams)
+        context.require_active()
         try:
             download = await service.download_begin(
                 operation_id=params.operation_id,
@@ -310,33 +353,21 @@ def register_manual_sftp_handlers(
             raise _dispatch_error(exc) from exc
         return {"download": download.model_dump(mode="json")}
 
-    async def download_chunk(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        _require_secret(frame, "manual_sftp.download.chunk")
-        params = _params(frame, _DownloadChunkParams)
-        _require_active(cancelled)
-        try:
-            chunk = await service.download_chunk(
-                params.operation_id,
-                sequence=params.sequence,
-                offset=params.offset,
-            )
-        except ManualSftpError as exc:
-            raise _dispatch_error(exc) from exc
-        return {"chunk": chunk.model_dump(mode="json")}
-
     async def download_finish(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        return await _terminal_result(frame, cancelled, service.download_finish)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _terminal_result(context, raw_params, service.download_finish)
 
-    async def download_abort(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        return await _terminal_result(frame, cancelled, service.download_abort)
+    async def download_abort(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        return await _terminal_result(context, raw_params, service.download_abort)
 
-    async def mkdir(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _MkdirParams)
-        _require_active(cancelled)
+    async def mkdir(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _MkdirParams)
+        context.require_active()
         try:
             terminal = await service.mkdir(
                 operation_id=params.operation_id,
@@ -348,9 +379,11 @@ def register_manual_sftp_handlers(
             raise _dispatch_error(exc) from exc
         return {"terminal": terminal.model_dump(mode="json")}
 
-    async def rename(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _RenameParams)
-        _require_active(cancelled)
+    async def rename(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _RenameParams)
+        context.require_active()
         try:
             terminal = await service.rename(
                 operation_id=params.operation_id,
@@ -365,9 +398,11 @@ def register_manual_sftp_handlers(
             raise _dispatch_error(exc) from exc
         return {"terminal": terminal.model_dump(mode="json")}
 
-    async def remove(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _RemoveParams)
-        _require_active(cancelled)
+    async def remove(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _RemoveParams)
+        context.require_active()
         try:
             terminal = await service.remove(
                 operation_id=params.operation_id,
@@ -380,10 +415,10 @@ def register_manual_sftp_handlers(
         return {"terminal": terminal.model_dump(mode="json")}
 
     async def delete_preflight(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _DeletePreflightParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _DeletePreflightParams)
+        context.require_active()
         try:
             plan = await service.delete_preflight(
                 params.operation_id, params.ssh_session_id, params.path
@@ -393,10 +428,10 @@ def register_manual_sftp_handlers(
         return {"delete_plan": plan.model_dump(mode="json")}
 
     async def delete_execute(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _DeleteExecuteParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _DeleteExecuteParams)
+        context.require_active()
         try:
             terminal = await service.delete_execute(params.delete_plan_id)
         except ManualSftpError as exc:
@@ -404,10 +439,10 @@ def register_manual_sftp_handlers(
         return {"terminal": terminal.model_dump(mode="json")}
 
     async def recovery_inspect(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _RecoveryParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _RecoveryParams)
+        context.require_active()
         try:
             result = await service.recovery_inspect(params.recovery_id)
         except ManualSftpError as exc:
@@ -415,10 +450,10 @@ def register_manual_sftp_handlers(
         return {"recovery": result.model_dump(mode="json")}
 
     async def recovery_execute(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _RecoveryExecuteParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _RecoveryExecuteParams)
+        context.require_active()
         try:
             result = await service.recovery_execute(
                 params.recovery_id, params.action, params.operation_id
@@ -428,12 +463,12 @@ def register_manual_sftp_handlers(
         return {"recovery": result.model_dump(mode="json")}
 
     async def _entry_result(
-        frame: FrameEnvelope,
-        cancelled: asyncio.Event,
+        context: RequestContext,
+        raw_params: Mapping[str, object],
         operation,
-    ) -> dict:
-        params = _params(frame, _SessionPathParams)
-        _require_active(cancelled)
+    ) -> dict[str, object]:
+        params = _params(raw_params, _SessionPathParams)
+        context.require_active()
         try:
             entry = await operation(params.ssh_session_id, params.path)
         except ManualSftpError as exc:
@@ -441,12 +476,12 @@ def register_manual_sftp_handlers(
         return {"entry": entry.model_dump(mode="json")}
 
     async def _terminal_result(
-        frame: FrameEnvelope,
-        cancelled: asyncio.Event,
+        context: RequestContext,
+        raw_params: Mapping[str, object],
         operation,
-    ) -> dict:
-        params = _params(frame, _OperationParams)
-        _require_active(cancelled)
+    ) -> dict[str, object]:
+        params = _params(raw_params, _OperationParams)
+        context.require_active()
         try:
             terminal = await operation(params.operation_id)
         except ManualSftpError as exc:
@@ -463,11 +498,9 @@ def register_manual_sftp_handlers(
     dispatcher.register("manual_sftp.sha256", sha256)
     dispatcher.register("manual_sftp.upload.preflight", upload_preflight)
     dispatcher.register("manual_sftp.upload.begin", upload_begin)
-    dispatcher.register("manual_sftp.upload.chunk", upload_chunk)
     dispatcher.register("manual_sftp.upload.finish", upload_finish)
     dispatcher.register("manual_sftp.upload.abort", upload_abort)
     dispatcher.register("manual_sftp.download.begin", download_begin)
-    dispatcher.register("manual_sftp.download.chunk", download_chunk)
     dispatcher.register("manual_sftp.download.finish", download_finish)
     dispatcher.register("manual_sftp.download.abort", download_abort)
     dispatcher.register("manual_sftp.mkdir", mkdir)
@@ -479,56 +512,19 @@ def register_manual_sftp_handlers(
     dispatcher.register("manual_sftp.recovery.execute", recovery_execute)
 
 
-def _params(frame: FrameEnvelope, model: type[BaseModel]):
+def _params(raw_params: Mapping[str, object], model: type[BaseModel]):
     """Parse one strict params object without Python-side coercion."""
 
-    params = frame.payload.get("params")
-    if not isinstance(params, dict):
+    if not isinstance(raw_params, Mapping):
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params must be an object"
         )
     try:
-        return model.model_validate_json(json.dumps(params))
+        return model.model_validate_json(json.dumps(dict(raw_params)))
     except (TypeError, ValueError, ValidationError) as exc:
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params are invalid"
         ) from exc
-
-
-def _require_active(cancelled: asyncio.Event) -> None:
-    """Reject a request already marked cancelled before remote I/O."""
-
-    if cancelled.is_set():
-        raise DispatchError("REQUEST_CANCELLED", "request was cancelled")
-
-
-def _require_secret(frame: FrameEnvelope, method: str) -> None:
-    """Require a redacted Protocol frame for any request/response carrying bytes."""
-
-    if frame.sensitivity is not Sensitivity.SECRET:
-        raise DispatchError(
-            "SENSITIVE_FRAME_REQUIRED", f"{method} requires a secret frame"
-        )
-
-
-def _decode_chunk(encoded: str) -> bytes:
-    """Decode only non-empty canonical Base64 within the fixed chunk limit."""
-
-    try:
-        chunk = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise DispatchError(
-            "SFTP_CHUNK_INVALID", "SFTP chunk must use canonical base64"
-        ) from exc
-    if not chunk or base64.b64encode(chunk).decode("ascii") != encoded:
-        raise DispatchError(
-            "SFTP_CHUNK_INVALID", "SFTP chunk must contain 1..262144 bytes"
-        )
-    if len(chunk) > SFTP_CHUNK_BYTES:
-        raise DispatchError(
-            "SFTP_CHUNK_LIMIT_EXCEEDED", "SFTP chunk must contain at most 262144 bytes"
-        )
-    return chunk
 
 
 def _dispatch_error(error: ManualSftpError) -> DispatchError:

@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::{app_state::RuntimeStateHandle, sidecar::RuntimeStatus};
+use crate::{app_state::RuntimeStateHandle, runtime::RuntimeStatus};
 
 use super::CommandError;
 

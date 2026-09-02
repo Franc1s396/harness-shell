@@ -3,11 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
@@ -20,22 +17,12 @@ from harness_shell_sidecar.agent.contracts import (
 )
 from harness_shell_sidecar.agent.handlers import register_agent_handlers
 from harness_shell_sidecar.agent.service import AgentServiceError
-from harness_shell_sidecar.protocol import (
-    MAX_PAYLOAD_BYTES,
-    FrameEnvelope,
-    MessageType,
-    Sensitivity,
-)
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
 
 from .conftest import AgentStorage, valid_api_config_input
 
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
-AGENT_FIXTURES = WORKSPACE_ROOT / "docs" / "protocol" / "fixtures" / "agent"
-VALID_AGENT_METHOD_PAIRS = json.loads(
-    (AGENT_FIXTURES / "valid-method-pairs-v1.json").read_text(encoding="utf-8")
-)
+MAX_JSON_RESPONSE_BYTES = 1_048_576
 
 
 @dataclass(slots=True)
@@ -80,22 +67,11 @@ def application_frame(
     method: str,
     *,
     params: dict[str, object],
-    sensitivity: Sensitivity = Sensitivity.SECRET,
     request_id: UUID | None = None,
-) -> FrameEnvelope:
-    """Build one strict Protocol v1 application request."""
+) -> tuple[UUID, str, dict[str, object]]:
+    """Build dispatcher arguments without constructing a transport envelope."""
 
-    return FrameEnvelope(
-        protocol_version=1,
-        message_type=MessageType.REQUEST,
-        request_id=request_id or uuid4(),
-        task_id=None,
-        workflow_run_id=None,
-        sequence=1,
-        timestamp=datetime.now(UTC),
-        sensitivity=sensitivity,
-        payload={"method": method, "params": params},
-    )
+    return request_id or uuid4(), method, params
 
 
 def _result() -> AgentTurnResult:
@@ -141,57 +117,6 @@ def _dispatcher(
     return dispatcher
 
 
-def test_agent_turn_requires_secret_frame(agent_storage: AgentStorage) -> None:
-    """Reject API key transport through a normal Protocol frame before decoding."""
-
-    async def scenario() -> None:
-        config = agent_storage.api_configs.create(valid_api_config_input())
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
-        request = application_frame(
-            "agent.turn.run",
-            params=_turn_params(
-                config.api_config_id,
-                config.api_key_secret_ref,
-            ),
-            sensitivity=Sensitivity.NORMAL,
-        )
-
-        with pytest.raises(DispatchError) as error:
-            await dispatcher.dispatch(request)
-
-        assert error.value.error_code == "AGENT_SECRET_FRAME_REQUIRED"
-
-    asyncio.run(scenario())
-
-
-@pytest.mark.parametrize(
-    "pair",
-    VALID_AGENT_METHOD_PAIRS[:5],
-    ids=[pair["method"] for pair in VALID_AGENT_METHOD_PAIRS[:5]],
-)
-def test_api_config_methods_reject_secret_frames(
-    agent_storage: AgentStorage,
-    pair: dict[str, object],
-) -> None:
-    """Drive exact Python sensitivity behavior from the shared method fixture."""
-
-    async def scenario() -> None:
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
-
-        with pytest.raises(DispatchError) as error:
-            await dispatcher.dispatch(
-                application_frame(
-                    str(pair["method"]),
-                    params={},
-                    sensitivity=Sensitivity.SECRET,
-                )
-            )
-
-        assert error.value.error_code == "AGENT_NORMAL_FRAME_REQUIRED"
-
-    asyncio.run(scenario())
-
-
 @pytest.mark.parametrize(
     ("repository_code", "expected_code"),
     [
@@ -217,10 +142,9 @@ def test_api_config_repository_errors_are_allowlisted_and_redacted(
 
         with pytest.raises(DispatchError) as error:
             await dispatcher.dispatch(
-                application_frame(
+                *application_frame(
                     "agent.api_configs.list",
                     params={},
-                    sensitivity=Sensitivity.NORMAL,
                 )
             )
 
@@ -256,7 +180,7 @@ def test_agent_turn_rejects_strict_payload_errors(
 
         with pytest.raises(DispatchError) as error:
             await dispatcher.dispatch(
-                application_frame("agent.turn.run", params=params)
+                *application_frame("agent.turn.run", params=params)
             )
 
         assert error.value.error_code == "INVALID_REQUEST_PAYLOAD"
@@ -276,7 +200,7 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
         dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
         with pytest.raises(DispatchError) as disabled_error:
             await dispatcher.dispatch(
-                application_frame(
+                *application_frame(
                     "agent.turn.run",
                     params=_turn_params(
                         disabled.api_config_id,
@@ -289,7 +213,7 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
         enabled = agent_storage.api_configs.create(valid_api_config_input())
         with pytest.raises(DispatchError) as changed_error:
             await dispatcher.dispatch(
-                application_frame(
+                *application_frame(
                     "agent.turn.run",
                     params=_turn_params(enabled.api_config_id, uuid4()),
                 )
@@ -309,7 +233,7 @@ def test_agent_turn_decodes_key_and_returns_only_turn_result(
         service = FakeAgentService(_result())
         dispatcher = _dispatcher(agent_storage, service)
         result = await dispatcher.dispatch(
-            application_frame(
+            *application_frame(
                 "agent.turn.run",
                 params=_turn_params(
                     config.api_config_id,
@@ -351,7 +275,7 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
 
         with pytest.raises(DispatchError) as error:
             await dispatcher.dispatch(
-                application_frame(
+                *application_frame(
                     "agent.turn.run",
                     params=_turn_params(
                         config.api_config_id,
@@ -385,7 +309,7 @@ def test_agent_turn_cancellation_flows_through_dispatcher(
             request_id=request_id,
         )
 
-        running = asyncio.create_task(dispatcher.dispatch(request))
+        running = asyncio.create_task(dispatcher.dispatch(*request))
         await service.started.wait()
         assert await dispatcher.cancel(request_id) is True
         result = await running
@@ -412,7 +336,7 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
 
         with pytest.raises(DispatchError) as error:
             await dispatcher.dispatch(
-                application_frame(
+                *application_frame(
                     "agent.turn.run",
                     params=_turn_params(
                         config.api_config_id,
@@ -440,27 +364,24 @@ def test_api_config_handlers_round_trip_without_secret_bytes(
         dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
         value = valid_api_config_input()
         created = await dispatcher.dispatch(
-            application_frame(
+            *application_frame(
                 "agent.api_configs.create",
                 params=value.model_dump(mode="json"),
-                sensitivity=Sensitivity.NORMAL,
             )
         )
         config = created.payload["config"]
         config_id = UUID(config["api_config_id"])
 
         listed = await dispatcher.dispatch(
-            application_frame(
+            *application_frame(
                 "agent.api_configs.list",
                 params={},
-                sensitivity=Sensitivity.NORMAL,
             )
         )
         fetched = await dispatcher.dispatch(
-            application_frame(
+            *application_frame(
                 "agent.api_configs.get",
                 params={"api_config_id": str(config_id)},
-                sensitivity=Sensitivity.NORMAL,
             )
         )
 
@@ -471,58 +392,14 @@ def test_api_config_handlers_round_trip_without_secret_bytes(
     asyncio.run(scenario())
 
 
-def test_agent_protocol_fixtures_cover_exact_methods_and_invalid_boundaries() -> None:
-    """Keep Python handler expectations synchronized with shared Protocol fixtures."""
-
-    valid = json.loads(
-        (AGENT_FIXTURES / "valid-method-pairs-v1.json").read_text(encoding="utf-8")
-    )
-    assert [(pair["method"], pair["sensitivity"]) for pair in valid] == [
-        ("agent.api_configs.list", "normal"),
-        ("agent.api_configs.get", "normal"),
-        ("agent.api_configs.create", "normal"),
-        ("agent.api_configs.update", "normal"),
-        ("agent.api_configs.delete", "normal"),
-        ("agent.turn.run", "secret"),
-    ]
-    assert all(pair["request"]["method"] == pair["method"] for pair in valid)
-
-    invalid = json.loads(
-        (AGENT_FIXTURES / "invalid-cases-v1.json").read_text(encoding="utf-8")
-    )
-    assert [case["kind"] for case in invalid] == [
-        "normal_frame_api_key",
-        "unknown_request_field",
-        "malformed_uuid",
-        "malformed_base64",
-        "tool_session_argument_forbidden",
-        "oversized_agent_response",
-        "unmatched_tool_call_repair",
-    ]
-    assert invalid[5]["encoded_payload_bytes"] > MAX_PAYLOAD_BYTES
-    assert invalid[6]["repair"]["code"] == "PREVIOUS_TOOL_CALL_INTERRUPTED"
-
-    public_errors = json.loads(
-        (AGENT_FIXTURES / "public-error-codes-v1.json").read_text(encoding="utf-8")
-    )
-    assert set(public_errors) == {"request", "api_config", "turn", "tool"}
-    assert "MODEL_API_CONFIG_NOT_FOUND" in public_errors["api_config"]
-    assert "MODEL_REQUEST_FAILED" in public_errors["turn"]
-    assert "MODEL_RESPONSE_INVALID" in public_errors["turn"]
-    assert "AGENT_TURN_FAILED" in public_errors["turn"]
-    assert "AGENT_RUN_NOT_RUNNING" not in {
-        code for codes in public_errors.values() for code in codes
-    }
-
-
 def test_oversized_agent_response_fails_without_truncating_final_text(
     agent_storage: AgentStorage,
 ) -> None:
-    """Reject a terminal response exceeding Protocol v1 instead of truncating it."""
+    """Reject a terminal HTTP response exceeding the limit instead of truncating it."""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
-        oversized_text = "x" * (MAX_PAYLOAD_BYTES + 1)
+        oversized_text = "x" * (MAX_JSON_RESPONSE_BYTES + 1)
         oversized = AgentTurnResult(
             conversation_id=uuid4(),
             agent_run_id=uuid4(),
@@ -535,7 +412,7 @@ def test_oversized_agent_response_fails_without_truncating_final_text(
 
         with pytest.raises(DispatchError) as error:
             await dispatcher.dispatch(
-                application_frame(
+                *application_frame(
                     "agent.turn.run",
                     params=_turn_params(
                         config.api_config_id,

@@ -122,6 +122,21 @@ class CancellationAwareModel(FakeModelSequence):
         finally:
             self.stopped.set()
 
+    async def astream(
+        self,
+        messages: Sequence[AnyMessage],
+    ) -> AsyncIterator[AIMessageChunk]:
+        """Expose the same cancellation lifecycle through the streaming boundary."""
+
+        self.calls += 1
+        self.message_calls.append(list(messages))
+        self.started.set()
+        try:
+            await self.release.wait()
+            yield AIMessageChunk(content="released")
+        finally:
+            self.stopped.set()
+
 
 async def instant_sleep(_: float) -> None:
     """Complete retry delays immediately in deterministic tests."""

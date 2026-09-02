@@ -1,16 +1,18 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use tauri::State;
 use uuid::Uuid;
 
 use crate::{
-    sidecar::broker::RuntimeBrokerHandle,
+    runtime::{
+        CreateAgentApiConfigRequest, DeleteAgentApiConfigRequest, GetAgentApiConfigRequest,
+        ListAgentApiConfigsRequest, RunAgentTurnRequest, RuntimeClient, RuntimeClientHandle,
+        UpdateAgentApiConfigRequest,
+    },
     vault::{CredentialId, CredentialKind, VaultState},
 };
 
 use super::{
-    connections::{request, request_secret},
     credentials::{lock_vault, map_vault_error},
     CommandError,
 };
@@ -68,76 +70,92 @@ pub struct AgentTurnResult {
     pub error_code: Option<String>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfigsResult {
-    configs: Vec<ModelApiConfig>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfigResult {
-    config: ModelApiConfig,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DeleteResult {
-    deleted: bool,
-}
-
 #[tauri::command]
 pub async fn list_model_api_configs(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
 ) -> Result<Vec<ModelApiConfig>, CommandError> {
-    request(&broker, "agent.api_configs.list", Map::new())
+    list_model_api_configs_with_runtime(&*runtime).await
+}
+
+#[doc(hidden)]
+pub async fn list_model_api_configs_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+) -> Result<Vec<ModelApiConfig>, CommandError> {
+    runtime
+        .execute(ListAgentApiConfigsRequest)
         .await
-        .map(|result: ConfigsResult| result.configs)
+        .map(|response| response.configs)
+        .map_err(super::connections::map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn create_model_api_config(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     input: ModelApiConfigInput,
 ) -> Result<ModelApiConfig, CommandError> {
-    request(&broker, "agent.api_configs.create", object(input)?)
+    create_model_api_config_with_runtime(&*runtime, input).await
+}
+
+#[doc(hidden)]
+pub async fn create_model_api_config_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    input: ModelApiConfigInput,
+) -> Result<ModelApiConfig, CommandError> {
+    runtime
+        .execute(CreateAgentApiConfigRequest(input))
         .await
-        .map(|result: ConfigResult| result.config)
+        .map(|response| response.config)
+        .map_err(super::connections::map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn update_model_api_config(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     api_config_id: Uuid,
     input: ModelApiConfigInput,
 ) -> Result<ModelApiConfig, CommandError> {
-    let mut params = object(input)?;
-    params.insert(
-        "api_config_id".to_owned(),
-        Value::String(api_config_id.to_string()),
-    );
-    request(&broker, "agent.api_configs.update", params)
+    update_model_api_config_with_runtime(&*runtime, api_config_id, input).await
+}
+
+#[doc(hidden)]
+pub async fn update_model_api_config_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    api_config_id: Uuid,
+    input: ModelApiConfigInput,
+) -> Result<ModelApiConfig, CommandError> {
+    runtime
+        .execute(UpdateAgentApiConfigRequest {
+            api_config_id,
+            input,
+        })
         .await
-        .map(|result: ConfigResult| result.config)
+        .map(|response| response.config)
+        .map_err(super::connections::map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn delete_model_api_config(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     api_config_id: Uuid,
 ) -> Result<bool, CommandError> {
-    let params = Map::from_iter([(
-        "api_config_id".to_owned(),
-        Value::String(api_config_id.to_string()),
-    )]);
-    request(&broker, "agent.api_configs.delete", params)
+    delete_model_api_config_with_runtime(&*runtime, api_config_id).await
+}
+
+#[doc(hidden)]
+pub async fn delete_model_api_config_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    api_config_id: Uuid,
+) -> Result<bool, CommandError> {
+    runtime
+        .execute(DeleteAgentApiConfigRequest { api_config_id })
         .await
-        .map(|result: DeleteResult| result.deleted)
+        .map(|response| response.deleted)
+        .map_err(super::connections::map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn run_agent_turn(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     vault: State<'_, VaultState>,
     conversation_id: Option<Uuid>,
     ssh_session_id: Uuid,
@@ -145,7 +163,7 @@ pub async fn run_agent_turn(
     user_message: String,
 ) -> Result<AgentTurnResult, CommandError> {
     run_agent_turn_with_dependencies(
-        &broker,
+        &*runtime,
         &vault,
         conversation_id,
         ssh_session_id,
@@ -156,24 +174,19 @@ pub async fn run_agent_turn(
 }
 
 #[doc(hidden)]
-pub async fn run_agent_turn_with_dependencies(
-    broker: &RuntimeBrokerHandle,
+pub async fn run_agent_turn_with_dependencies<R: RuntimeClient + ?Sized>(
+    runtime: &R,
     vault: &VaultState,
     conversation_id: Option<Uuid>,
     ssh_session_id: Uuid,
     api_config_id: Uuid,
     user_message: String,
 ) -> Result<AgentTurnResult, CommandError> {
-    let config: ModelApiConfig = request::<ConfigResult>(
-        broker,
-        "agent.api_configs.get",
-        Map::from_iter([(
-            "api_config_id".to_owned(),
-            Value::String(api_config_id.to_string()),
-        )]),
-    )
-    .await?
-    .config;
+    let config = runtime
+        .execute(GetAgentApiConfigRequest { api_config_id })
+        .await
+        .map_err(super::connections::map_runtime_error)?
+        .config;
     if config.api_config_id != api_config_id {
         return Err(CommandError::new(
             "SIDECAR_RESPONSE_INVALID",
@@ -186,25 +199,23 @@ pub async fn run_agent_turn_with_dependencies(
     let api_key = lock_vault(vault)?
         .resolve_secret(config.api_key_secret_ref, CredentialKind::ApiKey)
         .map_err(map_vault_error)?;
-    let params = object(serde_json::json!({
-        "conversation_id": conversation_id,
-        "ssh_session_id": ssh_session_id,
-        "api_config_id": api_config_id,
-        "api_key_credential_id": config.api_key_secret_ref,
-        "api_key_b64": STANDARD.encode(api_key.as_slice()),
-        "user_message": user_message,
-    }))?;
-    request_secret(broker, "agent.turn.run", params).await
-}
-
-fn object(value: impl Serialize) -> Result<Map<String, Value>, CommandError> {
-    serde_json::to_value(value)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .ok_or_else(|| {
-            CommandError::new(
-                "COMMAND_PAYLOAD_INVALID",
-                "The Agent command payload could not be encoded.",
-            )
+    runtime
+        .execute(RunAgentTurnRequest::new(
+            conversation_id,
+            ssh_session_id,
+            api_config_id,
+            config.api_key_secret_ref,
+            STANDARD.encode(api_key.as_slice()),
+            user_message,
+        ))
+        .await
+        .map(|response| AgentTurnResult {
+            conversation_id: response.conversation_id,
+            agent_run_id: response.agent_run_id,
+            status: response.status,
+            final_text: response.final_text,
+            react_iteration: response.react_iteration,
+            error_code: response.error_code,
         })
+        .map_err(super::connections::map_runtime_error)
 }

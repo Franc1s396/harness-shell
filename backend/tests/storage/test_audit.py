@@ -29,7 +29,7 @@ def test_audit_chain_detects_body_tampering(tmp_path: Path) -> None:
             AuditEvent.runtime_started(correlation_id=CORRELATION_ID)
         )
         second = ledger.append(
-            AuditEvent.sidecar_ready(correlation_id=CORRELATION_ID)
+            AuditEvent.runtime_ready(correlation_id=CORRELATION_ID)
         )
         assert first.sequence == 1
         assert second.sequence == 2
@@ -67,7 +67,7 @@ def test_audit_chain_detects_deleted_middle_entry(tmp_path: Path) -> None:
     try:
         ledger.append(AuditEvent.runtime_started(correlation_id=CORRELATION_ID))
         middle = ledger.append(
-            AuditEvent.sidecar_ready(correlation_id=CORRELATION_ID)
+            AuditEvent.runtime_ready(correlation_id=CORRELATION_ID)
         )
         ledger.append(AuditEvent.runtime_stopped(correlation_id=CORRELATION_ID))
         database.execute(

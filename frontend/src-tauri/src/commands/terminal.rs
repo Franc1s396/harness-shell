@@ -1,15 +1,13 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use tauri::State;
 use uuid::Uuid;
 
-use crate::sidecar::broker::RuntimeBrokerHandle;
-
-use super::{
-    connections::{request, request_secret},
-    CommandError,
+use crate::runtime::{
+    ClosePtyRequest, OpenPtyRequest, PtyInput, ResizePtyRequest, RuntimeClient, RuntimeClientHandle,
 };
+
+use super::CommandError;
 
 const MAX_PTY_CHUNK_BYTES: usize = 32_768;
 
@@ -31,59 +29,69 @@ pub enum PtyState {
     Failed,
 }
 
-#[derive(Deserialize)]
-struct PtySessionResult {
-    pty_session: PtySession,
-}
-
-#[derive(Deserialize)]
-struct WriteResult {
-    accepted_bytes: usize,
-}
-
 #[tauri::command]
 pub async fn open_pty(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
+    ssh_session_id: Uuid,
+    cols: u16,
+    rows: u16,
+) -> Result<PtySession, CommandError> {
+    open_pty_with_runtime(&*runtime, ssh_session_id, cols, rows).await
+}
+
+#[doc(hidden)]
+pub async fn open_pty_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
     ssh_session_id: Uuid,
     cols: u16,
     rows: u16,
 ) -> Result<PtySession, CommandError> {
     validate_size(cols, rows)?;
-    let params = Map::from_iter([
-        (
-            "ssh_session_id".to_owned(),
-            Value::String(ssh_session_id.to_string()),
-        ),
-        ("cols".to_owned(), Value::from(cols)),
-        ("rows".to_owned(), Value::from(rows)),
-    ]);
-    request(&broker, "pty.open", params)
+    runtime
+        .execute(OpenPtyRequest {
+            ssh_session_id,
+            cols,
+            rows,
+        })
         .await
-        .map(|result: PtySessionResult| result.pty_session)
+        .map(|response| response.pty_session)
+        .map_err(super::connections::map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn write_pty(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
+    pty_session_id: Uuid,
+    data_b64: String,
+) -> Result<usize, CommandError> {
+    write_pty_with_runtime(&*runtime, pty_session_id, data_b64).await
+}
+
+#[doc(hidden)]
+pub async fn write_pty_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
     pty_session_id: Uuid,
     data_b64: String,
 ) -> Result<usize, CommandError> {
     let data = validate_pty_input(&data_b64)?;
-    let params = Map::from_iter([
-        (
-            "pty_session_id".to_owned(),
-            Value::String(pty_session_id.to_string()),
-        ),
-        ("data_b64".to_owned(), Value::String(data_b64)),
-    ]);
-    request_secret(&broker, "pty.write", params)
+    let request = PtyInput::new(pty_session_id, &data).map_err(|_| {
+        CommandError::new(
+            "INVALID_PTY_INPUT",
+            "PTY input must contain 1..32768 bytes.",
+        )
+    })?;
+    runtime
+        .send_pty_input(request)
         .await
-        .and_then(|result: WriteResult| {
-            if result.accepted_bytes == data.len() {
-                Ok(result.accepted_bytes)
+        .map_err(super::connections::map_runtime_error)
+        .and_then(|result| {
+            if result.pty_session_id == pty_session_id
+                && result.accepted_bytes as usize == data.len()
+            {
+                Ok(result.accepted_bytes as usize)
             } else {
                 Err(CommandError::new(
-                    "SIDECAR_RESPONSE_INVALID",
+                    "RUNTIME_WEBSOCKET_CONTRACT_FAILED",
                     "The PTY runtime returned an invalid byte count.",
                 ))
             }
@@ -92,37 +100,51 @@ pub async fn write_pty(
 
 #[tauri::command]
 pub async fn resize_pty(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
+    pty_session_id: Uuid,
+    cols: u16,
+    rows: u16,
+) -> Result<PtySession, CommandError> {
+    resize_pty_with_runtime(&*runtime, pty_session_id, cols, rows).await
+}
+
+#[doc(hidden)]
+pub async fn resize_pty_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
     pty_session_id: Uuid,
     cols: u16,
     rows: u16,
 ) -> Result<PtySession, CommandError> {
     validate_size(cols, rows)?;
-    let params = Map::from_iter([
-        (
-            "pty_session_id".to_owned(),
-            Value::String(pty_session_id.to_string()),
-        ),
-        ("cols".to_owned(), Value::from(cols)),
-        ("rows".to_owned(), Value::from(rows)),
-    ]);
-    request(&broker, "pty.resize", params)
+    runtime
+        .execute(ResizePtyRequest {
+            pty_session_id,
+            cols,
+            rows,
+        })
         .await
-        .map(|result: PtySessionResult| result.pty_session)
+        .map(|response| response.pty_session)
+        .map_err(super::connections::map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn close_pty(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     pty_session_id: Uuid,
 ) -> Result<PtySession, CommandError> {
-    let params = Map::from_iter([(
-        "pty_session_id".to_owned(),
-        Value::String(pty_session_id.to_string()),
-    )]);
-    request(&broker, "pty.close", params)
+    close_pty_with_runtime(&*runtime, pty_session_id).await
+}
+
+#[doc(hidden)]
+pub async fn close_pty_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    pty_session_id: Uuid,
+) -> Result<PtySession, CommandError> {
+    runtime
+        .execute(ClosePtyRequest { pty_session_id })
         .await
-        .map(|result: PtySessionResult| result.pty_session)
+        .map(|response| response.pty_session)
+        .map_err(super::connections::map_runtime_error)
 }
 
 fn validate_size(cols: u16, rows: u16) -> Result<(), CommandError> {

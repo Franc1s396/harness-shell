@@ -3,27 +3,22 @@ use std::{
     time::Duration,
 };
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use harness_shell_lib::{
-    protocol::{FrameEnvelope, MessageType, Sensitivity},
-    sftp::{
-        coordinator::{
-            DeletePreflightInput, DownloadPreparationInput, LocalFileFinishFault,
-            LocalFileFinishTestGate, LocalFileReplyTestGate, MkdirInput, MutatingDispatchTestGate,
-            RemoveInput, RenameInput, SftpCoordinator, TransferProgressSink,
-            TransferProgressSinkError, UploadPreparationInput,
-        },
-        journal::{
-            JournalFaultTestGate, LocalSftpJournalActor, LocalSftpOperationJournal,
-            LocalSftpOperationRecord, OperationKind, OperationState,
-        },
-        models::{
-            ManualSftpError, OperationPhase, RecoveryAction, RecoveryKind, RecoveryState,
-            TransferProgressProjection, TransferSnapshot, SFTP_CHUNK_BYTES,
-        },
-        protocol::ManualSftpRuntimeClient,
+use harness_shell_lib::sftp::{
+    coordinator::{
+        DeletePreflightInput, DownloadPreparationInput, LocalFileFinishFault,
+        LocalFileFinishTestGate, LocalFileReplyTestGate, MkdirInput, MutatingDispatchTestGate,
+        RemoveInput, RenameInput, SftpCoordinator, TransferProgressSink, TransferProgressSinkError,
+        UploadPreparationInput,
     },
-    sidecar::broker::{runtime_broker_channel, RuntimeCommand},
+    journal::{
+        JournalFaultTestGate, LocalSftpJournalActor, LocalSftpOperationJournal,
+        LocalSftpOperationRecord, OperationKind, OperationState,
+    },
+    models::{
+        ManualSftpError, OperationPhase, RecoveryAction, RecoveryKind, RecoveryState,
+        TransferProgressProjection, TransferSnapshot, SFTP_CHUNK_BYTES,
+    },
+    protocol::ManualSftpRuntimeClient,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -31,6 +26,12 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+};
+
+#[path = "support/manual_sftp_http_harness.rs"]
+mod manual_sftp_http_harness;
+use manual_sftp_http_harness::{
+    runtime_http_test_channel, test_bytes, HttpTestCommand, HttpTestResponse, HttpTestResponseKind,
 };
 
 #[derive(Default)]
@@ -100,30 +101,18 @@ fn object(value: Value) -> Map<String, Value> {
         .clone()
 }
 
-fn response(request_id: Uuid, payload: Value) -> FrameEnvelope {
-    FrameEnvelope {
-        protocol_version: 1,
-        message_type: MessageType::Response,
+fn response(request_id: Uuid, payload: Value) -> HttpTestResponse {
+    HttpTestResponse {
+        kind: HttpTestResponseKind::Response,
         request_id,
-        task_id: None,
-        workflow_run_id: None,
-        sequence: 1,
-        timestamp: OffsetDateTime::now_utc(),
-        sensitivity: Sensitivity::Normal,
         payload: object(payload),
     }
 }
 
-fn error_response(request_id: Uuid, error_code: &str) -> FrameEnvelope {
-    FrameEnvelope {
-        protocol_version: 1,
-        message_type: MessageType::Error,
+fn error_response(request_id: Uuid, error_code: &str) -> HttpTestResponse {
+    HttpTestResponse {
+        kind: HttpTestResponseKind::Error,
         request_id,
-        task_id: None,
-        workflow_run_id: None,
-        sequence: 1,
-        timestamp: OffsetDateTime::now_utc(),
-        sensitivity: Sensitivity::Normal,
         payload: object(json!({
             "error_code": error_code,
             "message": "The remote mutation was rejected."
@@ -135,16 +124,10 @@ fn retained_state_error_response(
     request_id: Uuid,
     error_code: &str,
     operation_state: &str,
-) -> FrameEnvelope {
-    FrameEnvelope {
-        protocol_version: 1,
-        message_type: MessageType::Error,
+) -> HttpTestResponse {
+    HttpTestResponse {
+        kind: HttpTestResponseKind::Error,
         request_id,
-        task_id: None,
-        workflow_run_id: None,
-        sequence: 1,
-        timestamp: OffsetDateTime::now_utc(),
-        sensitivity: Sensitivity::Normal,
         payload: object(json!({
             "error_code": error_code,
             "message": "Manual SFTP operation failed",
@@ -228,13 +211,13 @@ fn open_for_write(path: &std::path::Path) -> std::io::Result<fs::File> {
 
 fn coordinator_fixture() -> (
     SftpCoordinator,
-    tokio::sync::mpsc::Receiver<RuntimeCommand>,
+    tokio::sync::mpsc::Receiver<HttpTestCommand>,
     tempfile::TempDir,
 ) {
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, commands) = runtime_broker_channel();
+    let (broker, commands) = runtime_http_test_channel();
     (
         SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), journal),
         commands,
@@ -244,14 +227,14 @@ fn coordinator_fixture() -> (
 
 fn coordinator_with_progress_fixture() -> (
     SftpCoordinator,
-    tokio::sync::mpsc::Receiver<RuntimeCommand>,
+    tokio::sync::mpsc::Receiver<HttpTestCommand>,
     tempfile::TempDir,
     Arc<RecordingTransferProgressSink>,
 ) {
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, commands) = runtime_broker_channel();
+    let (broker, commands) = runtime_http_test_channel();
     let progress = Arc::new(RecordingTransferProgressSink::default());
     (
         SftpCoordinator::new_with_progress_sink(
@@ -267,12 +250,12 @@ fn coordinator_with_progress_fixture() -> (
 
 async fn complete_recursive_delete_preflight(
     coordinator: &SftpCoordinator,
-    commands: &mut tokio::sync::mpsc::Receiver<RuntimeCommand>,
+    commands: &mut tokio::sync::mpsc::Receiver<HttpTestCommand>,
 ) -> (Uuid, Uuid) {
     let delete_plan_id = Uuid::new_v4();
     let preflight = coordinator.preflight_delete(delete_preflight_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -317,8 +300,8 @@ async fn complete_recursive_delete_preflight(
     (delete_plan_id, operation_id)
 }
 
-async fn reply_to_upload_preflight(commands: &mut tokio::sync::mpsc::Receiver<RuntimeCommand>) {
-    let RuntimeCommand::Request {
+async fn reply_to_upload_preflight(commands: &mut tokio::sync::mpsc::Receiver<HttpTestCommand>) {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -326,7 +309,7 @@ async fn reply_to_upload_preflight(commands: &mut tokio::sync::mpsc::Receiver<Ru
     else {
         panic!("expected runtime request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+    assert_eq!(request.payload["operation"], "upload_preflight");
     reply
         .send(Ok(response(
             request_id,
@@ -344,8 +327,8 @@ async fn reply_to_upload_preflight(commands: &mut tokio::sync::mpsc::Receiver<Ru
         .unwrap();
 }
 
-async fn reply_to_mkdir(commands: &mut tokio::sync::mpsc::Receiver<RuntimeCommand>) {
-    let RuntimeCommand::Request {
+async fn reply_to_mkdir(commands: &mut tokio::sync::mpsc::Receiver<HttpTestCommand>) {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -353,7 +336,7 @@ async fn reply_to_mkdir(commands: &mut tokio::sync::mpsc::Receiver<RuntimeComman
     else {
         panic!("expected runtime request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.mkdir");
+    assert_eq!(request.payload["operation"], "mkdir");
     let operation_id = request.payload["params"]["operation_id"]
         .as_str()
         .and_then(|value| Uuid::parse_str(value).ok())
@@ -387,8 +370,8 @@ fn download_snapshot() -> Value {
     })
 }
 
-async fn reply_to_download_preflight(commands: &mut tokio::sync::mpsc::Receiver<RuntimeCommand>) {
-    let RuntimeCommand::Request {
+async fn reply_to_download_preflight(commands: &mut tokio::sync::mpsc::Receiver<HttpTestCommand>) {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -396,7 +379,7 @@ async fn reply_to_download_preflight(commands: &mut tokio::sync::mpsc::Receiver<
     else {
         panic!("expected remote hash request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.sha256");
+    assert_eq!(request.payload["operation"], "sha256");
     reply
         .send(Ok(response(
             request_id,
@@ -413,11 +396,11 @@ async fn reply_to_download_preflight(commands: &mut tokio::sync::mpsc::Receiver<
 }
 
 async fn reply_to_download_preflight_with(
-    commands: &mut tokio::sync::mpsc::Receiver<RuntimeCommand>,
+    commands: &mut tokio::sync::mpsc::Receiver<HttpTestCommand>,
     sha256: &str,
     byte_count: u64,
 ) {
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -425,7 +408,7 @@ async fn reply_to_download_preflight_with(
     else {
         panic!("expected remote hash request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.sha256");
+    assert_eq!(request.payload["operation"], "sha256");
     reply
         .send(Ok(response(
             request_id,
@@ -486,7 +469,7 @@ async fn run_single_chunk_upload_fault(
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_upload(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -505,7 +488,7 @@ async fn run_single_chunk_upload_fault(
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -513,7 +496,7 @@ async fn run_single_chunk_upload_fault(
         else {
             panic!("expected upload chunk request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.chunk");
+        assert_eq!(request.payload["operation"], "upload_chunk");
         let next_sequence = if matches!(fault, UploadResponseFault::ChunkSequence) {
             2
         } else {
@@ -540,7 +523,7 @@ async fn run_single_chunk_upload_fault(
             fault,
             UploadResponseFault::TerminalHash | UploadResponseFault::TerminalCount
         ) {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -548,7 +531,7 @@ async fn run_single_chunk_upload_fault(
             else {
                 panic!("expected upload finish request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.upload.finish");
+            assert_eq!(request.payload["operation"], "upload_finish");
             let terminal_hash = if matches!(fault, UploadResponseFault::TerminalHash) {
                 EMPTY_SHA256
             } else {
@@ -601,7 +584,7 @@ async fn run_single_chunk_download_fault(
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_download(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -630,7 +613,7 @@ async fn run_single_chunk_download_fault(
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -638,7 +621,7 @@ async fn run_single_chunk_download_fault(
         else {
             panic!("expected download chunk request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.chunk");
+        assert_eq!(request.payload["operation"], "download_chunk");
         let sequence = if matches!(fault, DownloadResponseFault::ChunkSequence) {
             1
         } else {
@@ -657,7 +640,7 @@ async fn run_single_chunk_download_fault(
                         "operation_id": operation_id,
                         "sequence": sequence,
                         "offset": 0,
-                        "chunk_b64": STANDARD.encode(payload),
+                        "chunk_bytes": payload,
                         "next_offset": next_offset,
                         "eof": true
                     }
@@ -668,7 +651,7 @@ async fn run_single_chunk_download_fault(
             fault,
             DownloadResponseFault::TerminalHash | DownloadResponseFault::TerminalCount
         ) {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -676,7 +659,7 @@ async fn run_single_chunk_download_fault(
             else {
                 panic!("expected download finish request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+            assert_eq!(request.payload["operation"], "download_finish");
             let terminal_hash = if matches!(fault, DownloadResponseFault::TerminalHash) {
                 EMPTY_SHA256
             } else {
@@ -721,7 +704,7 @@ async fn run_download_local_finish_fault(
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let progress = Arc::new(RecordingTransferProgressSink::default());
     let finish_gate = LocalFileFinishTestGate::default();
     finish_gate.fail_next(fault);
@@ -742,7 +725,7 @@ async fn run_download_local_finish_fault(
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_download(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -771,7 +754,7 @@ async fn run_download_local_finish_fault(
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -785,14 +768,14 @@ async fn run_download_local_finish_fault(
                         "operation_id": operation_id,
                         "sequence": 0,
                         "offset": 0,
-                        "chunk_b64": STANDARD.encode(payload),
+                        "chunk_bytes": payload,
                         "next_offset": payload.len(),
                         "eof": true
                     }
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -800,7 +783,7 @@ async fn run_download_local_finish_fault(
         else {
             panic!("expected download finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+        assert_eq!(request.payload["operation"], "download_finish");
         reply
             .send(Ok(response(
                 request_id,
@@ -865,7 +848,7 @@ fn recovery_summary(operation_id: Uuid) -> Value {
 
 fn recovery_coordinator_fixture() -> (
     SftpCoordinator,
-    tokio::sync::mpsc::Receiver<RuntimeCommand>,
+    tokio::sync::mpsc::Receiver<HttpTestCommand>,
     tempfile::TempDir,
     Uuid,
 ) {
@@ -874,7 +857,7 @@ fn recovery_coordinator_fixture() -> (
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
     let old_operation_id = Uuid::new_v4();
     journal.put(&recovery_record(old_operation_id)).unwrap();
-    let (broker, commands) = runtime_broker_channel();
+    let (broker, commands) = runtime_http_test_channel();
     (
         SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), journal),
         commands,
@@ -932,7 +915,7 @@ async fn upload_preparation_summary_has_the_exact_safe_frozen_contract() {
     let expected_hash = sha256(payload);
     let prepare = coordinator.prepare_upload(upload_input(source));
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -1014,7 +997,7 @@ async fn progress_emission_failure_is_diagnostic_and_does_not_orphan_remote_tran
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let progress = Arc::new(FailingTransferProgressSink::default());
     let coordinator = SftpCoordinator::new_with_progress_sink(
         ManualSftpRuntimeClient::new(broker),
@@ -1031,7 +1014,7 @@ async fn progress_emission_failure_is_diagnostic_and_does_not_orphan_remote_tran
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_upload(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1039,7 +1022,7 @@ async fn progress_emission_failure_is_diagnostic_and_does_not_orphan_remote_tran
         else {
             panic!("expected upload begin request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.begin");
+        assert_eq!(request.payload["operation"], "upload_begin");
         reply
             .send(Ok(response(
                 request_id,
@@ -1053,7 +1036,7 @@ async fn progress_emission_failure_is_diagnostic_and_does_not_orphan_remote_tran
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1061,7 +1044,7 @@ async fn progress_emission_failure_is_diagnostic_and_does_not_orphan_remote_tran
         else {
             panic!("expected upload finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.finish");
+        assert_eq!(request.payload["operation"], "upload_finish");
         reply
             .send(Ok(response(
                 request_id,
@@ -1095,7 +1078,7 @@ async fn successful_multichunk_upload_verifies_every_frame_and_emits_coherent_pr
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_upload(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1103,7 +1086,7 @@ async fn successful_multichunk_upload_verifies_every_frame_and_emits_coherent_pr
         else {
             panic!("expected upload begin request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.begin");
+        assert_eq!(request.payload["operation"], "upload_begin");
         assert_eq!(
             request.payload["params"]["operation_id"],
             operation_id.to_string()
@@ -1129,7 +1112,7 @@ async fn successful_multichunk_upload_verifies_every_frame_and_emits_coherent_pr
 
         let mut offset = 0_usize;
         for sequence in 0..2_u32 {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -1137,12 +1120,10 @@ async fn successful_multichunk_upload_verifies_every_frame_and_emits_coherent_pr
             else {
                 panic!("expected upload chunk request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.upload.chunk");
+            assert_eq!(request.payload["operation"], "upload_chunk");
             assert_eq!(request.payload["params"]["sequence"], sequence);
             assert_eq!(request.payload["params"]["offset"], offset as u64);
-            let actual = STANDARD
-                .decode(request.payload["params"]["chunk_b64"].as_str().unwrap())
-                .unwrap();
+            let actual = test_bytes(&request.payload["params"]["chunk_bytes"]);
             let end = (offset + SFTP_CHUNK_BYTES).min(payload.len());
             assert_eq!(actual, payload[offset..end]);
             offset = end;
@@ -1160,7 +1141,7 @@ async fn successful_multichunk_upload_verifies_every_frame_and_emits_coherent_pr
                 .unwrap();
         }
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1168,7 +1149,7 @@ async fn successful_multichunk_upload_verifies_every_frame_and_emits_coherent_pr
         else {
             panic!("expected upload finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.finish");
+        assert_eq!(request.payload["operation"], "upload_finish");
         reply
             .send(Ok(response(
                 request_id,
@@ -1231,7 +1212,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_download(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1239,7 +1220,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
         else {
             panic!("expected download begin request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.begin");
+        assert_eq!(request.payload["operation"], "download_begin");
         let active = coordinator
             .active_transfer_for_session(ssh_session_id)
             .expect("the active transfer must be projected for its SSH session");
@@ -1275,7 +1256,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
 
         let mut offset = 0_usize;
         for sequence in 0..2_u32 {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -1283,7 +1264,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
             else {
                 panic!("expected download chunk request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.download.chunk");
+            assert_eq!(request.payload["operation"], "download_chunk");
             assert_eq!(request.payload["params"]["sequence"], sequence);
             assert_eq!(request.payload["params"]["offset"], offset as u64);
             let end = (offset + SFTP_CHUNK_BYTES).min(payload.len());
@@ -1295,7 +1276,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
                             "operation_id": operation_id,
                             "sequence": sequence,
                             "offset": offset,
-                            "chunk_b64": STANDARD.encode(&payload[offset..end]),
+                            "chunk_bytes": &payload[offset..end],
                             "next_offset": end,
                             "eof": end == payload.len()
                         }
@@ -1305,7 +1286,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
             offset = end;
         }
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1313,7 +1294,7 @@ async fn successful_multichunk_download_commits_locally_and_emits_coherent_progr
         else {
             panic!("expected download finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+        assert_eq!(request.payload["operation"], "download_finish");
         reply
             .send(Ok(response(
                 request_id,
@@ -1370,7 +1351,7 @@ async fn zero_byte_download_skips_chunks_and_commits_after_finish() {
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_download(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -1392,7 +1373,7 @@ async fn zero_byte_download_skips_chunks_and_commits_after_finish() {
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1400,7 +1381,7 @@ async fn zero_byte_download_skips_chunks_and_commits_after_finish() {
         else {
             panic!("expected download finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+        assert_eq!(request.payload["operation"], "download_finish");
         reply
             .send(Ok(response(
                 request_id,
@@ -1495,7 +1476,7 @@ async fn download_rechecks_local_target_immediately_before_atomic_commit() {
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_download(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -1524,7 +1505,7 @@ async fn download_rechecks_local_target_immediately_before_atomic_commit() {
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -1538,14 +1519,14 @@ async fn download_rechecks_local_target_immediately_before_atomic_commit() {
                         "operation_id": operation_id,
                         "sequence": 0,
                         "offset": 0,
-                        "chunk_b64": STANDARD.encode(payload),
+                        "chunk_bytes": payload,
                         "next_offset": payload.len(),
                         "eof": true
                     }
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1553,7 +1534,7 @@ async fn download_rechecks_local_target_immediately_before_atomic_commit() {
         else {
             panic!("expected download finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+        assert_eq!(request.payload["operation"], "download_finish");
         fs::write(&target, b"external-writer-won").unwrap();
         reply
             .send(Ok(response(
@@ -1630,7 +1611,7 @@ async fn cancellation_after_download_finish_prevents_the_local_commit() {
     let operation_id = prepared.operation_id;
     let execute = coordinator.execute_download(prepared.preparation_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -1659,7 +1640,7 @@ async fn cancellation_after_download_finish_prevents_the_local_commit() {
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -1673,14 +1654,14 @@ async fn cancellation_after_download_finish_prevents_the_local_commit() {
                         "operation_id": operation_id,
                         "sequence": 0,
                         "offset": 0,
-                        "chunk_b64": STANDARD.encode(payload),
+                        "chunk_bytes": payload,
                         "next_offset": payload.len(),
                         "eof": true
                     }
                 }),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -1688,7 +1669,7 @@ async fn cancellation_after_download_finish_prevents_the_local_commit() {
         else {
             panic!("expected download finish request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+        assert_eq!(request.payload["operation"], "download_finish");
         coordinator.cancel(operation_id).unwrap();
         reply
             .send(Ok(response(
@@ -1720,7 +1701,7 @@ async fn cancellation_is_too_late_once_local_commit_has_started() {
     let target = directory.path().join("committing.bin");
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let progress = Arc::new(RecordingTransferProgressSink::default());
     let finish_gate = LocalFileFinishTestGate::default();
     finish_gate.block_next_finish();
@@ -1747,7 +1728,7 @@ async fn cancellation_is_too_late_once_local_commit_has_started() {
             .await
     });
 
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = commands.recv().await.unwrap()
     else {
@@ -1776,7 +1757,7 @@ async fn cancellation_is_too_late_once_local_commit_has_started() {
             }),
         )))
         .unwrap();
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = commands.recv().await.unwrap()
     else {
@@ -1790,14 +1771,14 @@ async fn cancellation_is_too_late_once_local_commit_has_started() {
                     "operation_id": operation_id,
                     "sequence": 0,
                     "offset": 0,
-                    "chunk_b64": STANDARD.encode(payload),
+                    "chunk_bytes": payload,
                     "next_offset": payload.len(),
                     "eof": true
                 }
             }),
         )))
         .unwrap();
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -1805,7 +1786,7 @@ async fn cancellation_is_too_late_once_local_commit_has_started() {
     else {
         panic!("expected download finish request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.finish");
+    assert_eq!(request.payload["operation"], "download_finish");
     reply
         .send(Ok(response(
             request_id,
@@ -1847,7 +1828,7 @@ async fn dropping_upload_after_remote_begin_dispatches_abort_and_deletes_the_jou
         result = &mut execute => panic!("upload completed before begin: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = command
     else {
@@ -1870,7 +1851,7 @@ async fn dropping_upload_after_remote_begin_dispatches_abort_and_deletes_the_jou
         result = &mut execute => panic!("upload completed before chunk dispatch: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = command
     else {
@@ -1888,7 +1869,7 @@ async fn dropping_upload_after_remote_begin_dispatches_abort_and_deletes_the_jou
         )))
         .unwrap();
 
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -1899,7 +1880,7 @@ async fn dropping_upload_after_remote_begin_dispatches_abort_and_deletes_the_jou
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     let mut shutdown = Box::pin(coordinator.shutdown());
     tokio::select! {
         result = &mut shutdown => {
@@ -1961,7 +1942,7 @@ async fn dropping_download_after_remote_begin_aborts_remote_and_local_part() {
         result = &mut execute => panic!("download completed before begin: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = command
     else {
@@ -1994,7 +1975,7 @@ async fn dropping_download_after_remote_begin_aborts_remote_and_local_part() {
         result = &mut execute => panic!("download completed before chunk dispatch: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = command
     else {
@@ -2013,7 +1994,7 @@ async fn dropping_download_after_remote_begin_aborts_remote_and_local_part() {
         )))
         .unwrap();
 
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2024,7 +2005,7 @@ async fn dropping_download_after_remote_begin_aborts_remote_and_local_part() {
     else {
         panic!("expected download abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.abort");
+    assert_eq!(request.payload["operation"], "download_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -2063,7 +2044,7 @@ async fn upload_local_read_failure_aborts_remote_and_returns_the_safe_original_e
     let directory = tempfile::tempdir().unwrap();
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let fault = LocalFileFinishTestGate::default();
     fault.fail_next(LocalFileFinishFault::UploadRead);
     let coordinator = SftpCoordinator::new_with_progress_and_local_finish_test_gate(
@@ -2082,7 +2063,7 @@ async fn upload_local_read_failure_aborts_remote_and_returns_the_safe_original_e
     let operation_id = prepared.operation_id;
     let mut execute = Box::pin(coordinator.execute_upload(prepared.preparation_id, true));
 
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = tokio::select! (
         result = &mut execute => panic!("upload completed before begin: {result:?}"),
@@ -2104,7 +2085,7 @@ async fn upload_local_read_failure_aborts_remote_and_returns_the_safe_original_e
             }),
         )))
         .unwrap();
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2115,7 +2096,7 @@ async fn upload_local_read_failure_aborts_remote_and_returns_the_safe_original_e
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -2150,7 +2131,7 @@ async fn run_download_local_io_failure(
     let directory = tempfile::tempdir().unwrap();
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let fault = LocalFileFinishTestGate::default();
     if abort_cleanup_failure {
         fault.fail_sequence(&[fault_kind, LocalFileFinishFault::PartAbort]);
@@ -2181,7 +2162,7 @@ async fn run_download_local_io_failure(
         result = &mut execute => panic!("download completed before begin: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = begin
     else {
@@ -2216,7 +2197,7 @@ async fn run_download_local_io_failure(
             result = &mut execute => panic!("download completed before chunk: {result:?}"),
             command = commands.recv() => command.unwrap(),
         };
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -2224,7 +2205,7 @@ async fn run_download_local_io_failure(
         else {
             panic!("expected download chunk request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.download.chunk");
+        assert_eq!(request.payload["operation"], "download_chunk");
         reply
             .send(Ok(response(
                 request_id,
@@ -2233,7 +2214,7 @@ async fn run_download_local_io_failure(
                         "operation_id": operation_id,
                         "sequence": 0,
                         "offset": 0,
-                        "chunk_b64": STANDARD.encode(payload),
+                        "chunk_bytes": payload,
                         "next_offset": payload.len(),
                         "eof": true
                     }
@@ -2246,7 +2227,7 @@ async fn run_download_local_io_failure(
         result = &mut execute => panic!("local I/O failure returned before remote abort: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2254,7 +2235,7 @@ async fn run_download_local_io_failure(
     else {
         panic!("expected download abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.abort");
+    assert_eq!(request.payload["operation"], "download_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -2321,7 +2302,7 @@ async fn untrusted_abort_after_local_failure_is_durable_outcome_unknown() {
     let directory = tempfile::tempdir().unwrap();
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let fault = LocalFileFinishTestGate::default();
     fault.fail_next(LocalFileFinishFault::UploadRead);
     let coordinator = SftpCoordinator::new_with_progress_and_local_finish_test_gate(
@@ -2344,7 +2325,7 @@ async fn untrusted_abort_after_local_failure_is_durable_outcome_unknown() {
         result = &mut execute => panic!("upload completed before begin: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = begin
     else {
@@ -2367,7 +2348,7 @@ async fn untrusted_abort_after_local_failure_is_durable_outcome_unknown() {
         result = &mut execute => panic!("local read failure returned before remote abort: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2375,7 +2356,7 @@ async fn untrusted_abort_after_local_failure_is_durable_outcome_unknown() {
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -2409,7 +2390,7 @@ async fn upload_journal_transition_failure_after_begin_still_aborts_remote() {
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
     let journal_fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -2430,7 +2411,7 @@ async fn upload_journal_transition_failure_after_begin_still_aborts_remote() {
         result = &mut execute => panic!("upload completed before begin: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = begin
     else {
@@ -2453,7 +2434,7 @@ async fn upload_journal_transition_failure_after_begin_still_aborts_remote() {
         result = &mut execute => panic!("upload completed before chunk: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2461,7 +2442,7 @@ async fn upload_journal_transition_failure_after_begin_still_aborts_remote() {
     else {
         panic!("expected upload chunk request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.chunk");
+    assert_eq!(request.payload["operation"], "upload_chunk");
     journal_fault.fail_next_put();
     reply
         .send(Ok(response(
@@ -2480,7 +2461,7 @@ async fn upload_journal_transition_failure_after_begin_still_aborts_remote() {
         result = &mut execute => panic!("journal failure returned before remote abort: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2488,7 +2469,7 @@ async fn upload_journal_transition_failure_after_begin_still_aborts_remote() {
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -2519,7 +2500,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
     let journal_fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -2543,7 +2524,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
         result = &mut execute => panic!("download completed before begin: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = begin
     else {
@@ -2576,7 +2557,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
         result = &mut execute => panic!("download completed before chunk: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2584,7 +2565,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
     else {
         panic!("expected download chunk request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.chunk");
+    assert_eq!(request.payload["operation"], "download_chunk");
     journal_fault.fail_next_put();
     reply
         .send(Ok(response(
@@ -2594,7 +2575,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
                     "operation_id": operation_id,
                     "sequence": 0,
                     "offset": 0,
-                    "chunk_b64": STANDARD.encode(payload),
+                    "chunk_bytes": payload,
                     "next_offset": payload.len(),
                     "eof": true
                 }
@@ -2606,7 +2587,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
         result = &mut execute => panic!("journal failure returned before remote abort: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2614,7 +2595,7 @@ async fn download_journal_transition_failure_after_begin_aborts_remote_and_local
     else {
         panic!("expected download abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.abort");
+    assert_eq!(request.payload["operation"], "download_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -2675,10 +2656,10 @@ fn coordinator_and_journal_actor_are_sendable_across_async_workers() {
 }
 
 async fn reply_to_recovery_with_reused_remote_operation(
-    commands: &mut tokio::sync::mpsc::Receiver<RuntimeCommand>,
+    commands: &mut tokio::sync::mpsc::Receiver<HttpTestCommand>,
     old_operation_id: Uuid,
 ) {
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2686,12 +2667,12 @@ async fn reply_to_recovery_with_reused_remote_operation(
     else {
         panic!("expected recovery inspect request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.recovery.inspect");
+    assert_eq!(request.payload["operation"], "recovery_inspect");
     reply
         .send(Ok(response(request_id, recovery_summary(old_operation_id))))
         .unwrap();
 
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -2699,7 +2680,7 @@ async fn reply_to_recovery_with_reused_remote_operation(
     else {
         panic!("expected recovery execute request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.recovery.execute");
+    assert_eq!(request.payload["operation"], "recovery_execute");
     reply
         .send(Ok(response(
             request_id,
@@ -2778,14 +2759,14 @@ async fn failed_upload_preflight_releases_the_blocking_owned_source() {
     fs::write(&source, b"payload").unwrap();
     let prepare = coordinator.prepare_upload(upload_input(source.clone()));
     let responder = async {
-        let RuntimeCommand::Request { reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected upload preflight request");
         };
         drop(reply);
     };
 
     let (result, ()) = tokio::join!(prepare, responder);
-    assert_eq!(result.unwrap_err().code(), "SIDECAR_BROKER_CLOSED");
+    assert_eq!(result.unwrap_err().code(), "RUNTIME_HTTP_TRANSPORT_FAILED");
     assert_eq!(
         coordinator.local_file_owner_count_for_test().await.unwrap(),
         0
@@ -2829,7 +2810,7 @@ async fn recovery_allowlist_rejection_stops_after_read_only_inspection() {
     let call =
         coordinator.execute_recovery(old_operation_id, RecoveryAction::RestoreTombstone, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -2837,7 +2818,7 @@ async fn recovery_allowlist_rejection_stops_after_read_only_inspection() {
         else {
             panic!("expected recovery inspect request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.recovery.inspect");
+        assert_eq!(request.payload["operation"], "recovery_inspect");
         reply
             .send(Ok(response(request_id, recovery_summary(old_operation_id))))
             .unwrap();
@@ -2855,7 +2836,7 @@ async fn recovery_accepts_real_python_terminal_union_and_resolves_the_local_reco
     let (coordinator, mut commands, _directory, old_operation_id) = recovery_coordinator_fixture();
     let call = coordinator.inspect_recovery(old_operation_id);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -2863,7 +2844,7 @@ async fn recovery_accepts_real_python_terminal_union_and_resolves_the_local_reco
         else {
             panic!("expected recovery inspect request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.recovery.inspect");
+        assert_eq!(request.payload["operation"], "recovery_inspect");
         reply
             .send(Ok(response(
                 request_id,
@@ -2895,7 +2876,7 @@ async fn mutating_recovery_accepts_only_a_fresh_remote_terminal_identity() {
     let (coordinator, mut commands, _directory, old_operation_id) = recovery_coordinator_fixture();
     let call = coordinator.execute_recovery(old_operation_id, RecoveryAction::DeleteTemp, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -2903,12 +2884,12 @@ async fn mutating_recovery_accepts_only_a_fresh_remote_terminal_identity() {
         else {
             panic!("expected recovery inspect request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.recovery.inspect");
+        assert_eq!(request.payload["operation"], "recovery_inspect");
         reply
             .send(Ok(response(request_id, recovery_summary(old_operation_id))))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -2916,7 +2897,7 @@ async fn mutating_recovery_accepts_only_a_fresh_remote_terminal_identity() {
         else {
             panic!("expected recovery execute request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.recovery.execute");
+        assert_eq!(request.payload["operation"], "recovery_execute");
         assert_eq!(
             request.payload["params"]["recovery_id"],
             old_operation_id.to_string()
@@ -2958,7 +2939,7 @@ async fn retained_recovery_action_restarts_and_inspects_with_its_real_remote_ide
     let (coordinator, mut commands, directory, old_operation_id) = recovery_coordinator_fixture();
     let call = coordinator.execute_recovery(old_operation_id, RecoveryAction::DeleteTemp, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -2968,7 +2949,7 @@ async fn retained_recovery_action_restarts_and_inspects_with_its_real_remote_ide
             .send(Ok(response(request_id, recovery_summary(old_operation_id))))
             .unwrap();
 
-        let RuntimeCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected recovery execute request");
         };
         let remote_operation_id = request.payload["params"]["operation_id"]
@@ -2999,7 +2980,7 @@ async fn retained_recovery_action_restarts_and_inspects_with_its_real_remote_ide
 
     let reopened =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut restarted_commands) = runtime_broker_channel();
+    let (broker, mut restarted_commands) = runtime_http_test_channel();
     let restarted = SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), reopened);
     let listed = restarted
         .list_recoveries()
@@ -3012,7 +2993,7 @@ async fn retained_recovery_action_restarts_and_inspects_with_its_real_remote_ide
 
     let inspect = restarted.inspect_recovery(local_recovery_id);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -3045,7 +3026,7 @@ async fn mutating_recovery_non_terminal_response_is_retained_as_unknown() {
     let (coordinator, mut commands, _directory, old_operation_id) = recovery_coordinator_fixture();
     let call = coordinator.execute_recovery(old_operation_id, RecoveryAction::DeleteTemp, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -3054,7 +3035,7 @@ async fn mutating_recovery_non_terminal_response_is_retained_as_unknown() {
         reply
             .send(Ok(response(request_id, recovery_summary(old_operation_id))))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -3094,7 +3075,7 @@ async fn cleanup_required_recovery_action_keeps_restart_safe_remote_identity() {
     let (coordinator, mut commands, directory, old_operation_id) = recovery_coordinator_fixture();
     let call = coordinator.execute_recovery(old_operation_id, RecoveryAction::DeleteTemp, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -3103,7 +3084,7 @@ async fn cleanup_required_recovery_action_keeps_restart_safe_remote_identity() {
         reply
             .send(Ok(response(request_id, recovery_summary(old_operation_id))))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -3156,11 +3137,11 @@ async fn cleanup_required_recovery_action_keeps_restart_safe_remote_identity() {
 
     let reopened =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut restarted_commands) = runtime_broker_channel();
+    let (broker, mut restarted_commands) = runtime_http_test_channel();
     let restarted = SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), reopened);
     let inspect = restarted.inspect_recovery(local_recovery_id);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -3193,7 +3174,7 @@ async fn trusted_sidecar_error_is_terminal_and_does_not_create_unknown_recovery(
     let (coordinator, mut commands, _directory) = coordinator_fixture();
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -3215,7 +3196,7 @@ async fn inspect_entry_reads_a_symlink_target_only_after_no_follow_metadata() {
     let session_id = Uuid::new_v4();
     let call = coordinator.inspect_entry(session_id, "/home/demo/link");
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -3223,7 +3204,7 @@ async fn inspect_entry_reads_a_symlink_target_only_after_no_follow_metadata() {
         else {
             panic!("expected lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         reply
             .send(Ok(response(
                 request_id,
@@ -3235,7 +3216,7 @@ async fn inspect_entry_reads_a_symlink_target_only_after_no_follow_metadata() {
             )))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -3246,7 +3227,7 @@ async fn inspect_entry_reads_a_symlink_target_only_after_no_follow_metadata() {
         else {
             panic!("expected readlink request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.readlink");
+        assert_eq!(request.payload["operation"], "readlink");
         reply
             .send(Ok(response(
                 request_id,
@@ -3268,7 +3249,7 @@ async fn trusted_sidecar_uncertainty_keeps_the_matching_recovery_record() {
     let (coordinator, mut commands, _directory) = coordinator_fixture();
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -3299,10 +3280,10 @@ async fn timed_out_mutation_is_journaled_as_outcome_unknown_without_retry() {
         result = &mut call => panic!("mkdir completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request { request, .. } = command else {
+    let HttpTestCommand::Request { request, .. } = command else {
         panic!("expected mutation request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.mkdir");
+    assert_eq!(request.payload["operation"], "mkdir");
 
     tokio::time::advance(Duration::from_secs(30)).await;
     let error = call.await.unwrap_err();
@@ -3319,7 +3300,7 @@ async fn dropped_mutation_reply_is_journaled_as_outcome_unknown() {
     let (coordinator, mut commands, _directory) = coordinator_fixture();
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request { reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected mutation request");
         };
         drop(reply);
@@ -3342,7 +3323,7 @@ async fn late_terminal_reply_converges_the_persisted_unknown_outcome() {
         result = &mut call => panic!("mkdir completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = command
     else {
@@ -3369,7 +3350,9 @@ async fn late_terminal_reply_converges_the_persisted_unknown_outcome() {
             }),
         )))
         .is_ok());
-    for _ in 0..100 {
+    // Loopback HTTP adds socket/client scheduling hops that the former in-memory
+    // Protocol fixture did not have. Wait on the journal condition, not a fixed delay.
+    for _ in 0..10_000 {
         if coordinator.list_recoveries().await.unwrap().is_empty() {
             return;
         }
@@ -3410,7 +3393,7 @@ async fn double_cancel_is_rejected_and_the_first_request_aborts_the_upload() {
         result = &mut execute => panic!("upload completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3418,7 +3401,7 @@ async fn double_cancel_is_rejected_and_the_first_request_aborts_the_upload() {
     else {
         panic!("expected upload begin request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.begin");
+    assert_eq!(request.payload["operation"], "upload_begin");
     reply
         .send(Ok(response(
             request_id,
@@ -3437,7 +3420,7 @@ async fn double_cancel_is_rejected_and_the_first_request_aborts_the_upload() {
         result = &mut execute => panic!("upload completed before its first chunk: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3445,7 +3428,7 @@ async fn double_cancel_is_rejected_and_the_first_request_aborts_the_upload() {
     else {
         panic!("expected upload chunk request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.chunk");
+    assert_eq!(request.payload["operation"], "upload_chunk");
     assert!(coordinator.cancel(prepared.operation_id).is_ok());
     let duplicate = coordinator.cancel(prepared.operation_id).unwrap_err();
     assert_eq!(duplicate.code(), "SFTP_CANCEL_ALREADY_REQUESTED");
@@ -3466,7 +3449,7 @@ async fn double_cancel_is_rejected_and_the_first_request_aborts_the_upload() {
         result = &mut execute => panic!("upload completed without aborting: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3474,7 +3457,7 @@ async fn double_cancel_is_rejected_and_the_first_request_aborts_the_upload() {
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -3535,7 +3518,7 @@ async fn shutdown_rejects_new_mutations_while_draining_an_active_workflow() {
         result = &mut active => panic!("mkdir completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3603,7 +3586,7 @@ async fn shutdown_has_a_bounded_drain_and_keeps_the_dispatched_journal_durable()
         result = &mut active => panic!("mkdir completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request { reply, .. } = command else {
+    let HttpTestCommand::Request { reply, .. } = command else {
         panic!("expected mutation request");
     };
 
@@ -3644,7 +3627,7 @@ async fn shutdown_requests_transfer_cancellation_before_reporting_drained() {
         result = &mut execute => panic!("upload completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3652,7 +3635,7 @@ async fn shutdown_requests_transfer_cancellation_before_reporting_drained() {
     else {
         panic!("expected upload begin request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.begin");
+    assert_eq!(request.payload["operation"], "upload_begin");
     reply
         .send(Ok(response(
             request_id,
@@ -3671,7 +3654,7 @@ async fn shutdown_requests_transfer_cancellation_before_reporting_drained() {
         result = &mut execute => panic!("upload completed before its first chunk: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3679,7 +3662,7 @@ async fn shutdown_requests_transfer_cancellation_before_reporting_drained() {
     else {
         panic!("expected upload chunk request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.chunk");
+    assert_eq!(request.payload["operation"], "upload_chunk");
 
     let mut shutdown = pin!(coordinator.shutdown());
     tokio::select! {
@@ -3703,7 +3686,7 @@ async fn shutdown_requests_transfer_cancellation_before_reporting_drained() {
         result = &mut execute => panic!("upload completed without aborting: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3711,7 +3694,7 @@ async fn shutdown_requests_transfer_cancellation_before_reporting_drained() {
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -3741,7 +3724,7 @@ async fn shutdown_cannot_linearize_between_mutation_check_and_dispatch_enqueue()
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let dispatch_gate = MutatingDispatchTestGate::new();
     let coordinator = Arc::new(SftpCoordinator::new_with_mutating_dispatch_test_gate(
         ManualSftpRuntimeClient::new(broker),
@@ -3782,7 +3765,7 @@ async fn shutdown_cannot_linearize_between_mutation_check_and_dispatch_enqueue()
 
     // The dispatch checkpoint is after cancellation check but before enqueue. Shutdown must wait
     // for that same synchronous critical section, so this already-admitted begin is enqueued first.
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3793,7 +3776,7 @@ async fn shutdown_cannot_linearize_between_mutation_check_and_dispatch_enqueue()
     else {
         panic!("expected upload begin request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.begin");
+    assert_eq!(request.payload["operation"], "upload_begin");
     let operation_id = request.payload["params"]["operation_id"]
         .as_str()
         .and_then(|value| Uuid::parse_str(value).ok())
@@ -3828,7 +3811,7 @@ async fn shutdown_cannot_linearize_between_mutation_check_and_dispatch_enqueue()
             }),
         )))
         .unwrap();
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3839,7 +3822,7 @@ async fn shutdown_cannot_linearize_between_mutation_check_and_dispatch_enqueue()
     else {
         panic!("expected upload abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.upload.abort");
+    assert_eq!(request.payload["operation"], "upload_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -3895,7 +3878,7 @@ async fn download_non_terminal_error_closes_the_part_handle_on_the_blocking_owne
         result = &mut execute => panic!("download completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3903,7 +3886,7 @@ async fn download_non_terminal_error_closes_the_part_handle_on_the_blocking_owne
     else {
         panic!("expected download begin request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.begin");
+    assert_eq!(request.payload["operation"], "download_begin");
     reply
         .send(Ok(response(
             request_id,
@@ -3932,7 +3915,7 @@ async fn download_non_terminal_error_closes_the_part_handle_on_the_blocking_owne
         result = &mut execute => panic!("download completed before its first chunk: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -3940,7 +3923,7 @@ async fn download_non_terminal_error_closes_the_part_handle_on_the_blocking_owne
     else {
         panic!("expected download chunk request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.chunk");
+    assert_eq!(request.payload["operation"], "download_chunk");
     let part_path = target.parent().unwrap().join(format!(
         ".harness-shell-download-{}.part",
         prepared.operation_id
@@ -3954,7 +3937,7 @@ async fn download_non_terminal_error_closes_the_part_handle_on_the_blocking_owne
                     "operation_id": Uuid::new_v4(),
                     "sequence": 0,
                     "offset": 0,
-                    "chunk_b64": STANDARD.encode(payload),
+                    "chunk_bytes": payload,
                     "next_offset": payload.len(),
                     "eof": true
                 }
@@ -3979,7 +3962,7 @@ async fn download_non_terminal_error_closes_the_part_handle_on_the_blocking_owne
 async fn dropping_a_dispatched_mkdir_future_releases_all_in_memory_owners() {
     let (coordinator, mut commands, _directory) = coordinator_fixture();
     let mut mkdir = Box::pin(coordinator.mkdir(mkdir_input()));
-    let RuntimeCommand::Request { reply, .. } = (tokio::select! {
+    let HttpTestCommand::Request { reply, .. } = (tokio::select! {
         result = &mut mkdir => panic!("mkdir completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     }) else {
@@ -3998,7 +3981,7 @@ async fn dropped_caller_after_dispatch_is_durably_unknown_when_sqlite_reopens() 
     let (coordinator, mut commands, directory) = coordinator_fixture();
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let mut mkdir = Box::pin(coordinator.mkdir(mkdir_input()));
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -4058,7 +4041,7 @@ async fn dropped_caller_before_start_ack_is_cancelled_before_a_faulted_delete() 
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
     let fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -4102,7 +4085,7 @@ async fn dropping_freeze_reply_future_rolls_back_actor_handle_and_gate() {
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let reply_gate = LocalFileReplyTestGate::new();
     let coordinator = SftpCoordinator::new_with_local_file_reply_test_gate(
         ManualSftpRuntimeClient::new(broker),
@@ -4133,7 +4116,7 @@ async fn dropping_create_part_reply_future_releases_actor_and_operation_owners()
     let directory = tempfile::tempdir().unwrap();
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let reply_gate = LocalFileReplyTestGate::new();
     let coordinator = SftpCoordinator::new_with_local_file_reply_test_gate(
         ManualSftpRuntimeClient::new(broker),
@@ -4148,7 +4131,7 @@ async fn dropping_create_part_reply_future_releases_actor_and_operation_owners()
     let prepared = prepared.unwrap();
     let operation_id = prepared.operation_id;
     let mut execute = Box::pin(coordinator.execute_download(prepared.preparation_id, true));
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id, reply, ..
     } = (tokio::select! {
         result = &mut execute => panic!("download completed unexpectedly: {result:?}"),
@@ -4187,7 +4170,7 @@ async fn dropping_create_part_reply_future_releases_actor_and_operation_owners()
         coordinator.local_file_owner_count_for_test().await.unwrap(),
         0
     );
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -4198,7 +4181,7 @@ async fn dropping_create_part_reply_future_releases_actor_and_operation_owners()
     else {
         panic!("expected download abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.abort");
+    assert_eq!(request.payload["operation"], "download_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -4235,7 +4218,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
         result = &mut execute => panic!("download completed unexpectedly: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -4243,7 +4226,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
     else {
         panic!("expected download begin request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.begin");
+    assert_eq!(request.payload["operation"], "download_begin");
     reply
         .send(Ok(response(
             request_id,
@@ -4272,7 +4255,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
         result = &mut execute => panic!("download completed before first chunk: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -4280,7 +4263,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
     else {
         panic!("expected download chunk request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.chunk");
+    assert_eq!(request.payload["operation"], "download_chunk");
     let part_path = target.parent().unwrap().join(format!(
         ".harness-shell-download-{}.part",
         prepared.operation_id
@@ -4299,7 +4282,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
                     "operation_id": prepared.operation_id,
                     "sequence": 0,
                     "offset": 0,
-                    "chunk_b64": STANDARD.encode(&payload[..1]),
+                    "chunk_bytes": &payload[..1],
                     "next_offset": 1,
                     "eof": false
                 }
@@ -4311,7 +4294,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
         result = &mut execute => panic!("download completed without aborting: {result:?}"),
         command = commands.recv() => command.unwrap(),
     };
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -4319,7 +4302,7 @@ async fn failed_download_part_cleanup_is_retained_as_cleanup_required() {
     else {
         panic!("expected download abort request");
     };
-    assert_eq!(request.payload["method"], "manual_sftp.download.abort");
+    assert_eq!(request.payload["operation"], "download_abort");
     reply
         .send(Ok(response(
             request_id,
@@ -4379,7 +4362,7 @@ async fn restarted_download_part_recovery_is_local_path_private_and_never_calls_
     drop(journal);
 
     let reopened = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), reopened);
 
     let listed = coordinator.list_recoveries().await.unwrap();
@@ -4428,7 +4411,7 @@ async fn restart_load_keeps_an_unknown_mutation_for_recovery() {
     let (coordinator, mut commands, directory) = coordinator_fixture();
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request { reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected mutation request");
         };
         drop(reply);
@@ -4466,7 +4449,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
     });
     let rename = coordinator.rename(rename_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4474,7 +4457,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected source lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         assert!(coordinator.list_recoveries().await.unwrap().is_empty());
         reply
             .send(Ok(response(
@@ -4493,7 +4476,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
             )))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4501,7 +4484,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected source hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply
             .send(Ok(response(
                 request_id,
@@ -4516,7 +4499,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
             )))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4524,7 +4507,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected target preflight request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+        assert_eq!(request.payload["operation"], "upload_preflight");
         reply
             .send(Ok(response(
                 request_id,
@@ -4532,7 +4515,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
             )))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4540,7 +4523,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected rename mutation request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.rename");
+        assert_eq!(request.payload["operation"], "rename");
         assert_eq!(
             request.payload["params"]["source_snapshot"],
             source_snapshot
@@ -4582,7 +4565,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
 
     let remove = coordinator.remove(remove_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4590,7 +4573,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected removal lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         reply
             .send(Ok(response(
                 request_id,
@@ -4608,7 +4591,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
             )))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4616,7 +4599,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected removal hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply
             .send(Ok(response(
                 request_id,
@@ -4631,7 +4614,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
             )))
             .unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4639,7 +4622,7 @@ async fn rename_and_remove_use_the_mutation_gate_and_exact_runtime_methods() {
         else {
             panic!("expected remove mutation request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.remove");
+        assert_eq!(request.payload["operation"], "remove");
         assert_eq!(
             request.payload["params"]["expected_snapshot"],
             source_snapshot
@@ -4679,7 +4662,7 @@ async fn rename_with_existing_target_requires_confirmation_without_dispatching_m
     let source_sha256 = sha256(b"source payload");
     let call = coordinator.rename(rename_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4687,13 +4670,13 @@ async fn rename_with_existing_target_requires_confirmation_without_dispatching_m
         else {
             panic!("expected source lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         reply.send(Ok(response(request_id, json!({ "entry": {
             "name": "source.txt", "path": "/home/demo/source.txt", "entry_type": "file",
             "size": 14, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null
         }})))).unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4701,7 +4684,7 @@ async fn rename_with_existing_target_requires_confirmation_without_dispatching_m
         else {
             panic!("expected source hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply.send(Ok(response(request_id, json!({ "hash": {
             "path": "/home/demo/source.txt", "snapshot": {
                 "path": "/home/demo/source.txt", "exists": true, "entry_type": "file", "size": 14,
@@ -4709,7 +4692,7 @@ async fn rename_with_existing_target_requires_confirmation_without_dispatching_m
             }, "sha256": source_sha256, "byte_count": 14
         }})))).unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4717,7 +4700,7 @@ async fn rename_with_existing_target_requires_confirmation_without_dispatching_m
         else {
             panic!("expected target preflight request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+        assert_eq!(request.payload["operation"], "upload_preflight");
         reply.send(Ok(response(request_id, json!({ "snapshot": {
             "path": "/home/demo/target.txt", "exists": true, "entry_type": "file", "size": 6,
             "mtime_ns": "1770000000000000001", "sha256": sha256(b"target")
@@ -4748,7 +4731,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
 
     let first_attempt = coordinator.rename(rename_input());
     let first_responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4756,12 +4739,12 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
         else {
             panic!("expected initial source lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         reply.send(Ok(response(request_id, json!({ "entry": {
             "name": "source.txt", "path": "/home/demo/source.txt", "entry_type": "file",
             "size": 14, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null
         }})))).unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4769,7 +4752,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
         else {
             panic!("expected initial source hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply
             .send(Ok(response(
                 request_id,
@@ -4779,7 +4762,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
                 }}),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4787,7 +4770,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
         else {
             panic!("expected initial target preflight request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+        assert_eq!(request.payload["operation"], "upload_preflight");
         reply.send(Ok(response(request_id, json!({ "snapshot": {
             "path": "/home/demo/target.txt", "exists": true, "entry_type": "file", "size": 6,
             "mtime_ns": "1770000000000000001", "sha256": old_target_sha256
@@ -4799,7 +4782,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
     let confirmed_attempt = coordinator.rename(overwrite_rename_input());
     let confirmed_responder =
         async {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4807,12 +4790,12 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
             else {
                 panic!("expected confirmed source lstat request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.lstat");
+            assert_eq!(request.payload["operation"], "lstat");
             reply.send(Ok(response(request_id, json!({ "entry": {
             "name": "source.txt", "path": "/home/demo/source.txt", "entry_type": "file",
             "size": 14, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null
         }})))).unwrap();
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4820,7 +4803,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
             else {
                 panic!("expected confirmed source hash request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.sha256");
+            assert_eq!(request.payload["operation"], "sha256");
             reply
                 .send(Ok(response(
                     request_id,
@@ -4830,7 +4813,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
                     }}),
                 )))
                 .unwrap();
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4838,14 +4821,14 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
             else {
                 panic!("expected fresh confirmed target preflight request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+            assert_eq!(request.payload["operation"], "upload_preflight");
             reply
                 .send(Ok(response(
                     request_id,
                     json!({ "snapshot": fresh_target_snapshot }),
                 )))
                 .unwrap();
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4853,7 +4836,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
             else {
                 panic!("expected fresh confirmed target hash request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.sha256");
+            assert_eq!(request.payload["operation"], "sha256");
             reply
                 .send(Ok(response(
                     request_id,
@@ -4863,7 +4846,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
                     }}),
                 )))
                 .unwrap();
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4874,7 +4857,7 @@ async fn confirmed_overwrite_reacquires_hashed_target_before_journal_and_dispatc
             else {
                 panic!("expected confirmed rename dispatch");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.rename");
+            assert_eq!(request.payload["operation"], "rename");
             assert_eq!(
                 request.payload["params"]["target_snapshot"],
                 fresh_target_snapshot
@@ -4903,7 +4886,7 @@ async fn rename_rejects_hash_path_and_metadata_mismatches_before_dispatch() {
         let source_sha256 = sha256(b"source payload");
         let call = coordinator.rename(rename_input());
         let responder = async {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4911,12 +4894,12 @@ async fn rename_rejects_hash_path_and_metadata_mismatches_before_dispatch() {
             else {
                 panic!("expected source lstat request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.lstat");
+            assert_eq!(request.payload["operation"], "lstat");
             reply.send(Ok(response(request_id, json!({ "entry": {
                 "name": "source.txt", "path": "/home/demo/source.txt", "entry_type": "file",
                 "size": 14, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null
             }})))).unwrap();
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id,
                 request,
                 reply,
@@ -4924,7 +4907,7 @@ async fn rename_rejects_hash_path_and_metadata_mismatches_before_dispatch() {
             else {
                 panic!("expected source hash request");
             };
-            assert_eq!(request.payload["method"], "manual_sftp.sha256");
+            assert_eq!(request.payload["operation"], "sha256");
             let hash_path = if case == "path" {
                 "/home/demo/other.txt"
             } else {
@@ -4967,7 +4950,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
     let response_sha256 = sha256(b"target after!");
     let call = coordinator.rename(overwrite_rename_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4975,7 +4958,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
         else {
             panic!("expected source lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         reply
             .send(Ok(response(
                 request_id,
@@ -4985,7 +4968,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
                 }}),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -4993,7 +4976,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
         else {
             panic!("expected source hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply
             .send(Ok(response(
                 request_id,
@@ -5007,7 +4990,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
                 }}),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5015,7 +4998,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
         else {
             panic!("expected target preflight request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+        assert_eq!(request.payload["operation"], "upload_preflight");
         reply
             .send(Ok(response(
                 request_id,
@@ -5025,7 +5008,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
                 }}),
             )))
             .unwrap();
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5033,7 +5016,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
         else {
             panic!("expected target hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply
             .send(Ok(response(
                 request_id,
@@ -5047,7 +5030,7 @@ async fn rename_rejects_hash_that_disagrees_with_hashed_target_preflight() {
                 }}),
             )))
             .unwrap();
-        if let Ok(Some(RuntimeCommand::Request { reply, .. })) =
+        if let Ok(Some(HttpTestCommand::Request { reply, .. })) =
             tokio::time::timeout(Duration::from_secs(1), commands.recv()).await
         {
             // The pre-fix coordinator dispatches this untrusted replacement. Dropping the
@@ -5065,7 +5048,7 @@ async fn dropped_rename_reply_is_unknown_and_is_never_retried() {
     let source_sha256 = sha256(b"source payload");
     let call = coordinator.rename(rename_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5073,13 +5056,13 @@ async fn dropped_rename_reply_is_unknown_and_is_never_retried() {
         else {
             panic!("expected source lstat request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.lstat");
+        assert_eq!(request.payload["operation"], "lstat");
         reply.send(Ok(response(request_id, json!({ "entry": {
             "name": "source.txt", "path": "/home/demo/source.txt", "entry_type": "file",
             "size": 14, "mode": 33188, "mtime_ns": "1770000000000000000", "link_target": null
         }})))).unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5087,7 +5070,7 @@ async fn dropped_rename_reply_is_unknown_and_is_never_retried() {
         else {
             panic!("expected source hash request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.sha256");
+        assert_eq!(request.payload["operation"], "sha256");
         reply.send(Ok(response(request_id, json!({ "hash": {
             "path": "/home/demo/source.txt", "snapshot": {
                 "path": "/home/demo/source.txt", "exists": true, "entry_type": "file", "size": 14,
@@ -5095,7 +5078,7 @@ async fn dropped_rename_reply_is_unknown_and_is_never_retried() {
             }, "sha256": source_sha256, "byte_count": 14
         }})))).unwrap();
 
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5103,16 +5086,16 @@ async fn dropped_rename_reply_is_unknown_and_is_never_retried() {
         else {
             panic!("expected target preflight request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.upload.preflight");
+        assert_eq!(request.payload["operation"], "upload_preflight");
         reply.send(Ok(response(request_id, json!({ "snapshot": {
             "path": "/home/demo/target.txt", "exists": false, "entry_type": null, "size": null,
             "mtime_ns": null, "sha256": null
         }})))).unwrap();
 
-        let RuntimeCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected rename mutation request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.rename");
+        assert_eq!(request.payload["operation"], "rename");
         drop(reply);
     };
     let (result, ()) = tokio::join!(call, responder);
@@ -5130,7 +5113,7 @@ async fn recursive_delete_preflight_is_one_shot_and_execute_is_journaled_before_
     let delete_plan_id = Uuid::new_v4();
     let preflight = coordinator.preflight_delete(delete_preflight_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5138,7 +5121,7 @@ async fn recursive_delete_preflight_is_one_shot_and_execute_is_journaled_before_
         else {
             panic!("expected delete preflight request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.delete.preflight");
+        assert_eq!(request.payload["operation"], "delete_preflight");
         let operation_id = request.payload["params"]["operation_id"]
             .as_str()
             .and_then(|value| Uuid::parse_str(value).ok())
@@ -5178,7 +5161,7 @@ async fn recursive_delete_preflight_is_one_shot_and_execute_is_journaled_before_
 
     let execute = coordinator.execute_delete(delete_plan_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5186,7 +5169,7 @@ async fn recursive_delete_preflight_is_one_shot_and_execute_is_journaled_before_
         else {
             panic!("expected delete execute request");
         };
-        assert_eq!(request.payload["method"], "manual_sftp.delete.execute");
+        assert_eq!(request.payload["operation"], "delete_execute");
         assert_eq!(
             request.payload["params"]["delete_plan_id"],
             delete_plan_id.to_string()
@@ -5234,7 +5217,7 @@ async fn recursive_delete_execute_journal_failure_keeps_the_plan_retryable() {
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
     let fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -5243,7 +5226,7 @@ async fn recursive_delete_execute_journal_failure_keeps_the_plan_retryable() {
     let delete_plan_id = Uuid::new_v4();
     let preflight = coordinator.preflight_delete(delete_preflight_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5303,7 +5286,7 @@ async fn recursive_delete_execute_journal_failure_keeps_the_plan_retryable() {
 
     let retry = coordinator.execute_delete(delete_plan_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -5336,7 +5319,7 @@ async fn recursive_delete_preflight_journal_failure_dispatches_no_remote_plan() 
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
     let fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -5366,7 +5349,7 @@ async fn recursive_delete_execute_busy_keeps_the_plan_retryable() {
         complete_recursive_delete_preflight(&coordinator, &mut commands).await;
 
     let mut mkdir = pin!(coordinator.mkdir(mkdir_input()));
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -5412,7 +5395,7 @@ async fn recursive_delete_execute_busy_keeps_the_plan_retryable() {
 
     let retry = coordinator.execute_delete(delete_plan_id, true);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id, reply, ..
         } = commands.recv().await.unwrap()
         else {
@@ -5444,12 +5427,12 @@ async fn recursive_delete_preflight_reply_loss_restarts_with_the_same_remote_ide
     let directory = tempfile::tempdir().unwrap();
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), journal);
 
     let preflight = coordinator.preflight_delete(delete_preflight_input());
     let responder = async {
-        let RuntimeCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected delete preflight request");
         };
         let operation_id = request.payload["params"]["operation_id"]
@@ -5469,13 +5452,13 @@ async fn recursive_delete_preflight_reply_loss_restarts_with_the_same_remote_ide
     drop(commands);
 
     let reopened = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut restarted_commands) = runtime_broker_channel();
+    let (broker, mut restarted_commands) = runtime_http_test_channel();
     let restarted = SftpCoordinator::new(ManualSftpRuntimeClient::new(broker), reopened);
     let recovery_id = restarted.list_recoveries().await.unwrap()[0].recovery_id;
     assert_eq!(recovery_id, operation_id);
     let inspect = restarted.inspect_recovery(recovery_id);
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5505,7 +5488,7 @@ async fn delete_preflight_cannot_publish_a_plan_after_shutdown_linearizes() {
     let directory = tempfile::tempdir().unwrap();
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let dispatch_gate = MutatingDispatchTestGate::new();
     dispatch_gate.release();
     let coordinator = Arc::new(SftpCoordinator::new_with_mutating_dispatch_test_gate(
@@ -5519,7 +5502,7 @@ async fn delete_preflight_cannot_publish_a_plan_after_shutdown_linearizes() {
             .preflight_delete(delete_preflight_input())
             .await
     });
-    let RuntimeCommand::Request {
+    let HttpTestCommand::Request {
         request_id,
         request,
         reply,
@@ -5619,7 +5602,7 @@ async fn delete_preflight_rejects_each_cross_field_identity_and_root_invariant()
         }
         let preflight = coordinator.preflight_delete(delete_preflight_input());
         let responder = async {
-            let RuntimeCommand::Request {
+            let HttpTestCommand::Request {
                 request_id, reply, ..
             } = commands.recv().await.unwrap()
             else {
@@ -5639,7 +5622,7 @@ async fn terminal_record_remains_durable_when_journal_delete_fails() {
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
     let fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -5648,7 +5631,7 @@ async fn terminal_record_remains_durable_when_journal_delete_fails() {
     fault.fail_next_delete();
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5697,7 +5680,7 @@ async fn terminal_record_remains_durable_when_journal_delete_returns_false() {
     let journal_path = directory.path().join("manual-sftp.sqlite3");
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
     let fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -5706,7 +5689,7 @@ async fn terminal_record_remains_durable_when_journal_delete_returns_false() {
     fault.return_false_next_delete();
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request {
+        let HttpTestCommand::Request {
             request_id,
             request,
             reply,
@@ -5756,7 +5739,7 @@ async fn enqueue_rejection_persists_cancelled_before_a_faulted_delete() {
     let journal = LocalSftpOperationJournal::open(&journal_path).unwrap();
     let journal_fault = JournalFaultTestGate::new();
     let dispatch_gate = MutatingDispatchTestGate::new();
-    let (broker, _commands) = runtime_broker_channel();
+    let (broker, _commands) = runtime_http_test_channel();
     let coordinator = Arc::new(SftpCoordinator::new_with_dispatch_and_journal_test_gates(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -5793,7 +5776,7 @@ async fn unknown_journal_transition_failure_keeps_public_code_and_safe_diagnosti
     let journal =
         LocalSftpOperationJournal::open(&directory.path().join("manual-sftp.sqlite3")).unwrap();
     let fault = JournalFaultTestGate::new();
-    let (broker, mut commands) = runtime_broker_channel();
+    let (broker, mut commands) = runtime_http_test_channel();
     let coordinator = SftpCoordinator::new_with_journal_fault_test_gate(
         ManualSftpRuntimeClient::new(broker),
         journal,
@@ -5801,7 +5784,7 @@ async fn unknown_journal_transition_failure_keeps_public_code_and_safe_diagnosti
     );
     let call = coordinator.mkdir(mkdir_input());
     let responder = async {
-        let RuntimeCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
+        let HttpTestCommand::Request { request, reply, .. } = commands.recv().await.unwrap() else {
             panic!("expected mkdir request");
         };
         let operation_id = request.payload["params"]["operation_id"]
@@ -5818,7 +5801,7 @@ async fn unknown_journal_transition_failure_keeps_public_code_and_safe_diagnosti
         coordinator.mutation_diagnostics_for_test(),
         vec![harness_shell_lib::sftp::coordinator::MutationDiagnostic {
             operation_id,
-            cause_code: "SIDECAR_BROKER_CLOSED".to_owned(),
+            cause_code: "RUNTIME_HTTP_TRANSPORT_FAILED".to_owned(),
             journal_error_code: Some("SFTP_JOURNAL_UNAVAILABLE".to_owned()),
         }]
     );

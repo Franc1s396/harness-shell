@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "name": "initialize-with-short-runtime-key",
+      "request": {
+        "request_id": "6fc07aec-23d1-47a0-a770-64334dce908f",
+        "body": {
+          "schema_version": 1,
+          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\Harness Shell\\runtime.db",
+          "runtime_key_b64": "c2hvcnQ="
+        }
+      },
+      "expected_http_status": 422,
+      "expected_error_code": "INVALID_RUNTIME_KEY"
+    },
+    {
+      "name": "initialize-an-already-ready-runtime",
+      "request": {
+        "request_id": "cba9967a-c8b8-4b53-935c-f9926e9ada92",
+        "body": {
+          "schema_version": 1,
+          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\Harness Shell\\runtime.db",
+          "runtime_key_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+      },
+      "expected_http_status": 409,
+      "expected_error_code": "RUNTIME_ALREADY_INITIALIZED"
+    },
+    {
+      "name": "cancel-unknown-request",
+      "request": {
+        "request_id": "364078f3-e544-46f5-8e5d-ce1468ce39c2",
+        "path_request_id": "57b10e94-97db-4f7e-b960-fe53345583b4"
+      },
+      "expected_http_status": 404,
+      "expected_error_code": "CANCEL_TARGET_NOT_FOUND"
+    }
+  ]
+}

@@ -1458,7 +1458,6 @@ const runtimeFailureStatus = (error: unknown): RuntimeStatus => {
     node: normalized.details?.node ?? "core",
     recoverable: normalized.details?.recoverable ?? false,
     correlation_id: normalized.details?.correlation_id ?? "unknown",
-    last_sequence: 0,
     last_heartbeat_at: null,
   };
 };

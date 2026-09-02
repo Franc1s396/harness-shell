@@ -27,7 +27,7 @@ MAX_UINT64 = 2**64 - 1
 class _ListingCursor:
     """Own one iterator, channel, expected sequence, and observed count."""
 
-    #: Public cursor identifier returned across Protocol v1.
+    #: Public cursor identifier returned across the typed HTTP boundary.
     listing_id: UUID
     #: Validated absolute directory path.
     path: str

@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import json
-from typing import Annotated, Protocol
+from collections.abc import Mapping
+from typing import Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ValidationError
 
-from harness_shell_sidecar.protocol import FrameEnvelope, Sensitivity
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_shell_sidecar.runtime.request_context import RequestContext
 
 from .errors import ConnectionStatus, SshRuntimeError
-
-
-ProfileVersion = Annotated[int, Field(ge=1, le=2**53 - 1, strict=True)]
+from .models import (
+    HostKeyInspectionRequest,
+    SshConnectRequest,
+    SshSessionRequest,
+)
 
 
 class _SshRuntimeProtocol(Protocol):
@@ -41,87 +43,14 @@ class _SshRuntimeProtocol(Protocol):
         ...
 
 
-class _AuthenticationParams(BaseModel):
-    """IPC 请求中互斥的 Base64 认证秘密字段。"""
-
-    #: 拒绝额外字段和类型隐式转换。
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    #: 密码认证秘密的标准 Base64 编码。
-    password_b64: str | None = None
-    #: 私钥文件字节的标准 Base64 编码。
-    private_key_b64: str | None = None
-    #: 私钥口令字节的标准 Base64 编码。
-    passphrase_b64: str | None = None
-
-    @model_validator(mode="after")
-    def require_one_authentication_kind(self) -> _AuthenticationParams:
-        """要求密码与私钥二选一，并限制口令只能配合私钥。"""
-
-        if (self.password_b64 is None) == (self.private_key_b64 is None):
-            raise ValueError("exactly one authentication secret is required")
-        if self.private_key_b64 is None and self.passphrase_b64 is not None:
-            raise ValueError("passphrase requires a private key")
-        return self
-
-
-class _JumpAuthenticationParams(_AuthenticationParams):
-    """ProxyJump 连接的身份、版本快照与认证秘密。"""
-
-    #: 跳板连接配置标识符。
-    connection_id: UUID
-    #: 调用方读取跳板配置时看到的单调版本号，用于拒绝陈旧秘密。
-    profile_version: ProfileVersion
-
-
-class _InspectParams(BaseModel):
-    """Host Key 检查请求参数及可选跳板认证。"""
-
-    #: 对 IPC 参数执行严格结构校验。
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    #: 要检查 Host Key 的目标连接配置标识符。
-    connection_id: UUID
-    #: 通过 ProxyJump 检查时提供的跳板瞬时认证信息。
-    jump: _JumpAuthenticationParams | None = None
-
-
-class _SessionIdParams(BaseModel):
-    """仅定位一个活动 SSH 会话的请求参数。"""
-
-    #: 对 IPC 参数执行严格结构校验。
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    #: 要断开的 SSH 会话标识符。
-    ssh_session_id: UUID
-
-
-class _ConnectParams(_AuthenticationParams):
-    """目标连接的版本快照、认证秘密及可选跳板信息。"""
-
-    #: 明确保持严格参数校验配置。
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    #: 要建立会话的目标连接配置标识符。
-    connection_id: UUID
-    #: 调用方读取目标配置时看到的单调版本号，用于拒绝陈旧秘密。
-    profile_version: ProfileVersion
-    #: 可选的 ProxyJump 连接及其瞬时认证信息。
-    jump: _JumpAuthenticationParams | None = None
-
-
 def register_ssh_handlers(
     dispatcher: RequestDispatcher, runtime: _SshRuntimeProtocol
 ) -> None:
     async def inspect_host_key(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _InspectParams)
-        if params.jump is not None and frame.sensitivity is not Sensitivity.SECRET:
-            raise DispatchError(
-                "SENSITIVE_FRAME_REQUIRED",
-                "proxied host-key inspection requires a secret frame",
-            )
+        context: RequestContext,
+        raw_params: Mapping[str, object],
+    ) -> dict[str, object]:
+        params = _params(raw_params, HostKeyInspectionRequest)
         secrets: list[bytearray] = []
         try:
             jump_password = _decode_secret(
@@ -135,7 +64,7 @@ def register_ssh_handlers(
                 None if params.jump is None else params.jump.passphrase_b64,
                 secrets,
             )
-            _require_active(cancelled)
+            context.require_active()
             status = await runtime.inspect_host_key(
                 params.connection_id,
                 jump_connection_id=(
@@ -155,12 +84,11 @@ def register_ssh_handlers(
                 _zeroize(secret)
         return {"status": status.model_dump(mode="json")}
 
-    async def connect(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        if frame.sensitivity is not Sensitivity.SECRET:
-            raise DispatchError(
-                "SENSITIVE_FRAME_REQUIRED", "ssh.connect requires a secret frame"
-            )
-        params = _params(frame, _ConnectParams)
+    async def connect(
+        context: RequestContext,
+        raw_params: Mapping[str, object],
+    ) -> dict[str, object]:
+        params = _params(raw_params, SshConnectRequest)
         secrets: list[bytearray] = []
         try:
             password = _decode_secret(params.password_b64, secrets)
@@ -177,7 +105,7 @@ def register_ssh_handlers(
                 None if params.jump is None else params.jump.passphrase_b64,
                 secrets,
             )
-            _require_active(cancelled)
+            context.require_active()
             status = await runtime.connect(
                 params.connection_id,
                 password=password,
@@ -201,9 +129,12 @@ def register_ssh_handlers(
             for secret in secrets:
                 _zeroize(secret)
 
-    async def disconnect(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _SessionIdParams)
-        _require_active(cancelled)
+    async def disconnect(
+        context: RequestContext,
+        raw_params: Mapping[str, object],
+    ) -> dict[str, object]:
+        params = _params(raw_params, SshSessionRequest)
+        context.require_active()
         try:
             status = await runtime.disconnect(params.ssh_session_id)
         except SshRuntimeError as exc:
@@ -215,14 +146,13 @@ def register_ssh_handlers(
     dispatcher.register("ssh.disconnect", disconnect)
 
 
-def _params(frame: FrameEnvelope, model: type[BaseModel]):
-    params = frame.payload.get("params")
-    if not isinstance(params, dict):
+def _params(raw_params: Mapping[str, object], model: type[BaseModel]):
+    if not isinstance(raw_params, Mapping):
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params must be an object"
         )
     try:
-        return model.model_validate_json(json.dumps(params))
+        return model.model_validate_json(json.dumps(dict(raw_params)))
     except (TypeError, ValueError, ValidationError) as exc:
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params are invalid"
@@ -252,11 +182,6 @@ def _dispatch_error(error: SshRuntimeError) -> DispatchError:
     details = error.public_payload()
     details.pop("error_code", None)
     return DispatchError(error.error_code, "SSH operation failed", details=details)
-
-
-def _require_active(cancelled: asyncio.Event) -> None:
-    if cancelled.is_set():
-        raise DispatchError("REQUEST_CANCELLED", "request was cancelled")
 
 
 def _zeroize(value: bytearray) -> None:

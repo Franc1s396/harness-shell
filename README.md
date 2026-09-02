@@ -1,6 +1,6 @@
 # Harness Shell
 
-Harness Shell 是一款面向 Windows 的本地 AI SSH Agent 桌面应用，采用 React/TypeScript WebView、Tauri 2 Rust Core 和 Python Sidecar。Rust Core 通过私有 stdio Protocol v1 独占管理 Sidecar，并作为凭据、进程生命周期和 WebView 能力暴露面的安全边界。
+Harness Shell 是一款面向 Windows 的本地 AI SSH Agent 桌面应用，采用 React/TypeScript WebView、Tauri 2 Rust Core 和 Python Sidecar。Rust Core 独占 packaged child、Windows Job、DPAPI Vault 和动态 loopback 端口，并通过 sealed typed HTTP API 与单个 Runtime WebSocket 管理 Python；WebView 只接触受控 Tauri commands 和安全事件投影。
 
 当前 v0.1.0 已实现连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多标签人工 PTY，以及只由用户显式操作的 Manual SFTP。实验性 M3 ReAct Shell Agent 后端与 React 前端也已接入：模型 API Key 只保存在 Rust DPAPI Vault 中，Sidecar 保存非秘密 Provider 配置和加密的 conversation/run/message，Agent Workspace 按 terminal tab 隔离，并将每次 turn 绑定到启动时选择的 Provider 与 connected SSH Session。
 
@@ -12,13 +12,13 @@ Agent 当前只允许严格的 `execute_command` 工具，不接入 Manual SFTP�
 .
 ├── frontend/                         # React/TypeScript WebView 与 Tauri Rust Core
 │   ├── src/                          # UI、typed API、状态与 i18n
-│   └── src-tauri/                    # Tauri commands、Vault、Protocol 与 Sidecar 生命周期
+│   └── src-tauri/                    # Tauri commands、Vault、HTTP/WS Runtime 与 Sidecar 生命周期
 ├── backend/                          # Python Sidecar
 │   ├── src/harness_shell_sidecar/    # SSH、PTY、Manual SFTP、Agent、存储与遥测
 │   └── tests/                        # Python 单元、集成与 SSH 测试
 ├── scripts/                          # M1、M2、Manual SFTP 与 M3 自动门禁
 ├── tests/ssh_lab/                    # 隔离的双节点 OpenSSH 容器实验室
-├── docs/protocol/                    # Protocol v1 规范与 fixture
+├── docs/protocol/http/               # HTTP/WebSocket v1 契约与 fixture
 └── docs/testing/                     # 自动门禁和人工验收记录
 ```
 

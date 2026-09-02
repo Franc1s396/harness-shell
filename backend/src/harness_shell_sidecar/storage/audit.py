@@ -44,8 +44,8 @@ class AuditEvent:
         )
 
     @classmethod
-    def sidecar_ready(cls, *, correlation_id: UUID) -> AuditEvent:
-        """构造 Sidecar 完成握手并进入 READY 的审计事件。"""
+    def runtime_ready(cls, *, correlation_id: UUID) -> AuditEvent:
+        """构造 Runtime 完成初始化并进入 READY 的审计事件。"""
 
         return cls(
             "runtime.ready", "sidecar", correlation_id, {"state": "READY"}

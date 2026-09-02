@@ -1,0 +1,882 @@
+{
+  "$defs": {
+    "ConnectionStatus": {
+      "additionalProperties": false,
+      "description": "对桌面端公开的 SSH 连接状态快照。",
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "correlation_id": {
+          "format": "uuid",
+          "title": "Correlation Id",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "host_key_candidate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostKeyCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recoverable": {
+          "title": "Recoverable",
+          "type": "boolean"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Id"
+        },
+        "state": {
+          "enum": [
+            "DISCONNECTED",
+            "CONNECTING",
+            "HOST_KEY_REQUIRED",
+            "READY",
+            "CLOSING",
+            "FAILED"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "trusted_fingerprint_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trusted Fingerprint Sha256"
+        }
+      },
+      "required": [
+        "connection_id",
+        "state",
+        "session_id",
+        "error_code",
+        "recoverable",
+        "correlation_id",
+        "host_key_candidate"
+      ],
+      "title": "ConnectionStatus",
+      "type": "object"
+    },
+    "HostKeyCandidate": {
+      "additionalProperties": false,
+      "description": "等待用户确认或替换的远端 SSH Host Key 候选值。",
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "fingerprint_sha256": {
+          "pattern": "^SHA256:[A-Za-z0-9+/=_-]+$",
+          "title": "Fingerprint Sha256",
+          "type": "string"
+        },
+        "host": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        },
+        "key_algorithm": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Key Algorithm",
+          "type": "string"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "public_key_openssh_b64": {
+          "title": "Public Key Openssh B64",
+          "type": "string"
+        }
+      },
+      "required": [
+        "connection_id",
+        "host",
+        "port",
+        "key_algorithm",
+        "fingerprint_sha256",
+        "public_key_openssh_b64"
+      ],
+      "title": "HostKeyCandidate",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MutationProgressProjection": {
+      "additionalProperties": false,
+      "description": "Publish a safe manual mutation phase without local paths or raw errors.",
+      "properties": {
+        "cancellable": {
+          "const": false,
+          "title": "Cancellable",
+          "type": "boolean"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "host_label": {
+          "title": "Host Label",
+          "type": "string"
+        },
+        "items_completed": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Items Completed"
+        },
+        "items_total": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Items Total"
+        },
+        "kind": {
+          "enum": [
+            "mkdir",
+            "rename",
+            "remove",
+            "recursive_delete",
+            "recovery"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "preparing",
+            "isolating",
+            "deleting",
+            "cleaning",
+            "committing"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "remote_path": {
+          "title": "Remote Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "kind",
+        "phase",
+        "display_name",
+        "remote_path",
+        "host_label",
+        "items_completed",
+        "items_total",
+        "cancellable"
+      ],
+      "title": "MutationProgressProjection",
+      "type": "object"
+    },
+    "PtyClosedMessage": {
+      "additionalProperties": false,
+      "description": "Publish one unsolicited PTY closure event.",
+      "properties": {
+        "causation_id": {
+          "title": "Causation Id",
+          "type": "null"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PtyClosedPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "pty.closed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "PtyClosedMessage",
+      "type": "object"
+    },
+    "PtyClosedPayload": {
+      "additionalProperties": false,
+      "description": "Preserve the current PTY process exit projection.",
+      "properties": {
+        "exit_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Signal"
+        },
+        "exit_status": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Status"
+        },
+        "pty_session_id": {
+          "format": "uuid",
+          "title": "Pty Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pty_session_id",
+        "exit_status",
+        "exit_signal"
+      ],
+      "title": "PtyClosedPayload",
+      "type": "object"
+    },
+    "PtyInputMessage": {
+      "additionalProperties": false,
+      "description": "Request one correlated PTY write over the Runtime WebSocket.",
+      "properties": {
+        "causation_id": {
+          "title": "Causation Id",
+          "type": "null"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PtyInputPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "pty.input",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "PtyInputMessage",
+      "type": "object"
+    },
+    "PtyInputPayload": {
+      "additionalProperties": false,
+      "description": "Carry one bounded canonical Base64 PTY input chunk.",
+      "properties": {
+        "data_b64": {
+          "contentEncoding": "base64",
+          "title": "Data B64",
+          "type": "string"
+        },
+        "pty_session_id": {
+          "format": "uuid",
+          "title": "Pty Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pty_session_id",
+        "data_b64"
+      ],
+      "title": "PtyInputPayload",
+      "type": "object"
+    },
+    "PtyInputResultMessage": {
+      "additionalProperties": false,
+      "description": "Correlate one PTY input success or stable domain failure.",
+      "properties": {
+        "causation_id": {
+          "format": "uuid",
+          "title": "Causation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PtyInputResultPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "pty.input_result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "PtyInputResultMessage",
+      "type": "object"
+    },
+    "PtyInputResultPayload": {
+      "additionalProperties": false,
+      "description": "Report the exact PTY write result without closing on domain failure.",
+      "properties": {
+        "accepted_bytes": {
+          "maximum": 32768,
+          "minimum": 0,
+          "title": "Accepted Bytes",
+          "type": "integer"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "pty_session_id": {
+          "format": "uuid",
+          "title": "Pty Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pty_session_id",
+        "accepted_bytes",
+        "error_code"
+      ],
+      "title": "PtyInputResultPayload",
+      "type": "object"
+    },
+    "PtyOutputMessage": {
+      "additionalProperties": false,
+      "description": "Publish one unsolicited PTY output event.",
+      "properties": {
+        "causation_id": {
+          "title": "Causation Id",
+          "type": "null"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PtyOutputPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "pty.output",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "PtyOutputMessage",
+      "type": "object"
+    },
+    "PtyOutputPayload": {
+      "additionalProperties": false,
+      "description": "Carry one monotonically ordered PTY output chunk.",
+      "properties": {
+        "data_b64": {
+          "contentEncoding": "base64",
+          "title": "Data B64",
+          "type": "string"
+        },
+        "pty_session_id": {
+          "format": "uuid",
+          "title": "Pty Session Id",
+          "type": "string"
+        },
+        "stream_sequence": {
+          "minimum": 0,
+          "title": "Stream Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pty_session_id",
+        "data_b64",
+        "stream_sequence"
+      ],
+      "title": "PtyOutputPayload",
+      "type": "object"
+    },
+    "RuntimeErrorMessage": {
+      "additionalProperties": false,
+      "description": "Correlate a non-PTY domain failure while retaining the connection.",
+      "properties": {
+        "causation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Causation Id"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RuntimeErrorPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "runtime.error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "RuntimeErrorMessage",
+      "type": "object"
+    },
+    "RuntimeErrorPayload": {
+      "additionalProperties": false,
+      "description": "Expose one stable WebSocket domain failure without raw internals.",
+      "properties": {
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Details"
+        },
+        "error_code": {
+          "title": "Error Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "error_code",
+        "message",
+        "details"
+      ],
+      "title": "RuntimeErrorPayload",
+      "type": "object"
+    },
+    "RuntimePingMessage": {
+      "additionalProperties": false,
+      "description": "Refresh only the explicit Runtime heartbeat owner.",
+      "properties": {
+        "causation_id": {
+          "title": "Causation Id",
+          "type": "null"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RuntimePingPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "runtime.ping",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "RuntimePingMessage",
+      "type": "object"
+    },
+    "RuntimePingPayload": {
+      "additionalProperties": false,
+      "description": "Carry the Desktop's explicit heartbeat timestamp.",
+      "properties": {
+        "client_timestamp": {
+          "format": "date-time",
+          "title": "Client Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_timestamp"
+      ],
+      "title": "RuntimePingPayload",
+      "type": "object"
+    },
+    "RuntimePongMessage": {
+      "additionalProperties": false,
+      "description": "Correlate one explicit Runtime ping.",
+      "properties": {
+        "causation_id": {
+          "format": "uuid",
+          "title": "Causation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RuntimePongPayload"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "runtime.pong",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "RuntimePongMessage",
+      "type": "object"
+    },
+    "RuntimePongPayload": {
+      "additionalProperties": false,
+      "description": "Carry the server's timezone-aware heartbeat response time.",
+      "properties": {
+        "server_timestamp": {
+          "format": "date-time",
+          "title": "Server Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_timestamp"
+      ],
+      "title": "RuntimePongPayload",
+      "type": "object"
+    },
+    "SftpOperationProgressMessage": {
+      "additionalProperties": false,
+      "description": "Publish the complete current safe Manual SFTP progress projection.",
+      "properties": {
+        "causation_id": {
+          "title": "Causation Id",
+          "type": "null"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/MutationProgressProjection"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "sftp.operation_progress",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "SftpOperationProgressMessage",
+      "type": "object"
+    },
+    "SshConnectionStateMessage": {
+      "additionalProperties": false,
+      "description": "Publish the complete current safe SSH status projection.",
+      "properties": {
+        "causation_id": {
+          "title": "Causation Id",
+          "type": "null"
+        },
+        "message_id": {
+          "format": "uuid",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConnectionStatus"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "const": "ssh.connection_state",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "causation_id",
+        "timestamp",
+        "type",
+        "payload"
+      ],
+      "title": "SshConnectionStateMessage",
+      "type": "object"
+    },
+    "message_type": {
+      "enum": [
+        "pty.input",
+        "pty.input_result",
+        "pty.output",
+        "pty.closed",
+        "ssh.connection_state",
+        "sftp.operation_progress",
+        "runtime.ping",
+        "runtime.pong",
+        "runtime.error"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://harness-shell.local/schemas/runtime-websocket-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Strict server and client messages carried by /v1/runtime/events after HTTP runtime initialization.",
+  "discriminator": {
+    "mapping": {
+      "pty.closed": "#/$defs/PtyClosedMessage",
+      "pty.input": "#/$defs/PtyInputMessage",
+      "pty.input_result": "#/$defs/PtyInputResultMessage",
+      "pty.output": "#/$defs/PtyOutputMessage",
+      "runtime.error": "#/$defs/RuntimeErrorMessage",
+      "runtime.ping": "#/$defs/RuntimePingMessage",
+      "runtime.pong": "#/$defs/RuntimePongMessage",
+      "sftp.operation_progress": "#/$defs/SftpOperationProgressMessage",
+      "ssh.connection_state": "#/$defs/SshConnectionStateMessage"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/PtyInputMessage"
+    },
+    {
+      "$ref": "#/$defs/PtyInputResultMessage"
+    },
+    {
+      "$ref": "#/$defs/PtyOutputMessage"
+    },
+    {
+      "$ref": "#/$defs/PtyClosedMessage"
+    },
+    {
+      "$ref": "#/$defs/SshConnectionStateMessage"
+    },
+    {
+      "$ref": "#/$defs/SftpOperationProgressMessage"
+    },
+    {
+      "$ref": "#/$defs/RuntimePingMessage"
+    },
+    {
+      "$ref": "#/$defs/RuntimePongMessage"
+    },
+    {
+      "$ref": "#/$defs/RuntimeErrorMessage"
+    }
+  ],
+  "title": "Harness Shell Runtime WebSocket v1",
+  "x-max-text-message-bytes": 65536,
+  "x-queue-capacity": 64
+}

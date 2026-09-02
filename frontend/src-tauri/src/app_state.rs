@@ -6,7 +6,7 @@ use std::{
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::sidecar::RuntimeStatus;
+use crate::runtime::RuntimeStatus;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeControl {
@@ -56,7 +56,7 @@ impl RuntimeStateHandle {
     pub fn wait_until_stopped(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
-            if self.status().state == crate::sidecar::RuntimeState::Stopped {
+            if self.status().state == crate::runtime::RuntimeState::Stopped {
                 return true;
             }
             thread::sleep(Duration::from_millis(25));

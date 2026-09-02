@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
+from .models import SshSessionSnapshot
+
 
 @dataclass(slots=True)
 class SshSession:
@@ -80,6 +82,23 @@ class SshSessionRegistry:
         """读取活动会话；不存在时返回 None。"""
 
         return self._sessions.get(session_id)
+
+    def snapshots(self) -> tuple[SshSessionSnapshot, ...]:
+        """Return insertion-ordered safe metadata without transport objects."""
+
+        return tuple(
+            SshSessionSnapshot(
+                ssh_session_id=session.ssh_session_id,
+                connection_id=session.connection_id,
+                connection_profile_version=session.connection_profile_version,
+                host_label=session.host_label,
+                target_host_key_fingerprint=session.target_host_key_fingerprint,
+                jump_connection_id=session.jump_connection_id,
+                jump_profile_version=session.jump_profile_version,
+                jump_host_key_fingerprint=session.jump_host_key_fingerprint,
+            )
+            for session in self._sessions.values()
+        )
 
     def is_connected(self, session_id: UUID) -> bool:
         """Return whether the owned target and optional jump transports remain open."""

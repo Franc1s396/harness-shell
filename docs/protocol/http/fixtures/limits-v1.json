@@ -1,0 +1,13 @@
+{
+  "json_request_bytes": 1048576,
+  "json_response_bytes": 1048576,
+  "websocket_text_bytes": 65536,
+  "pty_decoded_bytes": 32768,
+  "sftp_chunk_bytes": 262144,
+  "active_application_requests": 16,
+  "websocket_queue_messages": 64,
+  "heartbeat_interval_ms": 5000,
+  "heartbeat_timeout_ms": 15000,
+  "startup_timeout_ms": 5000,
+  "shutdown_timeout_ms": 3000
+}

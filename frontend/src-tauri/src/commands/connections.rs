@@ -1,12 +1,16 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::State;
 use uuid::Uuid;
 
 use crate::{
-    protocol::MessageType,
-    sidecar::broker::{RuntimeBrokerHandle, RuntimeRequest},
+    runtime::{
+        ConfirmHostKeyRequest, ConnectSshRequest, CreateConnectionRequest, DeleteConnectionRequest,
+        DisconnectSshRequest, GetConnectionRequest, InspectHostKeyRequest, ListConnectionsRequest,
+        ReplaceHostKeyRequest, RuntimeClient, RuntimeClientError, RuntimeClientHandle,
+        SshJumpRequest, UpdateConnectionRequest,
+    },
     vault::{CredentialId, CredentialKind, SecretVault, VaultError, VaultState},
 };
 
@@ -105,178 +109,246 @@ pub enum ConnectionState {
     Failed,
 }
 
-#[derive(Deserialize)]
-struct ConnectionsResult {
-    connections: Vec<ConnectionProfile>,
-}
-
-#[derive(Deserialize)]
-struct ConnectionResult {
-    connection: ConnectionProfile,
-}
-
-#[derive(Deserialize)]
-struct DeleteResult {
-    deleted: bool,
-}
-
-#[derive(Deserialize)]
-struct HostKeyResult {
-    host_key: HostKeyRecord,
-}
-
-#[derive(Deserialize)]
-struct StatusResult {
-    status: ConnectionStatus,
-}
-
 #[tauri::command]
 pub async fn list_connections(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
 ) -> Result<Vec<ConnectionProfile>, CommandError> {
-    request(&broker, "connections.list", Map::new())
+    list_connections_with_runtime(&*runtime).await
+}
+
+#[doc(hidden)]
+pub async fn list_connections_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+) -> Result<Vec<ConnectionProfile>, CommandError> {
+    runtime
+        .execute(ListConnectionsRequest)
         .await
-        .map(|result: ConnectionsResult| result.connections)
+        .map(|response| response.connections)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn create_connection(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     input: ConnectionProfileInput,
 ) -> Result<ConnectionProfile, CommandError> {
-    request(&broker, "connections.create", object(input)?)
+    create_connection_with_runtime(&*runtime, input).await
+}
+
+#[doc(hidden)]
+pub async fn create_connection_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    input: ConnectionProfileInput,
+) -> Result<ConnectionProfile, CommandError> {
+    runtime
+        .execute(CreateConnectionRequest(input))
         .await
-        .map(|result: ConnectionResult| result.connection)
+        .map(|response| response.connection)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn update_connection(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     connection_id: Uuid,
     input: ConnectionProfileInput,
 ) -> Result<ConnectionProfile, CommandError> {
-    let mut params = object(input)?;
-    params.insert(
-        "connection_id".to_owned(),
-        Value::String(connection_id.to_string()),
-    );
-    request(&broker, "connections.update", params)
+    update_connection_with_runtime(&*runtime, connection_id, input).await
+}
+
+#[doc(hidden)]
+pub async fn update_connection_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    connection_id: Uuid,
+    input: ConnectionProfileInput,
+) -> Result<ConnectionProfile, CommandError> {
+    runtime
+        .execute(UpdateConnectionRequest {
+            connection_id,
+            input,
+        })
         .await
-        .map(|result: ConnectionResult| result.connection)
+        .map(|response| response.connection)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn delete_connection(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     connection_id: Uuid,
 ) -> Result<bool, CommandError> {
-    let params = Map::from_iter([(
-        "connection_id".to_owned(),
-        Value::String(connection_id.to_string()),
-    )]);
-    request(&broker, "connections.delete", params)
+    delete_connection_with_runtime(&*runtime, connection_id).await
+}
+
+#[doc(hidden)]
+pub async fn delete_connection_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    connection_id: Uuid,
+) -> Result<bool, CommandError> {
+    runtime
+        .execute(DeleteConnectionRequest { connection_id })
         .await
-        .map(|result: DeleteResult| result.deleted)
+        .map(|response| response.deleted)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn confirm_host_key(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     candidate: HostKeyCandidate,
 ) -> Result<HostKeyRecord, CommandError> {
-    request(&broker, "host_key.confirm", object(candidate)?)
+    confirm_host_key_with_runtime(&*runtime, candidate).await
+}
+
+#[doc(hidden)]
+pub async fn confirm_host_key_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    candidate: HostKeyCandidate,
+) -> Result<HostKeyRecord, CommandError> {
+    runtime
+        .execute(ConfirmHostKeyRequest(candidate))
         .await
-        .map(|result: HostKeyResult| result.host_key)
+        .map(|response| response.host_key)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn replace_host_key(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     candidate: HostKeyCandidate,
     expected_old_fingerprint: String,
 ) -> Result<HostKeyRecord, CommandError> {
-    let mut params = object(candidate)?;
-    params.insert(
-        "expected_old_fingerprint".to_owned(),
-        Value::String(expected_old_fingerprint),
-    );
-    request(&broker, "host_key.replace", params)
+    replace_host_key_with_runtime(&*runtime, candidate, expected_old_fingerprint).await
+}
+
+#[doc(hidden)]
+pub async fn replace_host_key_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    candidate: HostKeyCandidate,
+    expected_old_fingerprint: String,
+) -> Result<HostKeyRecord, CommandError> {
+    runtime
+        .execute(ReplaceHostKeyRequest {
+            candidate,
+            expected_old_fingerprint,
+        })
         .await
-        .map(|result: HostKeyResult| result.host_key)
+        .map(|response| response.host_key)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn inspect_host_key(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     vault: State<'_, VaultState>,
     connection_id: Uuid,
 ) -> Result<ConnectionStatus, CommandError> {
-    let profile = get_connection(&broker, connection_id).await?;
-    let mut params = Map::from_iter([(
-        "connection_id".to_owned(),
-        Value::String(connection_id.to_string()),
-    )]);
-    if let Some(proxy_jump_id) = profile.proxy_jump_id {
-        let jump = get_direct_proxy_profile(&broker, proxy_jump_id).await?;
-        let jump_params = {
+    inspect_host_key_with_dependencies(&*runtime, &vault, connection_id).await
+}
+
+#[doc(hidden)]
+pub async fn inspect_host_key_with_dependencies<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    vault: &VaultState,
+    connection_id: Uuid,
+) -> Result<ConnectionStatus, CommandError> {
+    let profile = get_connection_with_runtime(runtime, connection_id).await?;
+    let jump = match profile.proxy_jump_id {
+        Some(proxy_jump_id) => {
+            let jump = get_direct_proxy_profile_with_runtime(runtime, proxy_jump_id).await?;
             let vault = vault.0.lock().map_err(|_| {
                 CommandError::new("VAULT_LOCK_FAILED", "The credential Vault is unavailable.")
             })?;
-            authentication_params(&vault, &jump)?
-        };
-        params.insert("jump".to_owned(), Value::Object(jump_params));
-        request_secret(&broker, "host_key.inspect", params)
-            .await
-            .map(|result: StatusResult| result.status)
-    } else {
-        request(&broker, "host_key.inspect", params)
-            .await
-            .map(|result: StatusResult| result.status)
-    }
+            Some(ssh_jump_request(&vault, &jump)?)
+        }
+        None => None,
+    };
+    runtime
+        .execute(InspectHostKeyRequest {
+            connection_id,
+            jump,
+        })
+        .await
+        .map(|response| response.status)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn connect_ssh(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     vault: State<'_, VaultState>,
     connection_id: Uuid,
 ) -> Result<ConnectionStatus, CommandError> {
-    let profile = get_connection(&broker, connection_id).await?;
+    connect_ssh_with_dependencies(&*runtime, &vault, connection_id).await
+}
+
+#[doc(hidden)]
+pub async fn connect_ssh_with_dependencies<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    vault: &VaultState,
+    connection_id: Uuid,
+) -> Result<ConnectionStatus, CommandError> {
+    let profile = get_connection_with_runtime(runtime, connection_id).await?;
     let jump = match profile.proxy_jump_id {
-        Some(proxy_jump_id) => Some(get_direct_proxy_profile(&broker, proxy_jump_id).await?),
+        Some(proxy_jump_id) => {
+            Some(get_direct_proxy_profile_with_runtime(runtime, proxy_jump_id).await?)
+        }
         None => None,
     };
 
-    let mut params = Map::from_iter([
-        (
-            "connection_id".to_owned(),
-            Value::String(connection_id.to_string()),
-        ),
-        (
-            "profile_version".to_owned(),
-            Value::Number(profile.version.into()),
-        ),
-    ]);
-    {
+    let request = {
         let vault = vault.0.lock().map_err(|_| {
             CommandError::new("VAULT_LOCK_FAILED", "The credential Vault is unavailable.")
         })?;
-        append_authentication_params(&mut params, &vault, &profile)?;
-        if let Some(jump) = jump.as_ref() {
-            params.insert(
-                "jump".to_owned(),
-                Value::Object(authentication_params(&vault, jump)?),
-            );
+        let jump = jump
+            .as_ref()
+            .map(|profile| ssh_jump_request(&vault, profile))
+            .transpose()?;
+        match profile.auth_kind {
+            AuthKind::Password => {
+                let password = vault
+                    .resolve_secret(profile.credential_id, CredentialKind::SshPassword)
+                    .map_err(map_vault_error)?;
+                ConnectSshRequest::password(
+                    connection_id,
+                    profile.version,
+                    STANDARD.encode(password.as_slice()),
+                    jump,
+                )
+            }
+            AuthKind::PrivateKey => {
+                let private_key = vault
+                    .resolve_secret(profile.credential_id, CredentialKind::ImportedPrivateKey)
+                    .map_err(map_vault_error)?;
+                let passphrase_b64 = profile
+                    .passphrase_credential_id
+                    .map(|passphrase_id| {
+                        vault
+                            .resolve_secret(passphrase_id, CredentialKind::PrivateKeyPassphrase)
+                            .map(|passphrase| STANDARD.encode(passphrase.as_slice()))
+                            .map_err(map_vault_error)
+                    })
+                    .transpose()?;
+                ConnectSshRequest::private_key(
+                    connection_id,
+                    profile.version,
+                    STANDARD.encode(private_key.as_slice()),
+                    passphrase_b64,
+                    jump,
+                )
+            }
         }
-    }
-    request_secret(&broker, "ssh.connect", params)
+    };
+    runtime
+        .execute(request)
         .await
-        .map(|result: StatusResult| result.status)
+        .map(|response| response.status)
+        .map_err(map_runtime_error)
 }
 
 #[tauri::command]
 pub async fn disconnect_ssh(
-    broker: State<'_, RuntimeBrokerHandle>,
+    runtime: State<'_, RuntimeClientHandle>,
     sftp: State<'_, crate::sftp::coordinator::SftpCoordinatorState>,
     ssh_session_id: Uuid,
 ) -> Result<ConnectionStatus, CommandError> {
@@ -290,112 +362,37 @@ pub async fn disconnect_ssh(
             "Choose whether to wait or cancel the active manual SFTP transfer before disconnecting.",
         ));
     }
-    let params = Map::from_iter([(
-        "ssh_session_id".to_owned(),
-        Value::String(ssh_session_id.to_string()),
-    )]);
-    request(&broker, "ssh.disconnect", params)
+    disconnect_ssh_with_runtime(&*runtime, ssh_session_id).await
+}
+
+#[doc(hidden)]
+pub async fn disconnect_ssh_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
+    ssh_session_id: Uuid,
+) -> Result<ConnectionStatus, CommandError> {
+    runtime
+        .execute(DisconnectSshRequest { ssh_session_id })
         .await
-        .map(|result: StatusResult| result.status)
+        .map(|response| response.status)
+        .map_err(map_runtime_error)
 }
 
-fn object(value: impl Serialize) -> Result<Map<String, Value>, CommandError> {
-    serde_json::to_value(value)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .ok_or_else(|| {
-            CommandError::new(
-                "COMMAND_PAYLOAD_INVALID",
-                "The command payload could not be encoded.",
-            )
-        })
-}
-
-pub(super) async fn request<T: DeserializeOwned>(
-    broker: &RuntimeBrokerHandle,
-    method: &str,
-    params: Map<String, Value>,
-) -> Result<T, CommandError> {
-    request_with_sensitivity(broker, method, params, false).await
-}
-
-pub(super) async fn request_secret<T: DeserializeOwned>(
-    broker: &RuntimeBrokerHandle,
-    method: &str,
-    params: Map<String, Value>,
-) -> Result<T, CommandError> {
-    request_with_sensitivity(broker, method, params, true).await
-}
-
-async fn request_with_sensitivity<T: DeserializeOwned>(
-    broker: &RuntimeBrokerHandle,
-    method: &str,
-    params: Map<String, Value>,
-    secret: bool,
-) -> Result<T, CommandError> {
-    let payload = Map::from_iter([
-        ("method".to_owned(), Value::String(method.to_owned())),
-        ("params".to_owned(), Value::Object(params)),
-    ]);
-    let runtime_request = if secret {
-        RuntimeRequest::secret(payload)
-    } else {
-        RuntimeRequest::normal(payload)
-    };
-    let frame = broker.request(runtime_request).await.map_err(|error| {
-        CommandError::new(error.error_code(), "The SSH runtime is unavailable.")
-    })?;
-
-    match frame.message_type {
-        MessageType::Response => {
-            serde_json::from_value(Value::Object(frame.payload)).map_err(|_| {
-                CommandError::new(
-                    "SIDECAR_RESPONSE_INVALID",
-                    "The SSH runtime returned an invalid response.",
-                )
-            })
-        }
-        MessageType::Error => {
-            let code = frame
-                .payload
-                .get("error_code")
-                .and_then(Value::as_str)
-                .unwrap_or("SIDECAR_REQUEST_FAILED")
-                .to_owned();
-            let mut details = frame.payload;
-            details.remove("error_code");
-            details.remove("message");
-            Err(CommandError::with_details(
-                code,
-                "The SSH runtime rejected the request.",
-                Value::Object(details),
-            ))
-        }
-        _ => Err(CommandError::new(
-            "SIDECAR_RESPONSE_INVALID",
-            "The SSH runtime returned an invalid response.",
-        )),
-    }
-}
-
-async fn get_connection(
-    broker: &RuntimeBrokerHandle,
+async fn get_connection_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
     connection_id: Uuid,
 ) -> Result<ConnectionProfile, CommandError> {
-    let params = Map::from_iter([(
-        "connection_id".to_owned(),
-        Value::String(connection_id.to_string()),
-    )]);
-    request(broker, "connections.get", params)
+    runtime
+        .execute(GetConnectionRequest { connection_id })
         .await
-        .map(|result: ConnectionResult| result.connection)
+        .map(|response| response.connection)
+        .map_err(map_runtime_error)
 }
 
-async fn get_direct_proxy_profile(
-    broker: &RuntimeBrokerHandle,
+async fn get_direct_proxy_profile_with_runtime<R: RuntimeClient + ?Sized>(
+    runtime: &R,
     connection_id: Uuid,
 ) -> Result<ConnectionProfile, CommandError> {
-    let profile = get_connection(broker, connection_id).await?;
+    let profile = get_connection_with_runtime(runtime, connection_id).await?;
     if profile.proxy_jump_id.is_some() {
         return Err(CommandError::new(
             "MULTI_HOP_PROXY_FORBIDDEN",
@@ -405,59 +402,42 @@ async fn get_direct_proxy_profile(
     Ok(profile)
 }
 
-fn authentication_params(
+fn ssh_jump_request(
     vault: &SecretVault,
     profile: &ConnectionProfile,
-) -> Result<Map<String, Value>, CommandError> {
-    let mut params = Map::from_iter([
-        (
-            "connection_id".to_owned(),
-            Value::String(profile.connection_id.to_string()),
-        ),
-        (
-            "profile_version".to_owned(),
-            Value::Number(profile.version.into()),
-        ),
-    ]);
-    append_authentication_params(&mut params, vault, profile)?;
-    Ok(params)
-}
-
-fn append_authentication_params(
-    params: &mut Map<String, Value>,
-    vault: &SecretVault,
-    profile: &ConnectionProfile,
-) -> Result<(), CommandError> {
+) -> Result<SshJumpRequest, CommandError> {
     match profile.auth_kind {
         AuthKind::Password => {
             let password = vault
                 .resolve_secret(profile.credential_id, CredentialKind::SshPassword)
                 .map_err(map_vault_error)?;
-            params.insert(
-                "password_b64".to_owned(),
-                Value::String(STANDARD.encode(password.as_slice())),
-            );
+            Ok(SshJumpRequest::password(
+                profile.connection_id,
+                profile.version,
+                STANDARD.encode(password.as_slice()),
+            ))
         }
         AuthKind::PrivateKey => {
             let private_key = vault
                 .resolve_secret(profile.credential_id, CredentialKind::ImportedPrivateKey)
                 .map_err(map_vault_error)?;
-            params.insert(
-                "private_key_b64".to_owned(),
-                Value::String(STANDARD.encode(private_key.as_slice())),
-            );
-            if let Some(passphrase_id) = profile.passphrase_credential_id {
-                let passphrase = vault
-                    .resolve_secret(passphrase_id, CredentialKind::PrivateKeyPassphrase)
-                    .map_err(map_vault_error)?;
-                params.insert(
-                    "passphrase_b64".to_owned(),
-                    Value::String(STANDARD.encode(passphrase.as_slice())),
-                );
-            }
+            let passphrase_b64 = profile
+                .passphrase_credential_id
+                .map(|passphrase_id| {
+                    vault
+                        .resolve_secret(passphrase_id, CredentialKind::PrivateKeyPassphrase)
+                        .map(|passphrase| STANDARD.encode(passphrase.as_slice()))
+                        .map_err(map_vault_error)
+                })
+                .transpose()?;
+            Ok(SshJumpRequest::private_key(
+                profile.connection_id,
+                profile.version,
+                STANDARD.encode(private_key.as_slice()),
+                passphrase_b64,
+            ))
         }
     }
-    Ok(())
 }
 
 fn map_vault_error(error: VaultError) -> CommandError {
@@ -472,4 +452,15 @@ fn map_vault_error(error: VaultError) -> CommandError {
         ),
         _ => CommandError::new("VAULT_OPERATION_FAILED", "The credential operation failed."),
     }
+}
+
+pub(super) fn map_runtime_error(error: RuntimeClientError) -> CommandError {
+    if let Some(problem) = error.problem() {
+        return CommandError::with_details(
+            problem.error_code.clone(),
+            problem.message.clone(),
+            Value::Object(problem.details.clone()),
+        );
+    }
+    CommandError::new(error.error_code(), "The SSH runtime is unavailable.")
 }

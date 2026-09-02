@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import json
+from collections.abc import Mapping
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from harness_shell_sidecar.protocol import FrameEnvelope, Sensitivity
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_shell_sidecar.runtime.request_context import RequestContext
 
 from .manager import MAX_PTY_CHUNK_BYTES, PtyManager, PtyManagerError
 from .models import PtyCols, PtyRows
@@ -70,9 +70,11 @@ class _CloseParams(BaseModel):
 def register_terminal_handlers(
     dispatcher: RequestDispatcher, manager: PtyManager
 ) -> None:
-    async def open_pty(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _OpenParams)
-        _require_active(cancelled)
+    async def open_pty(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _OpenParams)
+        context.require_active()
         try:
             session = await manager.open(
                 params.ssh_session_id, cols=params.cols, rows=params.rows
@@ -81,23 +83,23 @@ def register_terminal_handlers(
             raise _dispatch_error(exc) from exc
         return {"pty_session": session.model_dump(mode="json")}
 
-    async def write_pty(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        if frame.sensitivity is not Sensitivity.SECRET:
-            raise DispatchError(
-                "SENSITIVE_FRAME_REQUIRED", "pty.write requires a secret frame"
-            )
-        params = _params(frame, _WriteParams)
+    async def write_pty(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _WriteParams)
         data = _decode_chunk(params.data_b64)
-        _require_active(cancelled)
+        context.require_active()
         try:
             await manager.write(params.pty_session_id, data)
         except PtyManagerError as exc:
             raise _dispatch_error(exc) from exc
         return {"accepted_bytes": len(data)}
 
-    async def resize_pty(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _ResizeParams)
-        _require_active(cancelled)
+    async def resize_pty(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _ResizeParams)
+        context.require_active()
         try:
             session = await manager.resize(
                 params.pty_session_id, cols=params.cols, rows=params.rows
@@ -106,9 +108,11 @@ def register_terminal_handlers(
             raise _dispatch_error(exc) from exc
         return {"pty_session": session.model_dump(mode="json")}
 
-    async def close_pty(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
-        params = _params(frame, _CloseParams)
-        _require_active(cancelled)
+    async def close_pty(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _CloseParams)
+        context.require_active()
         try:
             session = await manager.close(params.pty_session_id)
         except PtyManagerError as exc:
@@ -121,14 +125,13 @@ def register_terminal_handlers(
     dispatcher.register("pty.close", close_pty)
 
 
-def _params(frame: FrameEnvelope, model: type[BaseModel]):
-    params = frame.payload.get("params")
-    if not isinstance(params, dict):
+def _params(raw_params: Mapping[str, object], model: type[BaseModel]):
+    if not isinstance(raw_params, Mapping):
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params must be an object"
         )
     try:
-        return model.model_validate_json(json.dumps(params))
+        return model.model_validate_json(json.dumps(dict(raw_params)))
     except (TypeError, ValueError, ValidationError) as exc:
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params are invalid"
@@ -151,11 +154,6 @@ def _decode_chunk(encoded: str) -> bytes:
             "INVALID_PTY_INPUT", "PTY input must contain 1..32768 bytes"
         )
     return data
-
-
-def _require_active(cancelled: asyncio.Event) -> None:
-    if cancelled.is_set():
-        raise DispatchError("REQUEST_CANCELLED", "request was cancelled")
 
 
 def _dispatch_error(error: PtyManagerError) -> DispatchError:

@@ -54,7 +54,7 @@ SYSTEM_MESSAGE = SystemMessage(
 
 
 class ContextService:
-    """Own history repair and the separate five-Human-turn model projection."""
+    """Own history repair and the separate twenty-Human-turn model projection."""
 
     def __init__(self, conversations: ConversationRepository) -> None:
         """Bind the encrypted conversation repository without any SSH dependency."""
@@ -83,7 +83,7 @@ class ContextService:
 
     @staticmethod
     def trim_for_model(messages: Sequence[AnyMessage]) -> list[AnyMessage]:
-        """Prepend the canonical prompt and retain the latest five Human-led turns."""
+        """Prepend the canonical prompt and retain the latest twenty Human-led turns."""
 
         human_indexes = [
             index

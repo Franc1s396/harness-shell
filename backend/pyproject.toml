@@ -12,6 +12,7 @@ dependencies = [
   "asyncssh>=2.24,<2.25",
   "bcrypt>=4,<6",
   "cryptography>=48.0.1,<51",
+  "fastapi>=0.115,<1",
   "httpx==0.28.1",
   "langchain-core==1.6.0",
   "langchain-openai==1.6.0",
@@ -19,6 +20,8 @@ dependencies = [
   "opentelemetry-api>=1.36,<2",
   "opentelemetry-sdk>=1.36,<2",
   "pydantic>=2.11,<3",
+  "uvicorn>=0.34,<1",
+  "websockets>=16,<17",
 ]
 
 [project.optional-dependencies]

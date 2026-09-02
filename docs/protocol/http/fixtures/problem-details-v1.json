@@ -1,0 +1,9 @@
+{
+  "type": "about:blank",
+  "title": "Request capacity exceeded",
+  "status": 429,
+  "error_code": "REQUEST_CAPACITY_EXCEEDED",
+  "message": "The runtime already has the maximum number of active application requests.",
+  "request_id": "2e8c0760-5959-4842-b4a5-71a11f6e0c04",
+  "details": {}
+}

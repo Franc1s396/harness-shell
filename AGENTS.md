@@ -12,7 +12,9 @@
 
 ## 业务简述与当前边界
 
-Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前架构为 React/TypeScript WebView、Tauri 2 Rust Core 和 Python Sidecar；Rust Core 通过私有 stdio Protocol v1 独占管理 Sidecar，并作为凭据、进程和 WebView 暴露面的安全边界。
+Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前架构为 React/TypeScript WebView、Tauri 2 Rust Core 和 Python Sidecar；Rust Core 独占 packaged child、Windows Job、DPAPI Vault、dynamic loopback port 和 WebView 暴露面。跨进程链路固定为 sealed typed HTTP operations 与一个 typed Runtime WebSocket，Python 通过唯一入口 `serve --port <1..65535>` 让 Uvicorn 只监听 `127.0.0.1`。旧 stdin/stdout transport、generic Router、compatibility adapter 和 fallback 已删除。
+
+Python FastAPI application 提供 50 个 typed HTTP operations、single-owner Runtime WebSocket、共享 `RuntimeResources`/dispatcher owner 和 Problem Details。Manual SFTP chunk 使用严格 `application/octet-stream`；PTY input、SSH/PTY/SFTP event 与 heartbeat 使用 Runtime WebSocket。Rust production supervisor 按 dynamic port → child spawn/Job ownership → live → 一次性 initialize key injection → ready → WebSocket heartbeat 的顺序发布 `RuntimeClientHandle`；失败时撤销 handle，不 reconnect、不 respawn，并在 bounded graceful shutdown 后终止仍存活的 Job child。
 
 当前 M2 已实现连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多标签人工 PTY 和仅用户显式操作的手动 SFTP。Runtime 数据库为 schema v4；连接配置仍用 JS-safe 单调 `version` 拒绝凭据解析后的陈旧目标或跳板配置，`updated_at` 仅用于展示。实验性 M3 ReAct Shell Agent 后端与 React 前端已接入：Rust Vault 独占模型 API Key，Sidecar 保存非秘密 Provider 配置与认证加密的 conversation/run/message；前端提供 Model Provider 管理、按终端 tab 隔离的非流式 Agent Workspace、首轮风险确认、后台状态标记和 Run 期间的 Session/退出门禁。每个 turn 冻结所选 Provider 与 connected SSH Session，只允许严格 `execute_command` 工具；Agent 不可使用手动 SFTP、Artifact 或任意兼容路由。真实 Provider、完整 Tauri Desktop Agent matrix、审批、自动恢复、生产 SSH、部署和迁移仍未验收。`verify-manual-sftp.ps1` 与 `verify-m3-agent.ps1` 自动门禁已通过；构建、自动测试、容器 SSH Lab 或局部桌面观察均不得表述为生产主机验收。
 
@@ -38,10 +40,10 @@ Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前架�
 | --- | --- |
 | 跨进程架构、模块归属、状态权威、跨层调用链 | [Architecture Guide](docs/agents/architecture.md) |
 | React、UI、组件、状态管理、i18n、前端 API 封装 | [Frontend Guide](docs/agents/frontend.md) |
-| Tauri command、capability、permission、Vault、Sidecar Broker/Supervisor | [Rust Core Guide](docs/agents/rust-core.md) 和 [Protocol & Security Guide](docs/agents/protocol-security.md) |
+| Tauri command、capability、permission、Vault、RuntimeClient/Supervisor | [Rust Core Guide](docs/agents/rust-core.md) 和 [Protocol & Security Guide](docs/agents/protocol-security.md) |
 | Python Sidecar、SSH、PTY、存储、Telemetry、远程 I/O | [Python Sidecar Guide](docs/agents/python-sidecar.md) 和 [Python Style Guide](docs/agents/python-style.md) |
 | 任意 Python 源码、测试或脚本修改 | [Python Style Guide](docs/agents/python-style.md) |
-| IPC、Protocol v1、事件、跨进程错误、凭据或安全边界 | [Architecture Guide](docs/agents/architecture.md) 和 [Protocol & Security Guide](docs/agents/protocol-security.md) |
+| typed HTTP/WebSocket、事件、跨进程错误、凭据或安全边界 | [Architecture Guide](docs/agents/architecture.md) 和 [Protocol & Security Guide](docs/agents/protocol-security.md) |
 | 单元测试、集成测试、Sidecar 打包、SSH Lab、M1/M2 验收 | [Testing Guide](docs/agents/testing.md) |
 | 跨层功能 | 上述所有涉及层的领域文档 |
 
@@ -57,14 +59,14 @@ Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前架�
 .
 ├── frontend/                         # React/TypeScript WebView 与 Tauri Rust Core
 │   ├── src/                          # UI、功能、typed API、状态与 i18n
-│   └── src-tauri/                    # Tauri commands、Protocol、Vault、Sidecar 生命周期
+│   └── src-tauri/                    # Tauri commands、Runtime HTTP/WS、Vault、Sidecar 生命周期
 ├── backend/                          # Python Sidecar 工程
-│   ├── src/harness_shell_sidecar/    # Protocol、runtime、SSH、PTY、存储与遥测
+│   ├── src/harness_shell_sidecar/    # FastAPI runtime、SSH、PTY、存储与遥测
 │   ├── tests/                        # Python 单元、集成与 SSH 测试
 │   └── scripts/                      # Sidecar 打包脚本
 ├── scripts/                          # 仓库级 M1/M2 验证与 SSH Lab 生命周期脚本
 ├── tests/ssh_lab/                    # 隔离的双节点 OpenSSH 容器实验室
-├── docs/protocol/                    # Protocol v1 规范与 fixture
+├── docs/protocol/http/               # HTTP/WebSocket v1 契约与 fixture
 ├── docs/testing/                     # 自动门禁和人工验收记录
 ├── docs/agents/                      # 按任务读取的长期领域指导
 └── docs/superpowers/                 # 已批准规格与实施计划
@@ -92,6 +94,7 @@ cd ..\backend
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765
 ```
 
 从 `backend/` 返回仓库根运行自动门禁：

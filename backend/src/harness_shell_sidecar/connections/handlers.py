@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from harness_shell_sidecar.protocol import FrameEnvelope
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_shell_sidecar.runtime.request_context import RequestContext
 
 from .models import ConnectionProfileInput, HostKeyCandidate
 from .repository import ConnectionRepository, ConnectionRepositoryError
@@ -52,10 +52,10 @@ def register_connection_handlers(
     repository: ConnectionRepository,
 ) -> None:
     async def list_connections(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        _params(frame, _EmptyParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        _params(raw_params, _EmptyParams)
+        context.require_active()
         return {
             "connections": [
                 profile.model_dump(mode="json") for profile in repository.list()
@@ -63,19 +63,19 @@ def register_connection_handlers(
         }
 
     async def create_connection(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        value = _params(frame, ConnectionProfileInput)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        value = _params(raw_params, ConnectionProfileInput)
+        context.require_active()
         return {
             "connection": repository.create(value).model_dump(mode="json")
         }
 
     async def get_connection(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _ConnectionIdParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _ConnectionIdParams)
+        context.require_active()
         connection = repository.get(params.connection_id)
         if connection is None:
             raise DispatchError(
@@ -84,10 +84,10 @@ def register_connection_handlers(
         return {"connection": connection.model_dump(mode="json")}
 
     async def update_connection(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _ConnectionUpdateParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _ConnectionUpdateParams)
+        context.require_active()
         value = ConnectionProfileInput.model_validate(
             params.model_dump(exclude={"connection_id"})
         )
@@ -98,17 +98,17 @@ def register_connection_handlers(
         }
 
     async def delete_connection(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _ConnectionIdParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _ConnectionIdParams)
+        context.require_active()
         return {"deleted": repository.delete(params.connection_id)}
 
     async def confirm_host_key(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        candidate = _params(frame, HostKeyCandidate)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        candidate = _params(raw_params, HostKeyCandidate)
+        context.require_active()
         return {
             "host_key": repository.trust_first_host_key(candidate).model_dump(
                 mode="json"
@@ -116,10 +116,10 @@ def register_connection_handlers(
         }
 
     async def replace_host_key(
-        frame: FrameEnvelope, cancelled: asyncio.Event
-    ) -> dict:
-        params = _params(frame, _HostKeyReplaceParams)
-        _require_active(cancelled)
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        params = _params(raw_params, _HostKeyReplaceParams)
+        context.require_active()
         candidate = HostKeyCandidate.model_validate(
             params.model_dump(exclude={"expected_old_fingerprint"})
         )
@@ -142,29 +142,27 @@ def register_connection_handlers(
         dispatcher.register(method, _map_repository_errors(handler))
 
 
-def _params(frame: FrameEnvelope, model: type[BaseModel]) -> Any:
-    params = frame.payload.get("params")
-    if not isinstance(params, dict):
+def _params(raw_params: Mapping[str, object], model: type[BaseModel]) -> Any:
+    if not isinstance(raw_params, Mapping):
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params must be an object"
         )
     try:
-        return model.model_validate_json(json.dumps(params))
+        # JSON-mode validation preserves strict UUID parsing from JSON strings.
+        return model.model_validate_json(json.dumps(dict(raw_params)))
     except (TypeError, ValueError, ValidationError) as exc:
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params are invalid"
         ) from exc
 
 
-def _require_active(cancelled: asyncio.Event) -> None:
-    if cancelled.is_set():
-        raise DispatchError("REQUEST_CANCELLED", "request was cancelled")
-
-
 def _map_repository_errors(handler):
-    async def wrapped(frame: FrameEnvelope, cancelled: asyncio.Event) -> dict:
+    async def wrapped(
+        context: RequestContext,
+        raw_params: Mapping[str, object],
+    ) -> dict[str, object]:
         try:
-            return await handler(frame, cancelled)
+            return await handler(context, raw_params)
         except ConnectionRepositoryError as exc:
             raise DispatchError(exc.error_code, str(exc)) from exc
 

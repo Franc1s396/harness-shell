@@ -1,0 +1,5050 @@
+{
+  "components": {
+    "parameters": {
+      "ChunkOffset": {
+        "in": "header",
+        "name": "X-Chunk-Offset",
+        "required": true,
+        "schema": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "RequestId": {
+        "in": "header",
+        "name": "X-Request-ID",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        },
+        "description": "Stable typed failure.",
+        "headers": {
+          "X-Request-ID": {
+            "description": "Matches the request and JSON body request_id.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "AgentApiConfigListResponse": {
+        "additionalProperties": false,
+        "description": "Return all non-secret Provider configurations.",
+        "properties": {
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/ModelApiConfig"
+            },
+            "title": "Configs",
+            "type": "array"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "configs"
+        ],
+        "title": "AgentApiConfigListResponse",
+        "type": "object"
+      },
+      "AgentApiConfigResponse": {
+        "additionalProperties": false,
+        "description": "Return one non-secret Provider configuration.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/ModelApiConfig"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "config"
+        ],
+        "title": "AgentApiConfigResponse",
+        "type": "object"
+      },
+      "AgentRunStatus": {
+        "description": "Represent the only persisted lifecycle states for an Agent run.",
+        "enum": [
+          "RUNNING",
+          "COMPLETED",
+          "FAILED",
+          "LIMIT_REACHED",
+          "CANCELLED"
+        ],
+        "title": "AgentRunStatus",
+        "type": "string"
+      },
+      "AgentTurnRequest": {
+        "additionalProperties": false,
+        "description": "Validate the only secret Protocol payload accepted for an Agent turn.",
+        "properties": {
+          "api_config_id": {
+            "format": "uuid",
+            "title": "Api Config Id",
+            "type": "string"
+          },
+          "api_key_b64": {
+            "title": "Api Key B64",
+            "type": "string"
+          },
+          "api_key_credential_id": {
+            "format": "uuid",
+            "title": "Api Key Credential Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Conversation Id"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "user_message": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "User Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "api_config_id",
+          "api_key_credential_id",
+          "api_key_b64",
+          "user_message"
+        ],
+        "title": "AgentTurnRequest",
+        "type": "object"
+      },
+      "AgentTurnResponse": {
+        "additionalProperties": false,
+        "description": "Return the complete non-streaming Agent result with HTTP correlation.",
+        "properties": {
+          "agent_run_id": {
+            "description": "Run which produced this result.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "Conversation receiving the turn.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable terminal failure code, if any.",
+            "title": "Error Code"
+          },
+          "final_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final model text when successfully available.",
+            "title": "Final Text"
+          },
+          "react_iteration": {
+            "description": "Completed Tool Call to ToolMessage loops.",
+            "maximum": 128.0,
+            "minimum": 0.0,
+            "title": "React Iteration",
+            "type": "integer"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentRunStatus",
+            "description": "Terminal run status."
+          }
+        },
+        "required": [
+          "conversation_id",
+          "agent_run_id",
+          "status",
+          "final_text",
+          "react_iteration",
+          "error_code",
+          "request_id"
+        ],
+        "title": "AgentTurnResponse",
+        "type": "object"
+      },
+      "ApiType": {
+        "description": "Select the one explicitly configured OpenAI-compatible API surface.",
+        "enum": [
+          "CHAT_COMPLETIONS",
+          "RESPONSES"
+        ],
+        "title": "ApiType",
+        "type": "string"
+      },
+      "ConnectionListResponse": {
+        "additionalProperties": false,
+        "description": "Return all persisted connection profiles in repository order.",
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionProfile"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "connections"
+        ],
+        "title": "ConnectionListResponse",
+        "type": "object"
+      },
+      "ConnectionProfile": {
+        "additionalProperties": false,
+        "description": "已持久化并带有身份与审计时间的 SSH 连接配置。",
+        "properties": {
+          "auth_kind": {
+            "enum": [
+              "password",
+              "private_key"
+            ],
+            "title": "Auth Kind",
+            "type": "string"
+          },
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "credential_id": {
+            "format": "uuid",
+            "title": "Credential Id",
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "favorite": {
+            "default": false,
+            "title": "Favorite",
+            "type": "boolean"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Name"
+          },
+          "host": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "passphrase_credential_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passphrase Credential Id"
+          },
+          "port": {
+            "default": 22,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "type": "integer"
+          },
+          "proxy_jump_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Jump Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "display_name",
+          "host",
+          "username",
+          "auth_kind",
+          "credential_id",
+          "connection_id",
+          "created_at",
+          "updated_at",
+          "version"
+        ],
+        "title": "ConnectionProfile",
+        "type": "object"
+      },
+      "ConnectionProfileInput": {
+        "additionalProperties": false,
+        "description": "创建或更新 SSH 连接配置时由调用方提供的字段。",
+        "properties": {
+          "auth_kind": {
+            "enum": [
+              "password",
+              "private_key"
+            ],
+            "title": "Auth Kind",
+            "type": "string"
+          },
+          "credential_id": {
+            "format": "uuid",
+            "title": "Credential Id",
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "favorite": {
+            "default": false,
+            "title": "Favorite",
+            "type": "boolean"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group Name"
+          },
+          "host": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "passphrase_credential_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Passphrase Credential Id"
+          },
+          "port": {
+            "default": 22,
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "proxy_jump_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proxy Jump Id"
+          },
+          "username": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "host",
+          "username",
+          "auth_kind",
+          "credential_id"
+        ],
+        "title": "ConnectionProfileInput",
+        "type": "object"
+      },
+      "ConnectionResponse": {
+        "additionalProperties": false,
+        "description": "Return one persisted connection profile.",
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/ConnectionProfile"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "connection"
+        ],
+        "title": "ConnectionResponse",
+        "type": "object"
+      },
+      "ConnectionStatus": {
+        "additionalProperties": false,
+        "description": "对桌面端公开的 SSH 连接状态快照。",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "correlation_id": {
+            "format": "uuid",
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "host_key_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HostKeyCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recoverable": {
+            "title": "Recoverable",
+            "type": "boolean"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "state": {
+            "enum": [
+              "DISCONNECTED",
+              "CONNECTING",
+              "HOST_KEY_REQUIRED",
+              "READY",
+              "CLOSING",
+              "FAILED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "trusted_fingerprint_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trusted Fingerprint Sha256"
+          }
+        },
+        "required": [
+          "connection_id",
+          "state",
+          "session_id",
+          "error_code",
+          "recoverable",
+          "correlation_id",
+          "host_key_candidate"
+        ],
+        "title": "ConnectionStatus",
+        "type": "object"
+      },
+      "DeletePlanSummary": {
+        "additionalProperties": false,
+        "description": "Expose only complete no-follow recursive-delete plan metadata.",
+        "properties": {
+          "complete": {
+            "const": true,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "delete_plan_id": {
+            "format": "uuid",
+            "title": "Delete Plan Id",
+            "type": "string"
+          },
+          "directory_count": {
+            "maximum": 50000.0,
+            "minimum": 1.0,
+            "title": "Directory Count",
+            "type": "integer"
+          },
+          "file_count": {
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "File Count",
+            "type": "integer"
+          },
+          "manifest_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "root_path": {
+            "title": "Root Path",
+            "type": "string"
+          },
+          "root_snapshot": {
+            "$ref": "#/components/schemas/TransferSnapshot"
+          },
+          "symlink_count": {
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "Symlink Count",
+            "type": "integer"
+          },
+          "total_byte_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Total Byte Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "delete_plan_id",
+          "operation_id",
+          "root_path",
+          "root_snapshot",
+          "file_count",
+          "directory_count",
+          "symlink_count",
+          "total_byte_count",
+          "manifest_sha256",
+          "complete"
+        ],
+        "title": "DeletePlanSummary",
+        "type": "object"
+      },
+      "DeleteResponse": {
+        "additionalProperties": false,
+        "description": "Return the determined deletion outcome for an identity.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "deleted"
+        ],
+        "title": "DeleteResponse",
+        "type": "object"
+      },
+      "DownloadReady": {
+        "additionalProperties": false,
+        "description": "Freeze one remote download source before returning any bytes.",
+        "properties": {
+          "byte_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Byte Count",
+            "type": "integer"
+          },
+          "next_offset": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "next_sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Next Sequence",
+            "type": "integer"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/TransferSnapshot"
+          }
+        },
+        "required": [
+          "operation_id",
+          "path",
+          "snapshot",
+          "sha256",
+          "byte_count",
+          "next_sequence",
+          "next_offset"
+        ],
+        "title": "DownloadReady",
+        "type": "object"
+      },
+      "HealthLiveResponse": {
+        "additionalProperties": false,
+        "description": "Report that the Python HTTP event loop can respond.",
+        "properties": {
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "live"
+        ],
+        "title": "HealthLiveResponse",
+        "type": "object"
+      },
+      "HealthReadyResponse": {
+        "additionalProperties": false,
+        "description": "Report that the complete runtime resource graph is ready.",
+        "properties": {
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RuntimePhase"
+          }
+        },
+        "required": [
+          "request_id",
+          "ready",
+          "state"
+        ],
+        "title": "HealthReadyResponse",
+        "type": "object"
+      },
+      "HostKeyCandidate": {
+        "additionalProperties": false,
+        "description": "等待用户确认或替换的远端 SSH Host Key 候选值。",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "fingerprint_sha256": {
+            "pattern": "^SHA256:[A-Za-z0-9+/=_-]+$",
+            "title": "Fingerprint Sha256",
+            "type": "string"
+          },
+          "host": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "key_algorithm": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key Algorithm",
+            "type": "string"
+          },
+          "port": {
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "public_key_openssh_b64": {
+            "title": "Public Key Openssh B64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "host",
+          "port",
+          "key_algorithm",
+          "fingerprint_sha256",
+          "public_key_openssh_b64"
+        ],
+        "title": "HostKeyCandidate",
+        "type": "object"
+      },
+      "HostKeyInspectionRequest": {
+        "additionalProperties": false,
+        "description": "Describe one direct or single-hop Host Key inspection.",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "jump": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SshJumpRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "connection_id"
+        ],
+        "title": "HostKeyInspectionRequest",
+        "type": "object"
+      },
+      "HostKeyRecord": {
+        "additionalProperties": false,
+        "description": "连接已确认的 Host Key 历史记录。",
+        "properties": {
+          "confirmed_at": {
+            "format": "date-time",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "fingerprint_sha256": {
+            "title": "Fingerprint Sha256",
+            "type": "string"
+          },
+          "host_key_id": {
+            "format": "uuid",
+            "title": "Host Key Id",
+            "type": "string"
+          },
+          "key_algorithm": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key Algorithm",
+            "type": "string"
+          },
+          "public_key_openssh_b64": {
+            "title": "Public Key Openssh B64",
+            "type": "string"
+          },
+          "replaced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced At"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "replaced"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_key_id",
+          "connection_id",
+          "key_algorithm",
+          "fingerprint_sha256",
+          "public_key_openssh_b64",
+          "status",
+          "confirmed_at"
+        ],
+        "title": "HostKeyRecord",
+        "type": "object"
+      },
+      "HostKeyReplacementRequest": {
+        "additionalProperties": false,
+        "description": "Bind a new candidate to the exact trusted fingerprint being replaced.",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "expected_old_fingerprint": {
+            "title": "Expected Old Fingerprint",
+            "type": "string"
+          },
+          "fingerprint_sha256": {
+            "pattern": "^SHA256:[A-Za-z0-9+/=_-]+$",
+            "title": "Fingerprint Sha256",
+            "type": "string"
+          },
+          "host": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "key_algorithm": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key Algorithm",
+            "type": "string"
+          },
+          "port": {
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "public_key_openssh_b64": {
+            "title": "Public Key Openssh B64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "host",
+          "port",
+          "key_algorithm",
+          "fingerprint_sha256",
+          "public_key_openssh_b64",
+          "expected_old_fingerprint"
+        ],
+        "title": "HostKeyReplacementRequest",
+        "type": "object"
+      },
+      "HostKeyResponse": {
+        "additionalProperties": false,
+        "description": "Return one persisted Host Key trust record.",
+        "properties": {
+          "host_key": {
+            "$ref": "#/components/schemas/HostKeyRecord"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "host_key"
+        ],
+        "title": "HostKeyResponse",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "ListingBatch": {
+        "additionalProperties": false,
+        "description": "Return one bounded page from a short-lived listing cursor.",
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RemoteEntry"
+            },
+            "maxItems": 200,
+            "title": "Entries",
+            "type": "array"
+          },
+          "listing_id": {
+            "format": "uuid",
+            "title": "Listing Id",
+            "type": "string"
+          },
+          "next_sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Next Sequence",
+            "type": "integer"
+          },
+          "observed_entry_count": {
+            "maximum": 50000.0,
+            "minimum": 0.0,
+            "title": "Observed Entry Count",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "listing_id",
+          "path",
+          "entries",
+          "next_sequence",
+          "done",
+          "observed_entry_count",
+          "complete"
+        ],
+        "title": "ListingBatch",
+        "type": "object"
+      },
+      "ManualSftpContext": {
+        "additionalProperties": false,
+        "description": "Describe one explicitly bound live SSH session without exposing secrets.",
+        "properties": {
+          "connection_id": {
+            "description": "Connection profile behind the session.",
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "home": {
+            "description": "Remote user's absolute home directory.",
+            "title": "Home",
+            "type": "string"
+          },
+          "host_label": {
+            "description": "Safe display label for the bound host.",
+            "title": "Host Label",
+            "type": "string"
+          },
+          "sftp_version": {
+            "description": "Negotiated SFTP protocol version.",
+            "maximum": 6.0,
+            "minimum": 3.0,
+            "title": "Sftp Version",
+            "type": "integer"
+          },
+          "ssh_session_id": {
+            "description": "Bound live SSH session identifier.",
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "connection_id",
+          "home",
+          "host_label",
+          "sftp_version"
+        ],
+        "title": "ManualSftpContext",
+        "type": "object"
+      },
+      "ModelApiConfig": {
+        "additionalProperties": false,
+        "description": "Represent one persisted API configuration without secret material.",
+        "properties": {
+          "api_config_id": {
+            "description": "Stable configuration identity.",
+            "format": "uuid",
+            "title": "Api Config Id",
+            "type": "string"
+          },
+          "api_key_secret_ref": {
+            "description": "Opaque Rust Vault reference; never the API key plaintext.",
+            "format": "uuid",
+            "title": "Api Key Secret Ref",
+            "type": "string"
+          },
+          "api_type": {
+            "$ref": "#/components/schemas/ApiType",
+            "description": "Explicit API selection; automatic probing is forbidden."
+          },
+          "base_url": {
+            "description": "Normalized HTTP(S) base URL supplied to ChatOpenAI.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "UTC creation timestamp.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "User-facing label for this provider configuration.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether new Agent runs may use this configuration.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "Provider model identifier passed without inference.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "UTC last-update timestamp.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "api_type",
+          "base_url",
+          "model",
+          "api_key_secret_ref",
+          "api_config_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ModelApiConfig",
+        "type": "object"
+      },
+      "ModelApiConfigInput": {
+        "additionalProperties": false,
+        "description": "Validate non-secret model configuration supplied by a trusted Core caller.",
+        "properties": {
+          "api_key_secret_ref": {
+            "description": "Opaque Rust Vault reference; never the API key plaintext.",
+            "format": "uuid",
+            "title": "Api Key Secret Ref",
+            "type": "string"
+          },
+          "api_type": {
+            "$ref": "#/components/schemas/ApiType",
+            "description": "Explicit API selection; automatic probing is forbidden."
+          },
+          "base_url": {
+            "description": "Normalized HTTP(S) base URL supplied to ChatOpenAI.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "User-facing label for this provider configuration.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether new Agent runs may use this configuration.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "Provider model identifier passed without inference.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "api_type",
+          "base_url",
+          "model",
+          "api_key_secret_ref"
+        ],
+        "title": "ModelApiConfigInput",
+        "type": "object"
+      },
+      "OperationTerminalProjection": {
+        "additionalProperties": false,
+        "description": "Return one trustworthy terminal result or explicit uncertainty.",
+        "properties": {
+          "byte_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Count"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "recovery_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Id"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "state": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "cancelled",
+              "cleanup_required",
+              "outcome_unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "state",
+          "error_code",
+          "message",
+          "sha256",
+          "byte_count",
+          "recovery_id"
+        ],
+        "title": "OperationTerminalProjection",
+        "type": "object"
+      },
+      "ProblemDetails": {
+        "additionalProperties": false,
+        "description": "Expose one bounded machine-readable failure without raw internals.",
+        "properties": {
+          "details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Details",
+            "type": "object"
+          },
+          "error_code": {
+            "title": "Error Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "error_code",
+          "message",
+          "request_id",
+          "details"
+        ],
+        "title": "ProblemDetails",
+        "type": "object"
+      },
+      "PtyOpenRequest": {
+        "additionalProperties": false,
+        "description": "Bind a new PTY to one active SSH session and initial geometry.",
+        "properties": {
+          "cols": {
+            "maximum": 500,
+            "minimum": 20,
+            "title": "Cols",
+            "type": "integer"
+          },
+          "rows": {
+            "maximum": 300,
+            "minimum": 5,
+            "title": "Rows",
+            "type": "integer"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "cols",
+          "rows"
+        ],
+        "title": "PtyOpenRequest",
+        "type": "object"
+      },
+      "PtyResizeRequest": {
+        "additionalProperties": false,
+        "description": "Describe a bounded PTY geometry update.",
+        "properties": {
+          "cols": {
+            "maximum": 500,
+            "minimum": 20,
+            "title": "Cols",
+            "type": "integer"
+          },
+          "rows": {
+            "maximum": 300,
+            "minimum": 5,
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cols",
+          "rows"
+        ],
+        "title": "PtyResizeRequest",
+        "type": "object"
+      },
+      "PtySession": {
+        "additionalProperties": false,
+        "description": "对桌面端公开的交互式 SSH PTY 会话快照。",
+        "properties": {
+          "cols": {
+            "maximum": 500.0,
+            "minimum": 20.0,
+            "title": "Cols",
+            "type": "integer"
+          },
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "pty_session_id": {
+            "format": "uuid",
+            "title": "Pty Session Id",
+            "type": "string"
+          },
+          "rows": {
+            "maximum": 300.0,
+            "minimum": 5.0,
+            "title": "Rows",
+            "type": "integer"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "OPEN",
+              "CLOSED",
+              "FAILED"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pty_session_id",
+          "ssh_session_id",
+          "connection_id",
+          "cols",
+          "rows",
+          "state"
+        ],
+        "title": "PtySession",
+        "type": "object"
+      },
+      "PtySessionResponse": {
+        "additionalProperties": false,
+        "description": "Return one interactive PTY session snapshot.",
+        "properties": {
+          "pty_session": {
+            "$ref": "#/components/schemas/PtySession"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "pty_session"
+        ],
+        "title": "PtySessionResponse",
+        "type": "object"
+      },
+      "RecoverySummary": {
+        "additionalProperties": false,
+        "description": "Expose a safe summary of one encrypted recovery record.",
+        "properties": {
+          "available_actions": {
+            "items": {
+              "enum": [
+                "verify",
+                "delete_temp",
+                "continue_delete",
+                "restore_tombstone",
+                "open_local_folder",
+                "keep"
+              ],
+              "type": "string"
+            },
+            "title": "Available Actions",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "host_label": {
+            "title": "Host Label",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "upload_temp",
+              "download_part",
+              "delete_tombstone",
+              "mutation_unknown"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "recovery_id": {
+            "format": "uuid",
+            "title": "Recovery Id",
+            "type": "string"
+          },
+          "remote_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Path"
+          },
+          "state": {
+            "enum": [
+              "cleanup_required",
+              "outcome_unknown",
+              "recovery_required"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recovery_id",
+          "operation_id",
+          "kind",
+          "host_label",
+          "remote_path",
+          "display_name",
+          "state",
+          "created_at",
+          "available_actions"
+        ],
+        "title": "RecoverySummary",
+        "type": "object"
+      },
+      "RemoteEntry": {
+        "additionalProperties": false,
+        "description": "Expose no-follow remote metadata safe for the WebView.",
+        "properties": {
+          "entry_type": {
+            "description": "No-follow remote entry kind.",
+            "enum": [
+              "file",
+              "directory",
+              "symlink",
+              "other"
+            ],
+            "title": "Entry Type",
+            "type": "string"
+          },
+          "link_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explicit readlink result only.",
+            "title": "Link Target"
+          },
+          "mode": {
+            "description": "POSIX file type and permission bits.",
+            "minimum": 0.0,
+            "title": "Mode",
+            "type": "integer"
+          },
+          "mtime_ns": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact uint64 nanoseconds encoded as decimal.",
+            "title": "Mtime Ns"
+          },
+          "name": {
+            "description": "Single remote basename in the listed directory.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Validated absolute POSIX path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Regular-file bytes, or null when absent.",
+            "title": "Size"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "entry_type",
+          "size",
+          "mode",
+          "mtime_ns",
+          "link_target"
+        ],
+        "title": "RemoteEntry",
+        "type": "object"
+      },
+      "RemoteFileHash": {
+        "additionalProperties": false,
+        "description": "Return a complete remote-file hash tied to a verified snapshot.",
+        "properties": {
+          "byte_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Byte Count",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/TransferSnapshot"
+          }
+        },
+        "required": [
+          "path",
+          "snapshot",
+          "sha256",
+          "byte_count"
+        ],
+        "title": "RemoteFileHash",
+        "type": "object"
+      },
+      "RequestCancelResponse": {
+        "additionalProperties": false,
+        "description": "Acknowledge an explicit cooperative cancellation request.",
+        "properties": {
+          "cancellation_requested": {
+            "title": "Cancellation Requested",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "target_request_id": {
+            "format": "uuid",
+            "title": "Target Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "target_request_id",
+          "cancellation_requested"
+        ],
+        "title": "RequestCancelResponse",
+        "type": "object"
+      },
+      "RuntimeInitializeRequest": {
+        "additionalProperties": false,
+        "description": "Strict shared input for constructing the one runtime resource graph.",
+        "properties": {
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "audit_hmac_key_b64": {
+            "title": "Audit Hmac Key B64",
+            "type": "string"
+          },
+          "heartbeat_interval_ms": {
+            "title": "Heartbeat Interval Ms",
+            "type": "integer"
+          },
+          "heartbeat_timeout_ms": {
+            "title": "Heartbeat Timeout Ms",
+            "type": "integer"
+          },
+          "runtime_data_key_b64": {
+            "title": "Runtime Data Key B64",
+            "type": "string"
+          },
+          "runtime_db_path": {
+            "format": "path",
+            "title": "Runtime Db Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_version",
+          "runtime_db_path",
+          "runtime_data_key_b64",
+          "audit_hmac_key_b64",
+          "heartbeat_interval_ms",
+          "heartbeat_timeout_ms"
+        ],
+        "title": "RuntimeInitializeRequest",
+        "type": "object"
+      },
+      "RuntimePhase": {
+        "description": "Describe the single runtime owner from live startup through cleanup.",
+        "enum": [
+          "LIVE_NOT_INITIALIZED",
+          "INITIALIZING",
+          "READY",
+          "DRAINING",
+          "CONVERGING",
+          "CLOSING",
+          "STOPPED",
+          "FAILED"
+        ],
+        "title": "RuntimePhase",
+        "type": "string"
+      },
+      "RuntimeStateResponse": {
+        "additionalProperties": false,
+        "description": "Return the safe shared runtime lifecycle state.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RuntimePhase"
+          }
+        },
+        "required": [
+          "request_id",
+          "state"
+        ],
+        "title": "RuntimeStateResponse",
+        "type": "object"
+      },
+      "SftpClosedResponse": {
+        "additionalProperties": false,
+        "description": "Acknowledge explicit listing cursor closure.",
+        "properties": {
+          "closed": {
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "closed"
+        ],
+        "title": "SftpClosedResponse",
+        "type": "object"
+      },
+      "SftpContextResponse": {
+        "additionalProperties": false,
+        "description": "Return one safe Manual SFTP context.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/ManualSftpContext"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "context"
+        ],
+        "title": "SftpContextResponse",
+        "type": "object"
+      },
+      "SftpDeletePlanResponse": {
+        "additionalProperties": false,
+        "description": "Return one complete recursive-delete preflight summary.",
+        "properties": {
+          "delete_plan": {
+            "$ref": "#/components/schemas/DeletePlanSummary"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "delete_plan"
+        ],
+        "title": "SftpDeletePlanResponse",
+        "type": "object"
+      },
+      "SftpDeletePreflightRequest": {
+        "additionalProperties": false,
+        "description": "Build a complete recursive-delete plan without deleting anything.",
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "path",
+          "operation_id"
+        ],
+        "title": "SftpDeletePreflightRequest",
+        "type": "object"
+      },
+      "SftpDownloadBeginRequest": {
+        "additionalProperties": false,
+        "description": "Begin a download under one fresh durable operation identity.",
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "path",
+          "operation_id"
+        ],
+        "title": "SftpDownloadBeginRequest",
+        "type": "object"
+      },
+      "SftpDownloadResponse": {
+        "additionalProperties": false,
+        "description": "Return one ready download owner.",
+        "properties": {
+          "download": {
+            "$ref": "#/components/schemas/DownloadReady"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "download"
+        ],
+        "title": "SftpDownloadResponse",
+        "type": "object"
+      },
+      "SftpEntryResponse": {
+        "additionalProperties": false,
+        "description": "Return one safe no-follow remote metadata projection.",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/RemoteEntry"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "entry"
+        ],
+        "title": "SftpEntryResponse",
+        "type": "object"
+      },
+      "SftpHashResponse": {
+        "additionalProperties": false,
+        "description": "Return one complete remote file hash.",
+        "properties": {
+          "hash": {
+            "$ref": "#/components/schemas/RemoteFileHash"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "hash"
+        ],
+        "title": "SftpHashResponse",
+        "type": "object"
+      },
+      "SftpListingResponse": {
+        "additionalProperties": false,
+        "description": "Return one bounded listing batch.",
+        "properties": {
+          "batch": {
+            "$ref": "#/components/schemas/ListingBatch"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "batch"
+        ],
+        "title": "SftpListingResponse",
+        "type": "object"
+      },
+      "SftpMkdirRequest": {
+        "additionalProperties": false,
+        "description": "Create one basename under a previously validated parent.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "parent_path": {
+            "title": "Parent Path",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "operation_id",
+          "parent_path",
+          "name"
+        ],
+        "title": "SftpMkdirRequest",
+        "type": "object"
+      },
+      "SftpPathRequest": {
+        "additionalProperties": false,
+        "description": "Select one remote path inside a strict JSON body.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "path"
+        ],
+        "title": "SftpPathRequest",
+        "type": "object"
+      },
+      "SftpRecoveryActionRequest": {
+        "additionalProperties": false,
+        "description": "Execute one allowlisted recovery action under a fresh identity.",
+        "properties": {
+          "action": {
+            "enum": [
+              "verify",
+              "delete_temp",
+              "continue_delete",
+              "restore_tombstone",
+              "open_local_folder",
+              "keep"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "action"
+        ],
+        "title": "SftpRecoveryActionRequest",
+        "type": "object"
+      },
+      "SftpRecoveryResponse": {
+        "additionalProperties": false,
+        "description": "Return one safe recovery inspection or action result.",
+        "properties": {
+          "recovery": {
+            "$ref": "#/components/schemas/RecoverySummary"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "recovery"
+        ],
+        "title": "SftpRecoveryResponse",
+        "type": "object"
+      },
+      "SftpRemoveRequest": {
+        "additionalProperties": false,
+        "description": "Remove one entry only when its complete snapshot still matches.",
+        "properties": {
+          "expected_snapshot": {
+            "$ref": "#/components/schemas/TransferSnapshot"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "path",
+          "operation_id",
+          "expected_snapshot"
+        ],
+        "title": "SftpRemoveRequest",
+        "type": "object"
+      },
+      "SftpRenameRequest": {
+        "additionalProperties": false,
+        "description": "Rename one unchanged source to one validated target.",
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "overwrite": {
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "source_path": {
+            "title": "Source Path",
+            "type": "string"
+          },
+          "source_snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TransferSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "target_path": {
+            "title": "Target Path",
+            "type": "string"
+          },
+          "target_snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TransferSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "operation_id",
+          "source_path",
+          "target_path",
+          "overwrite"
+        ],
+        "title": "SftpRenameRequest",
+        "type": "object"
+      },
+      "SftpSessionRequest": {
+        "additionalProperties": false,
+        "description": "Select one explicitly connected SSH session.",
+        "properties": {
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id"
+        ],
+        "title": "SftpSessionRequest",
+        "type": "object"
+      },
+      "SftpSnapshotResponse": {
+        "additionalProperties": false,
+        "description": "Return one remote target preflight snapshot.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/TransferSnapshot"
+          }
+        },
+        "required": [
+          "request_id",
+          "snapshot"
+        ],
+        "title": "SftpSnapshotResponse",
+        "type": "object"
+      },
+      "SftpTerminalResponse": {
+        "additionalProperties": false,
+        "description": "Return one trustworthy terminal or recovery-required outcome.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "terminal": {
+            "$ref": "#/components/schemas/OperationTerminalProjection"
+          }
+        },
+        "required": [
+          "request_id",
+          "terminal"
+        ],
+        "title": "SftpTerminalResponse",
+        "type": "object"
+      },
+      "SftpUploadBeginRequest": {
+        "additionalProperties": false,
+        "description": "Freeze the local source and remote target identity for an upload.",
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "source_byte_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Source Byte Count",
+            "type": "integer"
+          },
+          "source_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "target_snapshot": {
+            "$ref": "#/components/schemas/TransferSnapshot"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "path",
+          "operation_id",
+          "source_sha256",
+          "source_byte_count",
+          "target_snapshot"
+        ],
+        "title": "SftpUploadBeginRequest",
+        "type": "object"
+      },
+      "SftpUploadChunkResponse": {
+        "additionalProperties": false,
+        "description": "Acknowledge an exact raw upload chunk without Base64.",
+        "properties": {
+          "accepted_bytes": {
+            "maximum": 262144.0,
+            "minimum": 1.0,
+            "title": "Accepted Bytes",
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "operation_id",
+          "sequence",
+          "offset",
+          "accepted_bytes"
+        ],
+        "title": "SftpUploadChunkResponse",
+        "type": "object"
+      },
+      "SftpUploadResponse": {
+        "additionalProperties": false,
+        "description": "Return one ready upload owner.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/UploadReady"
+          }
+        },
+        "required": [
+          "request_id",
+          "upload"
+        ],
+        "title": "SftpUploadResponse",
+        "type": "object"
+      },
+      "SshConnectRequest": {
+        "additionalProperties": false,
+        "description": "Freeze target and optional jump profiles with transient credentials.",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "jump": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SshJumpRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "passphrase_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Passphrase B64"
+          },
+          "password_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Password B64"
+          },
+          "private_key_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Private Key B64"
+          },
+          "profile_version": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Profile Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection_id",
+          "profile_version"
+        ],
+        "title": "SshConnectRequest",
+        "type": "object"
+      },
+      "SshJumpRequest": {
+        "additionalProperties": false,
+        "description": "Freeze one ProxyJump profile version with its transient credential.",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "passphrase_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Passphrase B64"
+          },
+          "password_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Password B64"
+          },
+          "private_key_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Private Key B64"
+          },
+          "profile_version": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Profile Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection_id",
+          "profile_version"
+        ],
+        "title": "SshJumpRequest",
+        "type": "object"
+      },
+      "SshSessionListResponse": {
+        "additionalProperties": false,
+        "description": "Return only safe metadata for active SSH sessions.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SshSessionSnapshot"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "request_id",
+          "sessions"
+        ],
+        "title": "SshSessionListResponse",
+        "type": "object"
+      },
+      "SshSessionSnapshot": {
+        "additionalProperties": false,
+        "description": "Expose only stable non-secret metadata for one connected SSH session.",
+        "properties": {
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "connection_profile_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Connection Profile Version",
+            "type": "integer"
+          },
+          "host_label": {
+            "title": "Host Label",
+            "type": "string"
+          },
+          "jump_connection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jump Connection Id"
+          },
+          "jump_host_key_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jump Host Key Fingerprint"
+          },
+          "jump_profile_version": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jump Profile Version"
+          },
+          "ssh_session_id": {
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "target_host_key_fingerprint": {
+            "title": "Target Host Key Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssh_session_id",
+          "connection_id",
+          "connection_profile_version",
+          "host_label",
+          "target_host_key_fingerprint",
+          "jump_connection_id",
+          "jump_profile_version",
+          "jump_host_key_fingerprint"
+        ],
+        "title": "SshSessionSnapshot",
+        "type": "object"
+      },
+      "SshStatusResponse": {
+        "additionalProperties": false,
+        "description": "Return one safe SSH lifecycle status.",
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          }
+        },
+        "required": [
+          "request_id",
+          "status"
+        ],
+        "title": "SshStatusResponse",
+        "type": "object"
+      },
+      "TransferSnapshot": {
+        "additionalProperties": false,
+        "description": "Freeze one remote target for later compare-before-mutate checks.",
+        "properties": {
+          "entry_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "file",
+                  "directory",
+                  "symlink",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Type"
+          },
+          "exists": {
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "mtime_ns": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mtime Ns"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          }
+        },
+        "required": [
+          "path",
+          "exists",
+          "entry_type",
+          "size",
+          "mtime_ns",
+          "sha256"
+        ],
+        "title": "TransferSnapshot",
+        "type": "object"
+      },
+      "UploadReady": {
+        "additionalProperties": false,
+        "description": "Describe an exclusive remote upload temporary file ready for chunks.",
+        "properties": {
+          "next_offset": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "next_sequence": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Next Sequence",
+            "type": "integer"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "temp_path": {
+            "title": "Temp Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "temp_path",
+          "next_sequence",
+          "next_offset"
+        ],
+        "title": "UploadReady",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Loopback-only API owned by the Rust-managed packaged child. The Runtime WebSocket is specified separately.",
+    "title": "Harness Shell Private Python Runtime API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/agent/api-configs": {
+      "get": {
+        "description": "Return all non-secret Provider configurations.",
+        "operationId": "list_api_configs_v1_agent_api_configs_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApiConfigListResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "List Api Configs"
+      },
+      "post": {
+        "description": "Persist one Provider configuration containing only a Vault reference.",
+        "operationId": "create_api_config_v1_agent_api_configs_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelApiConfigInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApiConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Create Api Config"
+      }
+    },
+    "/v1/agent/api-configs/{api_config_id}": {
+      "delete": {
+        "description": "Delete Sidecar metadata without changing Rust Vault ownership.",
+        "operationId": "delete_api_config_v1_agent_api_configs__api_config_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "api_config_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Api Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Delete Api Config"
+      },
+      "get": {
+        "description": "Return one non-secret Provider configuration.",
+        "operationId": "get_api_config_v1_agent_api_configs__api_config_id__get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "api_config_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Api Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApiConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Get Api Config"
+      },
+      "patch": {
+        "description": "Replace one complete non-secret Provider configuration.",
+        "operationId": "update_api_config_v1_agent_api_configs__api_config_id__patch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "api_config_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Api Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelApiConfigInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApiConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Update Api Config"
+      }
+    },
+    "/v1/agent/turns": {
+      "post": {
+        "description": "Run one complete non-streaming Agent turn with transient API key bytes.",
+        "operationId": "run_agent_turn_v1_agent_turns_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Run Agent Turn"
+      }
+    },
+    "/v1/connections": {
+      "get": {
+        "description": "Return all persisted profiles through the shared application handler.",
+        "operationId": "list_connections_v1_connections_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "List Connections"
+      },
+      "post": {
+        "description": "Validate and persist one complete connection profile.",
+        "operationId": "create_connection_v1_connections_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionProfileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Create Connection"
+      }
+    },
+    "/v1/connections/{connection_id}": {
+      "delete": {
+        "description": "Delete one profile only when its domain ownership gates allow it.",
+        "operationId": "delete_connection_v1_connections__connection_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Delete Connection"
+      },
+      "get": {
+        "description": "Return one profile by opaque identity.",
+        "operationId": "get_connection_v1_connections__connection_id__get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Get Connection"
+      },
+      "patch": {
+        "description": "Replace one complete connection profile while preserving its identity.",
+        "operationId": "update_connection_v1_connections__connection_id__patch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionProfileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Update Connection"
+      }
+    },
+    "/v1/health/live": {
+      "get": {
+        "description": "Report liveness without opening or inspecting runtime persistence.",
+        "operationId": "health_live_v1_health_live_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthLiveResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Health Live"
+      }
+    },
+    "/v1/health/ready": {
+      "get": {
+        "description": "Return ready only after the complete verified graph is published.",
+        "operationId": "health_ready_v1_health_ready_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReadyResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Health Ready"
+      }
+    },
+    "/v1/host-key-confirmations": {
+      "post": {
+        "description": "Persist a user's explicit first-trust Host Key confirmation.",
+        "operationId": "confirm_host_key_v1_host_key_confirmations_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostKeyCandidate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostKeyResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Confirm Host Key"
+      }
+    },
+    "/v1/host-key-inspections": {
+      "post": {
+        "description": "Inspect a direct or single-hop Host Key without retaining credentials.",
+        "operationId": "inspect_host_key_v1_host_key_inspections_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostKeyInspectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Inspect Host Key"
+      }
+    },
+    "/v1/host-key-replacements": {
+      "post": {
+        "description": "Replace a trusted Host Key with an explicit compare-and-swap fingerprint.",
+        "operationId": "replace_host_key_v1_host_key_replacements_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostKeyReplacementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostKeyResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Replace Host Key"
+      }
+    },
+    "/v1/pty/sessions": {
+      "post": {
+        "description": "Open one PTY channel on an explicitly selected SSH session.",
+        "operationId": "open_pty_session_v1_pty_sessions_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PtyOpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtySessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Open Pty Session"
+      }
+    },
+    "/v1/pty/sessions/{pty_session_id}": {
+      "delete": {
+        "description": "Close one active PTY and return its terminal snapshot.",
+        "operationId": "close_pty_session_v1_pty_sessions__pty_session_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "pty_session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pty Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtySessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Close Pty Session"
+      }
+    },
+    "/v1/pty/sessions/{pty_session_id}/resize": {
+      "post": {
+        "description": "Resize one active PTY without exposing its byte stream over HTTP.",
+        "operationId": "resize_pty_session_v1_pty_sessions__pty_session_id__resize_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "pty_session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pty Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PtyResizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtySessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Resize Pty Session"
+      }
+    },
+    "/v1/requests/{request_id}/cancel": {
+      "post": {
+        "description": "Explicitly request cooperative cancellation of one active dispatcher call.",
+        "operationId": "cancel_request_v1_requests__request_id__cancel_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestCancelResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Cancel Request"
+      }
+    },
+    "/v1/runtime/initialize": {
+      "post": {
+        "description": "Atomically initialize the unique RuntimeResources graph exactly once.",
+        "operationId": "initialize_runtime_v1_runtime_initialize_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeInitializeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Initialize Runtime"
+      }
+    },
+    "/v1/runtime/shutdown": {
+      "post": {
+        "description": "Converge the ready runtime without bypassing its owner order.",
+        "operationId": "shutdown_runtime_v1_runtime_shutdown_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Shutdown Runtime"
+      }
+    },
+    "/v1/runtime/state": {
+      "get": {
+        "description": "Return the current safe lifecycle state without resource details.",
+        "operationId": "runtime_state_v1_runtime_state_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Runtime State"
+      }
+    },
+    "/v1/sftp/contexts": {
+      "post": {
+        "description": "Open one Manual SFTP context on an active SSH session.",
+        "operationId": "open_context_v1_sftp_contexts_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Open Context"
+      }
+    },
+    "/v1/sftp/deletions/preflight": {
+      "post": {
+        "description": "Build one complete no-follow recursive-delete plan.",
+        "operationId": "delete_preflight_v1_sftp_deletions_preflight_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpDeletePreflightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpDeletePlanResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Delete Preflight"
+      }
+    },
+    "/v1/sftp/deletions/{operation_id}/execute": {
+      "post": {
+        "description": "Consume the one-shot delete plan identified by the endpoint owner key.",
+        "operationId": "delete_execute_v1_sftp_deletions__operation_id__execute_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Delete Execute"
+      }
+    },
+    "/v1/sftp/directories": {
+      "post": {
+        "description": "Create one remote directory without embedding its path in the URL.",
+        "operationId": "mkdir_v1_sftp_directories_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpMkdirRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Mkdir"
+      }
+    },
+    "/v1/sftp/downloads": {
+      "post": {
+        "description": "Begin one verified pull-based remote download.",
+        "operationId": "begin_download_v1_sftp_downloads_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpDownloadBeginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpDownloadResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Begin Download"
+      }
+    },
+    "/v1/sftp/downloads/{operation_id}/abort": {
+      "post": {
+        "description": "Abort one download and report its durable terminal outcome.",
+        "operationId": "abort_download_v1_sftp_downloads__operation_id__abort_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Abort Download"
+      }
+    },
+    "/v1/sftp/downloads/{operation_id}/chunks/{sequence}": {
+      "get": {
+        "description": "Return one validated raw download chunk with strict identity headers.",
+        "operationId": "download_chunk_v1_sftp_downloads__operation_id__chunks__sequence__get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sequence",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Sequence",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": true,
+            "schema": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 262144,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Chunk-Byte-Count": {
+                "schema": {
+                  "maximum": 262144,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Chunk-EOF": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "X-Chunk-Offset": {
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Chunk-Sequence": {
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Download Chunk"
+      }
+    },
+    "/v1/sftp/downloads/{operation_id}/finish": {
+      "post": {
+        "description": "Verify the complete download and unchanged remote source.",
+        "operationId": "finish_download_v1_sftp_downloads__operation_id__finish_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Finish Download"
+      }
+    },
+    "/v1/sftp/hashes/sha256": {
+      "post": {
+        "description": "Hash one unchanged remote regular file completely.",
+        "operationId": "sha256_v1_sftp_hashes_sha256_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpHashResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Sha256"
+      }
+    },
+    "/v1/sftp/listings": {
+      "post": {
+        "description": "Begin one bounded remote directory listing.",
+        "operationId": "begin_listing_v1_sftp_listings_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpListingResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Begin Listing"
+      }
+    },
+    "/v1/sftp/listings/{listing_id}": {
+      "delete": {
+        "description": "Close one listing cursor explicitly.",
+        "operationId": "close_listing_v1_sftp_listings__listing_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "listing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Listing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpClosedResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Close Listing"
+      }
+    },
+    "/v1/sftp/listings/{listing_id}/batches/{sequence}": {
+      "get": {
+        "description": "Read the exact next sequence from one listing cursor.",
+        "operationId": "next_listing_v1_sftp_listings__listing_id__batches__sequence__get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "listing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Listing Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sequence",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Sequence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpListingResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Next Listing"
+      }
+    },
+    "/v1/sftp/metadata/lstat": {
+      "post": {
+        "description": "Return no-follow metadata for one remote path.",
+        "operationId": "lstat_v1_sftp_metadata_lstat_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpEntryResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Lstat"
+      }
+    },
+    "/v1/sftp/metadata/readlink": {
+      "post": {
+        "description": "Return one explicitly resolved symlink target projection.",
+        "operationId": "readlink_v1_sftp_metadata_readlink_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpEntryResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Readlink"
+      }
+    },
+    "/v1/sftp/metadata/realpath": {
+      "post": {
+        "description": "Return the server-canonical remote path projection.",
+        "operationId": "realpath_v1_sftp_metadata_realpath_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpEntryResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Realpath"
+      }
+    },
+    "/v1/sftp/recoveries": {
+      "get": {
+        "description": "Inspect one encrypted recovery record without mutating it.",
+        "operationId": "inspect_recovery_v1_sftp_recoveries_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "query",
+            "name": "recovery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recovery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpRecoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Inspect Recovery"
+      }
+    },
+    "/v1/sftp/recoveries/{recovery_id}/actions": {
+      "post": {
+        "description": "Execute one explicitly selected recovery action.",
+        "operationId": "execute_recovery_v1_sftp_recoveries__recovery_id__actions_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "recovery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recovery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpRecoveryActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpRecoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Execute Recovery"
+      }
+    },
+    "/v1/sftp/removals": {
+      "post": {
+        "description": "Remove one unchanged remote entry.",
+        "operationId": "remove_v1_sftp_removals_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpRemoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Remove"
+      }
+    },
+    "/v1/sftp/renames": {
+      "post": {
+        "description": "Perform one snapshot-protected atomic remote rename.",
+        "operationId": "rename_v1_sftp_renames_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Rename"
+      }
+    },
+    "/v1/sftp/uploads": {
+      "post": {
+        "description": "Begin one no-clobber upload to an exclusive temporary file.",
+        "operationId": "begin_upload_v1_sftp_uploads_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpUploadBeginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Begin Upload"
+      }
+    },
+    "/v1/sftp/uploads/preflight": {
+      "post": {
+        "description": "Freeze the current remote upload target before mutation.",
+        "operationId": "upload_preflight_v1_sftp_uploads_preflight_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SftpPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpSnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Upload Preflight"
+      }
+    },
+    "/v1/sftp/uploads/{operation_id}/abort": {
+      "post": {
+        "description": "Abort one upload and report any required cleanup.",
+        "operationId": "abort_upload_v1_sftp_uploads__operation_id__abort_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Abort Upload"
+      }
+    },
+    "/v1/sftp/uploads/{operation_id}/chunks/{sequence}": {
+      "put": {
+        "description": "Accept one canonical raw upload chunk under dispatcher ownership.",
+        "operationId": "upload_chunk_v1_sftp_uploads__operation_id__chunks__sequence__put",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sequence",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Sequence",
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ChunkOffset"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 262144,
+                "minLength": 1,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpUploadChunkResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Upload Chunk"
+      }
+    },
+    "/v1/sftp/uploads/{operation_id}/finish": {
+      "post": {
+        "description": "Verify and atomically commit one complete upload.",
+        "operationId": "finish_upload_v1_sftp_uploads__operation_id__finish_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SftpTerminalResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Finish Upload"
+      }
+    },
+    "/v1/ssh/sessions": {
+      "get": {
+        "description": "Return safe metadata snapshots without AsyncSSH transport objects.",
+        "operationId": "list_ssh_sessions_v1_ssh_sessions_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshSessionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "List Ssh Sessions"
+      },
+      "post": {
+        "description": "Use transient credentials to establish one verified SSH session.",
+        "operationId": "connect_ssh_session_v1_ssh_sessions_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SshConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Connect Ssh Session"
+      }
+    },
+    "/v1/ssh/sessions/{ssh_session_id}": {
+      "delete": {
+        "description": "Close one SSH session and all of its child channels.",
+        "operationId": "disconnect_ssh_session_v1_ssh_sessions__ssh_session_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "ssh_session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ssh Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Disconnect Ssh Session"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:{port}",
+      "variables": {
+        "port": {
+          "default": "8765"
+        }
+      }
+    }
+  ]
+}

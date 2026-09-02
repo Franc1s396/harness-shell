@@ -11,10 +11,6 @@ from .database import RuntimeDatabase
 
 ALLOWED_TRACE_ATTRIBUTES = frozenset(
     {
-        "protocol.version",
-        "frame.message_type",
-        "frame.payload_bytes",
-        "frame.queue_wait_ms",
         "runtime.state",
         "error.code",
         "ssh.connection_id",

@@ -95,8 +95,9 @@ class UploadChunkAck(StrictModel):
     """Acknowledge exactly one sequential upload chunk."""
 
     operation_id: UUID
-    next_sequence: ChunkSequence
-    next_offset: JsSafeInt
+    sequence: ChunkSequence
+    offset: JsSafeInt
+    accepted_bytes: Annotated[int, Field(ge=1, le=262_144, strict=True)]
 
 
 class DownloadReady(StrictModel):
@@ -112,12 +113,12 @@ class DownloadReady(StrictModel):
 
 
 class DownloadChunk(StrictModel):
-    """Return one canonical Base64 download chunk and exact next position."""
+    """Return one raw binary download chunk and exact next position."""
 
     operation_id: UUID
     sequence: ChunkSequence
     offset: JsSafeInt
-    chunk_b64: str
+    data: bytes
     next_offset: JsSafeInt
     eof: bool
 

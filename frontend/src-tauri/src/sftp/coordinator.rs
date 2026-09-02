@@ -11,7 +11,6 @@ use std::{
     time::Duration,
 };
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 #[cfg(debug_assertions)]
 use std::sync::Condvar;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -3455,17 +3454,7 @@ impl SftpCoordinator {
                         )
                         .await);
                 }
-                let bytes = match STANDARD.decode(&chunk.chunk_b64) {
-                    Ok(bytes) => bytes,
-                    Err(_) => {
-                        return Err(self
-                            .unknown_after_dispatch(
-                                &mut record,
-                                invalid_response("The download chunk was not canonical Base64."),
-                            )
-                            .await)
-                    }
-                };
+                let bytes = chunk.bytes.to_vec();
                 if chunk.next_offset != offset + bytes.len() as u64 {
                     return Err(self
                         .unknown_after_dispatch(

@@ -130,7 +130,6 @@ const runtimeReadyStatus: RuntimeStatus = {
   node: "core",
   recoverable: false,
   correlation_id: "runtime-correlation-test",
-  last_sequence: 1,
   last_heartbeat_at: "2026-08-26T00:00:00Z",
 };
 

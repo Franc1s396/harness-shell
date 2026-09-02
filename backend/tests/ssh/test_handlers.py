@@ -2,29 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.protocol import FrameEnvelope, MessageType, Sensitivity
 from harness_shell_sidecar.runtime import DispatchError, RequestDispatcher
 from harness_shell_sidecar.ssh.errors import ConnectionStatus, SshRuntimeError
 from harness_shell_sidecar.ssh.handlers import register_ssh_handlers
-
-
-def frame(method: str, params: dict, *, secret: bool = False) -> FrameEnvelope:
-    return FrameEnvelope(
-        protocol_version=1,
-        message_type=MessageType.REQUEST,
-        request_id=uuid4(),
-        task_id=None,
-        workflow_run_id=None,
-        sequence=1,
-        timestamp=datetime.now(timezone.utc),
-        sensitivity=Sensitivity.SECRET if secret else Sensitivity.NORMAL,
-        payload={"method": method, "params": params},
-    )
+from harness_shell_sidecar.ssh.models import SshConnectRequest
 
 
 class FakeRuntime:
@@ -76,36 +61,21 @@ def status(
     )
 
 
-def test_secret_connect_payload_is_required_decoded_and_zeroized() -> None:
+def test_connect_decodes_and_zeroizes_secret() -> None:
     async def scenario() -> None:
         runtime = FakeRuntime()
         dispatcher = RequestDispatcher()
         register_ssh_handlers(dispatcher, runtime)
         connection_id = uuid4()
 
-        with pytest.raises(DispatchError) as normal:
-            await dispatcher.dispatch(
-                frame(
-                    "ssh.connect",
-                    {
-                        "connection_id": str(connection_id),
-                        "profile_version": 7,
-                        "password_b64": base64.b64encode(b"secret").decode("ascii"),
-                    },
-                )
-            )
-        assert normal.value.error_code == "SENSITIVE_FRAME_REQUIRED"
-
         result = await dispatcher.dispatch(
-            frame(
-                "ssh.connect",
-                {
-                    "connection_id": str(connection_id),
-                    "profile_version": 7,
-                    "password_b64": base64.b64encode(b"secret").decode("ascii"),
-                },
-                secret=True,
-            )
+            uuid4(),
+            "ssh.connect",
+            {
+                "connection_id": str(connection_id),
+                "profile_version": 7,
+                "password_b64": base64.b64encode(b"secret").decode("ascii"),
+            },
         )
         assert result.payload["status"]["state"] == "READY"
         assert runtime.captured_arguments["expected_profile_version"] == 7
@@ -113,6 +83,20 @@ def test_secret_connect_payload_is_required_decoded_and_zeroized() -> None:
         assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
 
     asyncio.run(scenario())
+
+
+def test_secret_fields_are_excluded_from_model_repr() -> None:
+    """Prevent transient credentials from appearing in diagnostic repr output."""
+
+    request = SshConnectRequest.model_validate_json(
+        """{
+          "connection_id": "a4b32448-eafe-4973-b1f1-df5ecefae2a0",
+          "profile_version": 1,
+          "password_b64": "c2VjcmV0"
+        }"""
+    )
+
+    assert "c2VjcmV0" not in repr(request)
 
 
 def test_proxy_jump_connect_decodes_and_zeroizes_both_credentials() -> None:
@@ -124,24 +108,18 @@ def test_proxy_jump_connect_decodes_and_zeroizes_both_credentials() -> None:
         jump_id = uuid4()
 
         result = await dispatcher.dispatch(
-            frame(
-                "ssh.connect",
-                {
-                    "connection_id": str(connection_id),
-                    "profile_version": 7,
-                    "password_b64": base64.b64encode(b"target-secret").decode(
-                        "ascii"
-                    ),
-                    "jump": {
-                        "connection_id": str(jump_id),
-                        "profile_version": 3,
-                        "password_b64": base64.b64encode(b"jump-secret").decode(
-                            "ascii"
-                        ),
-                    },
+            uuid4(),
+            "ssh.connect",
+            {
+                "connection_id": str(connection_id),
+                "profile_version": 7,
+                "password_b64": base64.b64encode(b"target-secret").decode("ascii"),
+                "jump": {
+                    "connection_id": str(jump_id),
+                    "profile_version": 3,
+                    "password_b64": base64.b64encode(b"jump-secret").decode("ascii"),
                 },
-                secret=True,
-            )
+            },
         )
 
         assert result.payload["status"]["state"] == "READY"
@@ -153,7 +131,7 @@ def test_proxy_jump_connect_decodes_and_zeroizes_both_credentials() -> None:
     asyncio.run(scenario())
 
 
-def test_proxy_jump_host_key_inspection_requires_secret_frame() -> None:
+def test_proxy_jump_host_key_inspection_zeroizes_credential() -> None:
     async def scenario() -> None:
         runtime = FakeRuntime()
         dispatcher = RequestDispatcher()
@@ -167,13 +145,7 @@ def test_proxy_jump_host_key_inspection_requires_secret_frame() -> None:
             },
         }
 
-        with pytest.raises(DispatchError) as normal:
-            await dispatcher.dispatch(frame("host_key.inspect", params))
-        assert normal.value.error_code == "SENSITIVE_FRAME_REQUIRED"
-
-        result = await dispatcher.dispatch(
-            frame("host_key.inspect", params, secret=True)
-        )
+        result = await dispatcher.dispatch(uuid4(), "host_key.inspect", params)
         assert result.payload["status"]["state"] == "HOST_KEY_REQUIRED"
         assert runtime.captured_secrets
         assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
@@ -191,29 +163,25 @@ def test_connect_requires_safe_integer_version_and_rejects_old_timestamp() -> No
         for invalid in (0, -1, 2**53, 1.0, "1"):
             with pytest.raises(DispatchError) as raised:
                 await dispatcher.dispatch(
-                    frame(
-                        "ssh.connect",
-                        {
-                            "connection_id": str(uuid4()),
-                            "profile_version": invalid,
-                            "password_b64": password,
-                        },
-                        secret=True,
-                    )
+                    uuid4(),
+                    "ssh.connect",
+                    {
+                        "connection_id": str(uuid4()),
+                        "profile_version": invalid,
+                        "password_b64": password,
+                    },
                 )
             assert raised.value.error_code == "INVALID_REQUEST_PAYLOAD"
 
         with pytest.raises(DispatchError) as removed:
             await dispatcher.dispatch(
-                frame(
-                    "ssh.connect",
-                    {
-                        "connection_id": str(uuid4()),
-                        "profile_updated_at": "2026-08-29T00:00:00Z",
-                        "password_b64": password,
-                    },
-                    secret=True,
-                )
+                uuid4(),
+                "ssh.connect",
+                {
+                    "connection_id": str(uuid4()),
+                    "profile_updated_at": "2026-08-29T00:00:00Z",
+                    "password_b64": password,
+                },
             )
         assert removed.value.error_code == "INVALID_REQUEST_PAYLOAD"
 
@@ -241,7 +209,9 @@ def test_ssh_errors_keep_only_structured_safe_details() -> None:
         register_ssh_handlers(dispatcher, FailingRuntime())
         with pytest.raises(DispatchError) as raised:
             await dispatcher.dispatch(
-                frame("host_key.inspect", {"connection_id": str(uuid4())})
+                uuid4(),
+                "host_key.inspect",
+                {"connection_id": str(uuid4())},
             )
         assert raised.value.error_code == "HOST_KEY_CHANGED"
         assert raised.value.details["node"] == "host_key"

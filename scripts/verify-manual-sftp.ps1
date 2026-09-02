@@ -54,12 +54,12 @@ try {
     & $pythonExe -m pytest --basetemp $focusedTemp -p no:cacheprovider (Join-Path $backendRoot 'tests\manual_sftp') -v
     if ($LASTEXITCODE -ne 0) { throw 'Focused Python manual SFTP tests failed' }
 
-    Write-Output '[3/7] Packaged Sidecar and Rust all-target contracts'
+    Write-Output '[3/7] Packaged backend and Rust all-target contracts'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $backendRoot 'scripts\build_sidecar.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'Sidecar package build failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged backend build failed' }
     $env:HARNESS_SIDECAR_EXE = Join-Path $backendRoot 'dist\harness-shell-sidecar.exe'
     if (-not (Test-Path -LiteralPath $env:HARNESS_SIDECAR_EXE -PathType Leaf)) {
-        throw 'Packaged Sidecar output is missing'
+        throw 'Packaged backend output is missing'
     }
     & $cargoExe test --manifest-path (Join-Path $tauriRoot 'Cargo.toml') --all-targets
     if ($LASTEXITCODE -ne 0) { throw 'Rust all-target contracts failed' }
