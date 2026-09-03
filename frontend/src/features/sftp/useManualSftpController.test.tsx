@@ -65,13 +65,13 @@ const batch = {
 const recovery = {
   recovery_id: "recovery-1",
   operation_id: "operation-1",
-  kind: "download_part" as const,
+  kind: "upload_temp" as const,
   host_label: "first.example",
   remote_path: "/home/first/payload.bin",
   display_name: "payload.bin",
   state: "cleanup_required" as const,
   created_at: "2026-08-30T00:00:00Z",
-  available_actions: ["verify", "open_local_folder", "keep"] as const,
+  available_actions: ["verify", "delete_temp", "keep"] as const,
 };
 
 const deferred = <T,>() => {
@@ -282,23 +282,13 @@ describe("useManualSftpController", () => {
   it("discards an expired one-shot preparation", async () => {
     api.prepareManualSftpUpload.mockResolvedValue({
       preparation_id: "preparation-1",
-      operation_id: "operation-1",
       direction: "upload",
       display_name: "report.csv",
       remote_path: "/home/first/report.csv",
-      host_label: "first.example",
-      source_sha256: "a".repeat(64),
-      source_byte_count: 4,
-      target_snapshot: {
-        path: "/home/first/report.csv",
-        exists: false,
-        entry_type: null,
-        size: null,
-        mtime_ns: null,
-        sha256: null,
-      },
+      sha256: "a".repeat(64),
+      byte_count: 4,
       overwrite_required: false,
-      expires_at: new Date(Date.now() - 1).toISOString(),
+      expires_at_ms: Date.now() - 1,
     });
     const { result } = renderHook(() =>
       useManualSftpController({
@@ -314,7 +304,8 @@ describe("useManualSftpController", () => {
         "preparation-1",
       ),
     );
-    expect(result.current.state.terminal?.state).toBe("cancelled");
+    expect(result.current.state.preparation).toBeNull();
+    expect(result.current.state.terminal).toBeNull();
   });
 
   it("loads recovery records even when no SSH context can be opened", async () => {

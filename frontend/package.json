@@ -9,11 +9,14 @@
     "test": "vitest run",
     "preview": "vite preview",
     "sidecar:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ../backend/scripts/build_sidecar.ps1",
+    "launcher:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/build-launcher.ps1",
+    "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/build-desktop.ps1",
     "tauri": "tauri",
-    "tauri:dev": "npm run sidecar:build && tauri dev",
-    "tauri:build": "npm run sidecar:build && tauri build"
+    "tauri:dev": "tauri dev",
+    "tauri:build": "npm run desktop:build"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
     "@tauri-apps/api": "^2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
@@ -28,6 +31,7 @@
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
+    "@types/node": "^26.4.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

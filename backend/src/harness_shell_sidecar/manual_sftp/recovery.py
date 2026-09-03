@@ -12,7 +12,7 @@ from .models import (
     RecoverySummary,
 )
 from .mutations import MutationManager
-from .operation_store import RemoteOperationRecord, RemoteOperationStore
+from .operation_store import ManualSftpOperationStore, RemoteOperationRecord
 from .transfers import _snapshot
 
 
@@ -22,17 +22,17 @@ class RecoveryManager:
     def __init__(
         self,
         channels: SftpChannelFactory,
-        operations: RemoteOperationStore,
+        operations: ManualSftpOperationStore,
         mutations: MutationManager,
     ) -> None:
-        """Bind live-session resolution, encrypted state, and new mutation owner."""
+        """Bind live-session resolution, plaintext state, and new mutation owner."""
 
         self._channels = channels
         self._operations = operations
         self._mutations = mutations
 
     def list(self) -> tuple[RecoverySummary, ...]:
-        """Return safe summaries for encrypted non-terminal operation records."""
+        """Return safe summaries for plaintext non-terminal operation records."""
 
         return tuple(self._summary(record) for record in self._operations.list_non_terminal())
 
@@ -117,7 +117,7 @@ class RecoveryManager:
     async def execute(
         self, recovery_id: UUID, action: str, operation_id: UUID
     ) -> RecoverySummary | OperationTerminalProjection:
-        """Use the Rust-selected fresh identity for every mutating recovery action."""
+        """Use the React-selected fresh identity for every recovery mutation."""
 
         self._require_fresh_operation(recovery_id, operation_id)
         record = self._record(recovery_id)
@@ -203,7 +203,7 @@ class RecoveryManager:
     def _record(
         self, recovery_id: UUID, *, include_terminal: bool = False
     ) -> RemoteOperationRecord:
-        """Resolve one recovery ID to its encrypted non-terminal operation."""
+        """Resolve one recovery ID to its plaintext non-terminal operation."""
 
         record = self._operations.get(recovery_id)
         if record is None or (

@@ -3,11 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "../../components/ui/controls";
 import { Dialog } from "../../components/ui/Dialog";
-import {
-  getRuntimeStatus,
-  openApprovalWindow,
-  type RuntimeStatus,
-} from "../../api/runtime";
+import { getRuntimeStatus, type RuntimeStatus } from "../../api/runtime";
 import {
   closePty,
   confirmHostKey,
@@ -928,12 +924,6 @@ export function WorkspaceController() {
     }
   };
 
-  const showApprovalWindow = () => {
-    void openApprovalWindow().catch((error) =>
-      setRuntime(runtimeFailureStatus(error)),
-    );
-  };
-
   const persistProfile = async (
     input: ConnectionProfileInput,
   ): Promise<ConnectionProfile> => {
@@ -1153,15 +1143,17 @@ export function WorkspaceController() {
                   },
                 } satisfies SshCommandError);
               }
-              return writePty(current.ptySessionId, data)
-                .then(() => undefined)
-                .catch((error) => {
-                  setWorkspaceFailure({
-                    scope: "terminal",
-                    tabId,
-                    error: normalizeError(error),
-                  });
+              try {
+                writePty(current.ptySessionId, data);
+                return Promise.resolve();
+              } catch (error) {
+                setWorkspaceFailure({
+                  scope: "terminal",
+                  tabId,
+                  error: normalizeError(error),
                 });
+                return Promise.resolve();
+              }
             }}
             onResize={(tabId, cols, rows) => {
               const current = sessionsRef.current.get(tabId);
@@ -1265,7 +1257,6 @@ export function WorkspaceController() {
             loading={agent.configsLoading}
             error={agent.configsError}
             mutationError={agent.providerMutationError}
-            cleanupError={agent.providerCleanupError}
             activeApiConfigIds={agent.activeApiConfigIds}
             onCreate={agent.createProvider}
             onUpdate={agent.updateProvider}
@@ -1323,7 +1314,6 @@ export function WorkspaceController() {
             .getState()
             .openEditConnection(selected.connection_id);
         }}
-        onOpenApproval={showApprovalWindow}
         onSettingsOpening={() => {
           void agent.refreshConfigs().catch(() => undefined);
         }}

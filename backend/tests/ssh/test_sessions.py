@@ -13,8 +13,7 @@ from harness_shell_sidecar.ssh.errors import SshRuntimeError
 from harness_shell_sidecar.ssh.host_keys import candidate_from_key
 from harness_shell_sidecar.ssh.runtime import SshRuntime
 from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
-from harness_shell_sidecar.storage import AuditLedger, LocalTraceStore, RuntimeDatabase
-from harness_shell_sidecar.telemetry import build_local_tracer_provider
+from harness_shell_sidecar.storage import RuntimeDatabase
 
 
 class FakeConnection:
@@ -78,7 +77,7 @@ class FakeConnector:
 
 
 def setup_runtime(tmp_path: Path, connector: FakeConnector):
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
     repo = ConnectionRepository(database)
     value = repo.create(
         ConnectionProfileInput(
@@ -204,74 +203,6 @@ def test_close_all_continues_after_an_earlier_session_fails() -> None:
         assert second_target.closed is True
         assert second_target.waited is True
         assert len(sessions) == 0
-
-    asyncio.run(scenario())
-
-
-def test_each_connect_attempt_is_recorded_in_audit_and_trace(tmp_path: Path) -> None:
-    async def scenario() -> None:
-        connector = FakeConnector(
-            asyncssh.generate_private_key("ssh-ed25519"),
-            [OSError("tcp failed")],
-        )
-        database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
-        repo = ConnectionRepository(database)
-        value = repo.create(
-            ConnectionProfileInput(
-                display_name="observed",
-                group_name=None,
-                host="observed.example",
-                port=22,
-                username="deploy",
-                auth_kind="password",
-                credential_id=uuid4(),
-                passphrase_credential_id=None,
-                proxy_jump_id=None,
-                favorite=False,
-            )
-        )
-        repo.trust_first_host_key(
-            candidate_from_key(
-                value.connection_id, value.host, value.port, connector.host_key
-            )
-        )
-        audit = AuditLedger(database, b"a" * 32)
-        trace_provider = build_local_tracer_provider(LocalTraceStore(database))
-        tracer = trace_provider.get_tracer("harness_shell_sidecar.ssh.test")
-        runtime = SshRuntime(
-            repo,
-            connector=connector,
-            audit_ledger=audit,
-            tracer=tracer,
-        )
-        try:
-            await runtime.connect(value.connection_id, password=b"secret")
-            entries = database.execute(
-                "SELECT body_json FROM audit_entries "
-                "WHERE event_type = 'ssh.connect.attempt' ORDER BY sequence"
-            ).fetchall()
-            assert len(entries) == 2
-            assert '"attempt":"1"' in entries[0][0]
-            assert '"outcome":"failed"' in entries[0][0]
-            assert '"attempt":"2"' in entries[1][0]
-            assert '"outcome":"succeeded"' in entries[1][0]
-            trace_provider.force_flush()
-            spans = database.execute(
-                "SELECT name, attributes_json FROM trace_spans ORDER BY started_at"
-            ).fetchall()
-            assert [span[0] for span in spans] == [
-                "ssh.connect.attempt",
-                "ssh.connect.attempt",
-            ]
-            assert '"ssh.connect.attempt":1' in spans[0][1]
-            assert '"ssh.connect.outcome":"failed"' in spans[0][1]
-            assert '"ssh.connect.attempt":2' in spans[1][1]
-            assert '"ssh.connect.outcome":"succeeded"' in spans[1][1]
-        finally:
-            await runtime.close_all()
-            trace_provider.shutdown()
-            audit.zeroize()
-            database.close()
 
     asyncio.run(scenario())
 

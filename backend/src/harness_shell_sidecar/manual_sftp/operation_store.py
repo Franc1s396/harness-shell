@@ -1,13 +1,14 @@
-"""Authenticated encrypted persistence for remote manual SFTP operations."""
+"""Strict plaintext persistence for remote manual SFTP operations."""
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 from uuid import UUID
 
 from pydantic import ValidationError
 
-from harness_shell_sidecar.storage import EncryptedRecord, EncryptedRecordStore
+from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore
 
 from .errors import ManualSftpError
 from .models import (
@@ -28,7 +29,7 @@ TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 
 
 class RemoteOperationRecord(StrictModel):
-    """Persist only encrypted mutation/reconciliation state, never file content."""
+    """Persist only remote mutation/reconciliation state, never file content."""
 
     operation_id: UUID
     kind: Literal["upload", "recursive_delete", "rename", "remove", "mkdir"]
@@ -79,93 +80,75 @@ class DeletePlanRecord(StrictModel):
     terminal_receipt: OperationTerminalProjection | None
 
 
-class RemoteOperationStore:
-    """Authenticate every decrypted operation before returning domain state."""
+class ManualSftpOperationStore:
+    """Validate every plaintext operation before returning domain state."""
 
-    def __init__(self, records: EncryptedRecordStore) -> None:
-        """Bind the shared encrypted record store."""
+    def __init__(self, records: PlaintextRecordStore) -> None:
+        """Bind the shared schema-v6 plaintext record store."""
 
         self._records = records
 
     def put(self, record: RemoteOperationRecord) -> None:
-        """Encrypt and atomically insert or replace one complete record."""
+        """Atomically insert or replace one complete strict JSON record."""
 
-        payload = record.model_dump_json().encode("utf-8")
         self._records.put(
-            EncryptedRecord(
+            PlaintextRecord(
                 RECORD_TYPE,
                 str(record.operation_id),
                 RECORD_SCHEMA_VERSION,
-                payload,
+                record.model_dump_json().encode("utf-8"),
             )
         )
 
     def get(self, operation_id: UUID) -> RemoteOperationRecord | None:
-        """Authenticate, decrypt, validate, and identity-check one record."""
+        """Decode strict UTF-8 JSON, validate, and identity-check one record."""
 
-        encrypted = self._records.get(RECORD_TYPE, str(operation_id))
-        if encrypted is None:
+        stored = self._records.get(RECORD_TYPE, str(operation_id))
+        if stored is None:
             return None
-        if encrypted.schema_version != RECORD_SCHEMA_VERSION:
-            raise ManualSftpError(
-                "SFTP_OPERATION_RECORD_INVALID",
-                "The encrypted operation record schema is unsupported.",
-            )
+        if stored.schema_version != RECORD_SCHEMA_VERSION:
+            raise _operation_record_error("The operation record schema is unsupported.")
         try:
-            record = RemoteOperationRecord.model_validate_json(encrypted.payload)
-        except (ValueError, ValidationError) as exc:
-            raise ManualSftpError(
-                "SFTP_OPERATION_RECORD_INVALID",
-                "The encrypted operation record is invalid.",
-            ) from exc
-        if record.operation_id != operation_id:
-            raise ManualSftpError(
-                "SFTP_OPERATION_RECORD_INVALID",
-                "The encrypted operation record identity is invalid.",
+            record = RemoteOperationRecord.model_validate_json(
+                _validated_json_text(stored.payload)
             )
+        except (UnicodeDecodeError, ValueError, ValidationError) as error:
+            raise _operation_record_error("The operation record is invalid.") from error
+        if record.operation_id != operation_id:
+            raise _operation_record_error("The operation record identity is invalid.")
         return record
 
     def delete(self, operation_id: UUID) -> bool:
-        """Delete one operation record by authenticated composite identity."""
+        """Delete one operation record by its composite identity."""
 
         return self._records.delete(RECORD_TYPE, str(operation_id))
 
     def list_non_terminal(self) -> tuple[RemoteOperationRecord, ...]:
-        """Decrypt records selected only by IDs and return non-terminal state."""
+        """Return validated non-terminal records in stable creation order."""
 
-        rows = self._records.connection.execute(
-            """
-            SELECT record_id
-            FROM encrypted_records
-            WHERE record_type = ?
-            ORDER BY record_id
-            """,
-            (RECORD_TYPE,),
-        ).fetchall()
         result: list[RemoteOperationRecord] = []
-        for (record_id,) in rows:
+        for record_id in self._records.list_ids(RECORD_TYPE):
             try:
                 operation_id = UUID(record_id)
-            except (TypeError, ValueError) as exc:
-                raise ManualSftpError(
-                    "SFTP_OPERATION_RECORD_INVALID",
-                    "The encrypted operation record identity is invalid.",
-                ) from exc
+            except (TypeError, ValueError) as error:
+                raise _operation_record_error(
+                    "The operation record identity is invalid."
+                ) from error
             record = self.get(operation_id)
             if record is None:
-                raise ManualSftpError(
-                    "SFTP_OPERATION_RECORD_INVALID",
-                    "The encrypted operation record disappeared during listing.",
+                raise _operation_record_error(
+                    "The operation record disappeared during listing."
                 )
             if record.state not in TERMINAL_STATES:
                 result.append(record)
+        result.sort(key=lambda value: (value.created_at, str(value.operation_id)))
         return tuple(result)
 
     def put_delete_plan(self, plan: DeletePlanRecord) -> None:
-        """Encrypt a complete one-shot delete plan and its canonical manifest."""
+        """Persist a complete one-shot delete plan and canonical manifest."""
 
         self._records.put(
-            EncryptedRecord(
+            PlaintextRecord(
                 DELETE_PLAN_RECORD_TYPE,
                 str(plan.delete_plan_id),
                 RECORD_SCHEMA_VERSION,
@@ -174,28 +157,69 @@ class RemoteOperationStore:
         )
 
     def get_delete_plan(self, delete_plan_id: UUID) -> DeletePlanRecord | None:
-        """Authenticate and validate one encrypted delete plan."""
+        """Decode and validate one plaintext delete plan."""
 
-        encrypted = self._records.get(
-            DELETE_PLAN_RECORD_TYPE, str(delete_plan_id)
-        )
-        if encrypted is None:
+        stored = self._records.get(DELETE_PLAN_RECORD_TYPE, str(delete_plan_id))
+        if stored is None:
             return None
-        if encrypted.schema_version != RECORD_SCHEMA_VERSION:
-            raise ManualSftpError(
-                "SFTP_DELETE_PLAN_INVALID",
-                "The encrypted recursive-delete plan schema is unsupported.",
+        if stored.schema_version != RECORD_SCHEMA_VERSION:
+            raise _delete_plan_error(
+                "The recursive-delete plan schema is unsupported."
             )
         try:
-            plan = DeletePlanRecord.model_validate_json(encrypted.payload)
-        except (ValueError, ValidationError) as exc:
-            raise ManualSftpError(
-                "SFTP_DELETE_PLAN_INVALID",
-                "The encrypted recursive-delete plan is invalid.",
-            ) from exc
+            plan = DeletePlanRecord.model_validate_json(
+                _validated_json_text(stored.payload)
+            )
+        except (UnicodeDecodeError, ValueError, ValidationError) as error:
+            raise _delete_plan_error("The recursive-delete plan is invalid.") from error
         if plan.delete_plan_id != delete_plan_id:
-            raise ManualSftpError(
-                "SFTP_DELETE_PLAN_INVALID",
-                "The encrypted recursive-delete plan identity is invalid.",
+            raise _delete_plan_error(
+                "The recursive-delete plan identity is invalid."
             )
         return plan
+
+
+def _validated_json_text(payload: bytes) -> str:
+    """Return canonical JSON after strict UTF-8 and duplicate-field checks."""
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        """Build one object and fail on the first duplicate field."""
+
+        result: dict[str, object] = {}
+        for name, value in pairs:
+            if name in result:
+                raise ValueError("duplicate operation record field")
+            result[name] = value
+        return result
+
+    value = json.loads(
+        payload.decode("utf-8", errors="strict"),
+        object_pairs_hook=unique_object,
+    )
+    if not isinstance(value, dict):
+        raise ValueError("operation record must be a JSON object")
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _operation_record_error(message: str) -> ManualSftpError:
+    """Build the stable invalid operation-record failure."""
+
+    return ManualSftpError("SFTP_OPERATION_RECORD_INVALID", message)
+
+
+def _delete_plan_error(message: str) -> ManualSftpError:
+    """Build the stable invalid delete-plan failure."""
+
+    return ManualSftpError("SFTP_DELETE_PLAN_INVALID", message)
+
+
+__all__ = [
+    "DeletePlanRecord",
+    "ManualSftpOperationStore",
+    "RemoteOperationRecord",
+]

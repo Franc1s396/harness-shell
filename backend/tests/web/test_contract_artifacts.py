@@ -12,12 +12,9 @@ HTTP_ROOT = Path("docs/protocol/http")
 EXPECTED_OPERATIONS = {
     ("GET", "/v1/health/live"),
     ("GET", "/v1/health/ready"),
-    ("POST", "/v1/runtime/initialize"),
     ("GET", "/v1/runtime/state"),
-    ("POST", "/v1/runtime/shutdown"),
-    ("POST", "/v1/requests/{request_id}/cancel"),
+    ("GET", "/v1/runtime/credential-encryption-key"),
     ("GET", "/v1/connections"),
-    ("GET", "/v1/connections/{connection_id}"),
     ("POST", "/v1/connections"),
     ("PATCH", "/v1/connections/{connection_id}"),
     ("DELETE", "/v1/connections/{connection_id}"),
@@ -25,7 +22,6 @@ EXPECTED_OPERATIONS = {
     ("POST", "/v1/host-key-confirmations"),
     ("POST", "/v1/host-key-replacements"),
     ("POST", "/v1/ssh/sessions"),
-    ("GET", "/v1/ssh/sessions"),
     ("DELETE", "/v1/ssh/sessions/{ssh_session_id}"),
     ("POST", "/v1/pty/sessions"),
     ("POST", "/v1/pty/sessions/{pty_session_id}/resize"),
@@ -36,7 +32,6 @@ EXPECTED_OPERATIONS = {
     ("DELETE", "/v1/sftp/listings/{listing_id}"),
     ("POST", "/v1/sftp/metadata/lstat"),
     ("POST", "/v1/sftp/metadata/readlink"),
-    ("POST", "/v1/sftp/metadata/realpath"),
     ("POST", "/v1/sftp/hashes/sha256"),
     ("POST", "/v1/sftp/uploads/preflight"),
     ("POST", "/v1/sftp/uploads"),
@@ -53,13 +48,15 @@ EXPECTED_OPERATIONS = {
     ("POST", "/v1/sftp/deletions/preflight"),
     ("POST", "/v1/sftp/deletions/{operation_id}/execute"),
     ("GET", "/v1/sftp/recoveries"),
+    ("GET", "/v1/sftp/recoveries/{recovery_id}"),
     ("POST", "/v1/sftp/recoveries/{recovery_id}/actions"),
     ("GET", "/v1/agent/api-configs"),
-    ("GET", "/v1/agent/api-configs/{api_config_id}"),
     ("POST", "/v1/agent/api-configs"),
     ("PATCH", "/v1/agent/api-configs/{api_config_id}"),
     ("DELETE", "/v1/agent/api-configs/{api_config_id}"),
     ("POST", "/v1/agent/turns"),
+    ("GET", "/v1/diagnostics/log-directory"),
+    ("POST", "/v1/diagnostics/log-directory/open"),
 }
 
 EXPECTED_WEBSOCKET_TYPES = {
@@ -109,6 +106,32 @@ def test_frozen_openapi_has_exact_http_operations() -> None:
     }
     assert operations == EXPECTED_OPERATIONS
     assert all(path != "/v1/rpc" for _, path in operations)
+    removed_collection = "/" + "preparations"
+    assert not any(removed_collection in path for _, path in operations)
+
+
+def test_credential_encryption_fixture_freezes_browser_wire_parameters() -> None:
+    """Keep React and Python aligned on the exact hybrid envelope parameters."""
+
+    fixture = load_json(HTTP_ROOT / "fixtures/credential-encryption-v1.json")
+
+    assert fixture == {
+        "version": 1,
+        "scheme": "RSA-OAEP-256+A256GCM",
+        "rsa": {
+            "name": "RSA-OAEP",
+            "hash": "SHA-256",
+            "modulus_length_bits": 3072,
+            "public_exponent": 65537,
+        },
+        "aes": {
+            "name": "AES-GCM",
+            "key_length_bits": 256,
+            "iv_length_bytes": 12,
+        },
+        "aad_utf8_template": "harness-shell-credential-v1\0{key_id}",
+        "base64": "canonical-rfc4648",
+    }
 
 
 def test_each_operation_has_request_correlation_and_problem_details() -> None:
@@ -158,7 +181,7 @@ def test_http_artifacts_do_not_reintroduce_the_old_transport() -> None:
 
     forbidden = ("FrameEnvelope", "Content-Length", '"/v1/rpc"', '"method":')
     paths = list(HTTP_ROOT.rglob("*.json"))
-    assert len(paths) == 10
+    assert len(paths) == 11
     for path in paths:
         text = path.read_text(encoding="utf-8")
         assert not any(marker in text for marker in forbidden), path

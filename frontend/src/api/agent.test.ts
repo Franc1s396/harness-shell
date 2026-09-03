@@ -1,8 +1,11 @@
-// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const invoke = vi.hoisted(() => vi.fn());
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+const request = vi.hoisted(() => vi.fn());
+const createCredentialEnvelope = vi.hoisted(() => vi.fn());
+vi.mock("./bootstrap", () => ({
+  getBackendClient: () => ({ http: { request } }),
+}));
+vi.mock("./credential-envelope", () => ({ createCredentialEnvelope }));
 
 import { agentApi, type ModelApiConfigInput } from "./agent";
 
@@ -11,21 +14,32 @@ const input: ModelApiConfigInput = {
   api_type: "RESPONSES",
   base_url: "https://api.openai.com/v1",
   model: "gpt-5",
-  api_key_secret_ref: "10000000-0000-4000-8000-000000000001",
   enabled: true,
 };
 
 describe("agentApi", () => {
-  beforeEach(() => invoke.mockReset());
+  beforeEach(() => {
+    request.mockReset();
+    createCredentialEnvelope.mockReset().mockImplementation(
+      async (_secret: string, loadPublicKey: () => Promise<unknown>) => {
+        await loadPublicKey();
+        return { version: 1 };
+      },
+    );
+  });
 
-  it("uses only the seven existing Agent commands with camelCase Tauri args", async () => {
-    invoke.mockResolvedValue(undefined);
+  it("maps Provider and turn operations to direct HTTP with wire field names", async () => {
+    request
+      .mockResolvedValueOnce({ request_id: "r", configs: [] })
+      .mockResolvedValueOnce({ request_id: "r", key_id: "key-1" })
+      .mockResolvedValueOnce({ request_id: "r", config: {
+        ...input,
+        api_key_credential_id: "10000000-0000-4000-8000-000000000001",
+      } })
+      .mockResolvedValueOnce({ request_id: "r", conversation_id: "c", status: "COMPLETED" });
+
     await agentApi.listModelApiConfigs();
-    await agentApi.createModelApiConfig(input);
-    await agentApi.updateModelApiConfig("config-1", input);
-    await agentApi.deleteModelApiConfig("config-1");
-    await agentApi.storeModelApiKey("secret-value");
-    await agentApi.deleteModelApiKey("credential-1");
+    await agentApi.createModelApiConfig(input, "secret");
     await agentApi.runAgentTurn({
       conversationId: null,
       sshSessionId: "ssh-1",
@@ -33,38 +47,28 @@ describe("agentApi", () => {
       userMessage: "inspect the service",
     });
 
-    expect(invoke.mock.calls).toEqual([
-      ["list_model_api_configs"],
-      ["create_model_api_config", { input }],
-      ["update_model_api_config", { apiConfigId: "config-1", input }],
-      ["delete_model_api_config", { apiConfigId: "config-1" }],
-      ["store_model_api_key", { secret: "secret-value" }],
-      ["delete_model_api_key", { credentialId: "credential-1" }],
-      [
-        "run_agent_turn",
-        {
-          conversationId: null,
-          sshSessionId: "ssh-1",
-          apiConfigId: "config-1",
-          userMessage: "inspect the service",
-        },
-      ],
+    expect(request.mock.calls).toEqual([
+      ["GET", "/v1/agent/api-configs"],
+      ["GET", "/v1/runtime/credential-encryption-key"],
+      ["POST", "/v1/agent/api-configs", { body: {
+        display_name: input.display_name,
+        api_type: input.api_type,
+        base_url: input.base_url,
+        model: input.model,
+        api_key_envelope: { version: 1 },
+        enabled: input.enabled,
+      } }],
+      ["POST", "/v1/agent/turns", { body: {
+        conversation_id: null,
+        ssh_session_id: "ssh-1",
+        api_config_id: "config-1",
+        user_message: "inspect the service",
+      } }],
     ]);
   });
 
-  it("normalizes structured command errors without exposing unknown details", async () => {
-    const { normalizeAgentCommandError } = await import("./agent");
-
-    expect(
-      normalizeAgentCommandError({
-        code: "MODEL_REQUEST_FAILED",
-        message: "Request failed.",
-        secret: "must-not-leak",
-      }),
-    ).toEqual({ code: "MODEL_REQUEST_FAILED", message: "Request failed." });
-    expect(normalizeAgentCommandError(new Error("sensitive detail"))).toEqual({
-      code: "AGENT_COMMAND_FAILED",
-      message: "Agent operation failed.",
-    });
+  it("does not expose standalone credential mutation methods", () => {
+    expect(agentApi).not.toHaveProperty("storeModelApiKey");
+    expect(agentApi).not.toHaveProperty("deleteModelApiKey");
   });
 });

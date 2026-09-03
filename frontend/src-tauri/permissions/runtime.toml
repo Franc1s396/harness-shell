@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "runtime"
-description = "Allows the main window to inspect runtime status and open the approval window."
-commands.allow = ["get_runtime_status", "open_approval_window"]

@@ -153,13 +153,11 @@ class OperationTerminalProjection(StrictModel):
 
 
 class RecoverySummary(StrictModel):
-    """Expose a safe summary of one encrypted recovery record."""
+    """Expose a safe summary of one remote-only recovery record."""
 
     recovery_id: UUID
     operation_id: UUID
-    kind: Literal[
-        "upload_temp", "download_part", "delete_tombstone", "mutation_unknown"
-    ]
+    kind: Literal["upload_temp", "delete_tombstone", "mutation_unknown"]
     host_label: str
     remote_path: str | None
     display_name: str
@@ -171,7 +169,6 @@ class RecoverySummary(StrictModel):
             "delete_temp",
             "continue_delete",
             "restore_tombstone",
-            "open_local_folder",
             "keep",
         ],
         ...,

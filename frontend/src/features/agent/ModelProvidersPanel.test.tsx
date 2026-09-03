@@ -33,7 +33,6 @@ const props: ModelProvidersPanelProps = {
   loading: false,
   error: null,
   mutationError: null,
-  cleanupError: null,
   activeApiConfigIds: new Set(),
   onCreate: vi.fn(async () => undefined),
   onUpdate: vi.fn(async () => undefined),
@@ -84,7 +83,6 @@ describe("ModelProvidersPanel", () => {
             code: "MODEL_API_CONFIG_PERSISTENCE_FAILED",
             message: "Delete failed.",
           },
-          null,
         )}
       />,
     );
@@ -113,41 +111,19 @@ describe("ModelProvidersPanel", () => {
     expect(screen.getByText("No model providers configured.")).toBeVisible();
   });
 
-  it("distinguishes partial success from compensation cleanup after a primary failure", () => {
-    const cleanupError = {
-      code: "VAULT_DELETE_FAILED",
-      message: "Delete failed.",
-    };
-    const view = render(
-      <ModelProvidersPanel {...props} cleanupError={cleanupError} />,
-    );
-
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "The Provider changed, but cleanup failed.",
-    );
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Vault cleanup failed: VAULT_DELETE_FAILED",
-    );
-
-    view.rerender(
+  it("shows one aggregate Provider mutation failure", () => {
+    render(
       <ModelProvidersPanel
         {...props}
-        mutationError={new ProviderMutationFailure(
-          {
-            code: "MODEL_API_CONFIG_PERSISTENCE_FAILED",
-            message: "Save failed.",
-          },
-          cleanupError,
-        )}
-        cleanupError={cleanupError}
+        mutationError={new ProviderMutationFailure({
+          code: "MODEL_API_CONFIG_PERSISTENCE_FAILED",
+          message: "Save failed.",
+        })}
       />,
     );
 
-    expect(screen.getAllByRole("alert")[0]).toHaveTextContent(
+    expect(screen.getByRole("alert")).toHaveTextContent(
       "Provider operation failed: MODEL_API_CONFIG_PERSISTENCE_FAILED",
-    );
-    expect(screen.getAllByRole("alert")[1]).not.toHaveTextContent(
-      "The Provider changed, but cleanup failed.",
     );
   });
 });

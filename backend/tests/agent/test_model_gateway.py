@@ -46,7 +46,7 @@ def _config(api_type: ApiType) -> ModelApiConfig:
         api_type=api_type,
         base_url="https://provider.example/v1/",
         model="test-model",
-        api_key_secret_ref=uuid4(),
+        api_key_credential_id=uuid4(),
         enabled=True,
         created_at=now,
         updated_at=now,

@@ -13,7 +13,6 @@ from harness_shell_sidecar.ssh.models import SshConnectRequest
 from ..dependencies import (
     dispatch_application,
     model_from_result,
-    require_ready_resources,
     require_request_id,
     runtime_owner,
     set_correlation,
@@ -21,28 +20,12 @@ from ..dependencies import (
 )
 from ..lifespan import RuntimeOwner
 from ..limits import ResponseLimitRoute
-from ..models import SshSessionListResponse, SshStatusResponse
+from ..models import SshStatusResponse
 
 
 router = APIRouter(route_class=ResponseLimitRoute)
 CorrelationId = Annotated[UUID, Depends(require_request_id)]
 Owner = Annotated[RuntimeOwner, Depends(runtime_owner)]
-
-
-@router.get("/v1/ssh/sessions", response_model=SshSessionListResponse)
-async def list_ssh_sessions(
-    response: Response,
-    request_id: CorrelationId,
-    owner: Owner,
-) -> SshSessionListResponse:
-    """Return safe metadata snapshots without AsyncSSH transport objects."""
-
-    resources = require_ready_resources(owner, request_id)
-    set_correlation(response, request_id)
-    return SshSessionListResponse(
-        request_id=request_id,
-        sessions=list(resources.ssh_runtime.sessions.snapshots()),
-    )
 
 
 @router.post(

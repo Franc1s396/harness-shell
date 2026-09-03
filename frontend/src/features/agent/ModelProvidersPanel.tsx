@@ -15,7 +15,6 @@ export type ModelProvidersPanelProps = {
   loading: boolean;
   error: AgentCommandError | null;
   mutationError: ProviderMutationFailure | null;
-  cleanupError: AgentCommandError | null;
   activeApiConfigIds: ReadonlySet<string>;
   onCreate: (draft: ProviderDraft, apiKey: string) => Promise<void>;
   onUpdate: (
@@ -139,15 +138,6 @@ export function ModelProvidersPanel(props: ModelProvidersPanelProps) {
           {t("settings.modelProviders.primaryFailure")}: <strong>{props.mutationError.primaryError.code}</strong>
         </p>
       ) : null}
-      {props.cleanupError ? (
-        <p role="alert" className="text-sm text-danger">
-          {!props.mutationError ? (
-            <>{t("settings.modelProviders.partialSuccess")} </>
-          ) : null}
-          {t("settings.modelProviders.cleanupFailure")}: <strong>{props.cleanupError.code}</strong>
-        </p>
-      ) : null}
-
       {editor === "create" ? (
         <AgentProviderDialog
           open

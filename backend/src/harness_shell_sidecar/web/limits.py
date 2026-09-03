@@ -14,7 +14,6 @@ from .errors import build_problem, problem_response, request_correlation_id
 
 
 MAX_JSON_BYTES = MAX_JSON_BODY_BYTES
-MAX_ACTIVE_REQUESTS = 16
 
 
 class BodyLimitMiddleware(BaseHTTPMiddleware):

@@ -5,37 +5,21 @@ import sys
 from pathlib import Path
 
 
-M2_REQUIRED_SCHEMA_TABLES = (
-    "audit_entries",
-    "trace_spans",
-    "artifact_metadata",
-    "encrypted_records",
-    "vault_meta",
-    "vault_secrets",
-    "vault_keys",
+REQUIRED_SCHEMA_TABLES = (
+    "schema_migrations",
+    "runtime_records",
+    "connection_profiles",
+    "host_keys",
+    "model_api_configs",
+    "agent_conversations",
+    "agent_runs",
+    "agent_messages",
 )
-MANUAL_SFTP_REQUIRED_SCHEMA_TABLES = (
-    "audit_entries",
-    "trace_spans",
-    "artifact_metadata",
-    "encrypted_records",
-)
-M2_REQUIRED_ROW_TABLES = (
-    "audit_entries",
-    "trace_spans",
-    "vault_meta",
-    "vault_secrets",
-    "vault_keys",
-)
-MANUAL_SFTP_REQUIRED_ROW_TABLES = (
-    "audit_entries",
-    "trace_spans",
-    "encrypted_records",
-)
+M2_REQUIRED_ROWS = ("connection_profiles", "host_keys")
 
 
 def main() -> None:
-    """Check aggregate evidence rows for the selected local gate."""
+    """Check aggregate plaintext schema-v6 evidence for one local gate."""
 
     if len(sys.argv) not in {2, 3}:
         raise SystemExit(
@@ -49,16 +33,10 @@ def main() -> None:
     if not root.is_dir():
         raise SystemExit(f"evidence root is not a directory: {root}")
 
-    required_row_tables = (
-        MANUAL_SFTP_REQUIRED_ROW_TABLES if manual_sftp else M2_REQUIRED_ROW_TABLES
-    )
-    required_schema_tables = (
-        MANUAL_SFTP_REQUIRED_SCHEMA_TABLES
-        if manual_sftp
-        else M2_REQUIRED_SCHEMA_TABLES
-    )
-    counts = {table: 0 for table in required_row_tables}
-    present_schema: set[str] = set()
+    schema_present: set[str] = set()
+    versions: set[int] = set()
+    row_counts = {table: 0 for table in M2_REQUIRED_ROWS}
+    manual_sftp_operations = 0
     database_paths = sorted(
         path
         for path in root.rglob("*")
@@ -73,23 +51,44 @@ def main() -> None:
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )
             }
-            present_schema.update(present)
-            for table in required_row_tables:
+            schema_present.update(present)
+            if "schema_migrations" in present:
+                versions.update(
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT version FROM schema_migrations"
+                    ).fetchall()
+                )
+            for table in M2_REQUIRED_ROWS:
                 if table in present:
-                    counts[table] += connection.execute(
+                    row_counts[table] += connection.execute(
                         f"SELECT COUNT(*) FROM {table}"
                     ).fetchone()[0]
+            if "runtime_records" in present:
+                manual_sftp_operations += connection.execute(
+                    "SELECT COUNT(*) FROM runtime_records "
+                    "WHERE record_type = 'manual_sftp_operation'"
+                ).fetchone()[0]
         finally:
             connection.close()
 
     missing_schema = [
-        table for table in required_schema_tables if table not in present_schema
+        table for table in REQUIRED_SCHEMA_TABLES if table not in schema_present
     ]
     if missing_schema:
         raise SystemExit(
             "required evidence schema is missing: " + ", ".join(missing_schema)
         )
-    missing_rows = [table for table, count in counts.items() if count == 0]
+    if versions != {6}:
+        raise SystemExit(f"required schema version 6 is missing: {sorted(versions)!r}")
+    if manual_sftp:
+        missing_rows = []
+        if manual_sftp_operations == 0:
+            missing_rows.append("manual_sftp_operation")
+    else:
+        missing_rows = [
+            table for table, count in row_counts.items() if count == 0
+        ]
     if missing_rows:
         raise SystemExit(
             "required evidence rows are missing: " + ", ".join(missing_rows)

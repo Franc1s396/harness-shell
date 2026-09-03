@@ -24,13 +24,12 @@ from harness_shell_sidecar.connections.models import (
     ConnectionProfile,
     HostKeyRecord,
 )
-from harness_shell_sidecar.manual_sftp.models import MutationProgressProjection
-from harness_shell_sidecar.runtime.models import (
-    RuntimeInitializeRequest,
-    RuntimePhase,
+from harness_shell_sidecar.credentials import (
+    CredentialPublicKey,
 )
+from harness_shell_sidecar.manual_sftp.models import MutationProgressProjection
+from harness_shell_sidecar.runtime.models import RuntimePhase
 from harness_shell_sidecar.ssh.errors import ConnectionStatus
-from harness_shell_sidecar.ssh.models import SshSessionSnapshot
 from harness_shell_sidecar.terminal.models import PtySession
 
 
@@ -81,12 +80,19 @@ class RuntimeStateResponse(StrictHttpModel):
     state: RuntimePhase
 
 
-class RequestCancelResponse(StrictHttpModel):
-    """Acknowledge an explicit cooperative cancellation request."""
+class CredentialPublicKeyResponse(CredentialPublicKey):
+    """Return current ephemeral public key with HTTP correlation."""
 
     request_id: UUID
-    target_request_id: UUID
-    cancellation_requested: bool
+
+
+class DiagnosticsAvailabilityResponse(StrictHttpModel):
+    """Report only whether the fixed Python-owned log directory is available."""
+
+    request_id: UUID = Field(description="HTTP request correlation identity.")
+    available: bool = Field(
+        description="Whether the fixed Runtime log directory currently exists."
+    )
 
 
 class ConnectionListResponse(StrictHttpModel):
@@ -122,13 +128,6 @@ class SshStatusResponse(StrictHttpModel):
 
     request_id: UUID
     status: ConnectionStatus
-
-
-class SshSessionListResponse(StrictHttpModel):
-    """Return only safe metadata for active SSH sessions."""
-
-    request_id: UUID
-    sessions: list[SshSessionSnapshot]
 
 
 class PtySessionResponse(StrictHttpModel):
@@ -392,8 +391,6 @@ __all__ = [
     "HealthReadyResponse",
     "JsonValue",
     "ProblemDetails",
-    "RequestCancelResponse",
-    "RuntimeInitializeRequest",
     "RuntimeStateResponse",
     "StrictHttpModel",
     "AgentApiConfigListResponse",
@@ -401,10 +398,10 @@ __all__ = [
     "AgentTurnResponse",
     "ConnectionListResponse",
     "ConnectionResponse",
+    "CredentialPublicKeyResponse",
     "DeleteResponse",
     "HostKeyResponse",
     "PtySessionResponse",
-    "SshSessionListResponse",
     "SshStatusResponse",
     "PtyClosedMessage",
     "PtyClosedPayload",

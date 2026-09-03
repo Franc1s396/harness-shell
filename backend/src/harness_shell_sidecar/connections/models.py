@@ -31,8 +31,8 @@ JsSafeProfileVersion = Annotated[
 ]
 
 
-class ConnectionProfileInput(BaseModel):
-    """创建或更新 SSH 连接配置时由调用方提供的字段。"""
+class ConnectionProfileFields(BaseModel):
+    """定义 SSH 连接配置中不含凭据引用的公共字段。"""
 
     #: 拒绝未声明字段，并关闭 Pydantic 的隐式类型转换。
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -49,14 +49,19 @@ class ConnectionProfileInput(BaseModel):
     username: NonBlank128
     #: 身份验证方式；仅允许密码或私钥。
     auth_kind: Literal["password", "private_key"]
-    #: 指向凭据存储中密码或私钥的标识符。
-    credential_id: UUID
-    #: 私钥口令对应的凭据标识符；密码认证时必须为空。
-    passphrase_credential_id: UUID | None = None
     #: 可选的 ProxyJump 连接配置标识符。
     proxy_jump_id: UUID | None = None
     #: 是否在 UI 中将该连接标记为收藏。
     favorite: bool = False
+
+
+class ConnectionProfileInput(ConnectionProfileFields):
+    """供仓储写入的完整 SSH 连接配置，凭据仅以内部引用表示。"""
+
+    #: 指向凭据存储中密码或私钥的标识符。
+    credential_id: UUID
+    #: 私钥口令对应的凭据标识符；密码认证时必须为空。
+    passphrase_credential_id: UUID | None = None
 
     @model_validator(mode="after")
     def validate_authentication_fields(self) -> ConnectionProfileInput:

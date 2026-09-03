@@ -1,27 +1,28 @@
-# Harness Shell Sidecar
+# Harness Shell Backend
 
-Python Sidecar 是由 Tauri Rust Core 独占管理的本地子进程。唯一启动形式是 `harness-shell-sidecar.exe serve --port <1..65535>`；Uvicorn 固定监听 `127.0.0.1`，提供 `/v1/...` typed HTTP API 与单个 `/v1/runtime/events` WebSocket，不支持远程监听、认证、TLS、generic RPC 或兼容 transport。
+Python Backend 提供仅监听 `127.0.0.1` 的 typed HTTP API 与单个 Runtime WebSocket。业务状态、凭据、SSH/PTY、remote Manual SFTP 和实验性 Agent 都由 Python 所有；Tauri 不代理这些调用。
 
-初始化要求绝对路径的 runtime SQLite 数据库、两个 canonical base64 32-byte 密钥、5 秒 heartbeat 和 15 秒 timeout。启动会执行 schema migration、Audit HMAC chain 验证和本地存储 self-check；Audit 篡改会返回 `AUDIT_CHAIN_INVALID` 并在 `READY` 前退出。
-
-运行时数据库只保存 AES-GCM 密文、allowlist Trace 属性和 append-only Audit。stdout 必须保持为空；结构化日志写 stderr，具体调用点不得提交密钥、credential、request/response body、SFTP bytes 或持久化明文。
-
-本地源码调试入口必须显式指定端口：
+源码开发必须显式指定端口与绝对数据目录：
 
 ```powershell
-.\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765
+.\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765 --data-dir E:\absolute\harness-shell-dev
 ```
 
-开发测试：
+安装版只能由 `harness-shell-launcher.exe` 启动：
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest
+```text
+harness-shell-sidecar.exe desktop --port 0 --data-dir <absolute> --control-read-handle <n> --ready-write-handle <n>
 ```
 
-可复现打包：
+Desktop mode 绑定动态 loopback port，通过 inherited ready pipe 报告端口，并在 control pipe 收到 Launcher 的 graceful signal 后退出。它不扫描端口、不 reconnect、不 respawn。
+
+Runtime SQLite 只接受全新 schema v6。旧 schema 不会迁移，并在修改文件前失败。schema v6 是 plaintext：credential、Agent message/output、remote recovery 与其他业务 payload 可能明文落盘。诊断信息只写日志目录，不再写 SQLite Audit/Trace 表。
+
+构建与测试：
 
 ```powershell
+.\.venv\Scripts\python.exe -m pytest -q
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_sidecar.ps1
 ```
 
-打包要求 Python 3.12.13 和 `build-requirements.lock` 中的精确版本。build script 会运行 live/initialize/ready、WebSocket ping/pong、HTTP shutdown、exit code、Job cleanup、stdout 与 secret marker smoke。`dist/` 与复制到 `frontend/src-tauri/binaries/` 的 `.exe` 均为生成物，不提交到 Git。Sidecar 不负责 reconnect、自动重启或请求重放；异常退出由 Rust Supervisor 显式发布 `FAILED`。
+打包固定 Python 3.12.13 与 `x86_64-pc-windows-msvc`，依赖来自 `build-requirements.lock`。生成的 `build/`、`dist/` 与复制到 Tauri binaries 的 `.exe` 不得提交。测试和 packaged loopback smoke 不等于 Desktop、真实 Provider、生产 SSH 或部署验收。

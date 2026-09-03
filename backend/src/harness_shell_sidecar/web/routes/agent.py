@@ -10,9 +10,12 @@ from fastapi import APIRouter, Depends, Response, status
 from harness_shell_sidecar.agent.contracts import (
     AgentTurnResult,
     ModelApiConfig,
-    ModelApiConfigInput,
 )
-from harness_shell_sidecar.agent.handlers import AgentTurnRequest
+from harness_shell_sidecar.agent.handlers import (
+    AgentTurnRequest,
+    ModelApiConfigCreateRequest,
+    ModelApiConfigUpdateRequest,
+)
 
 from ..dependencies import (
     dispatch_application,
@@ -55,31 +58,6 @@ async def list_api_configs(
     return AgentApiConfigListResponse(request_id=request_id, configs=configs)
 
 
-@router.get(
-    "/v1/agent/api-configs/{api_config_id}",
-    response_model=AgentApiConfigResponse,
-)
-async def get_api_config(
-    api_config_id: UUID,
-    response: Response,
-    request_id: CorrelationId,
-    owner: Owner,
-) -> AgentApiConfigResponse:
-    """Return one non-secret Provider configuration."""
-
-    result = await dispatch_application(
-        owner,
-        request_id,
-        "agent.api_configs.get",
-        {"api_config_id": str(api_config_id)},
-    )
-    set_correlation(response, request_id)
-    return AgentApiConfigResponse(
-        request_id=request_id,
-        config=model_from_result(result["config"], ModelApiConfig),
-    )
-
-
 @router.post(
     "/v1/agent/api-configs",
     response_model=AgentApiConfigResponse,
@@ -91,9 +69,9 @@ async def create_api_config(
     request_id: CorrelationId,
     owner: Owner,
 ) -> AgentApiConfigResponse:
-    """Persist one Provider configuration containing only a Vault reference."""
+    """Persist one Provider configuration with its encrypted API key."""
 
-    value = validate_json_model(payload, ModelApiConfigInput, request_id)
+    value = validate_json_model(payload, ModelApiConfigCreateRequest, request_id)
     result = await dispatch_application(
         owner,
         request_id,
@@ -120,7 +98,7 @@ async def update_api_config(
 ) -> AgentApiConfigResponse:
     """Replace one complete non-secret Provider configuration."""
 
-    value = validate_json_model(payload, ModelApiConfigInput, request_id)
+    value = validate_json_model(payload, ModelApiConfigUpdateRequest, request_id)
     params = value.model_dump(mode="json")
     params["api_config_id"] = str(api_config_id)
     result = await dispatch_application(
@@ -143,7 +121,7 @@ async def delete_api_config(
     request_id: CorrelationId,
     owner: Owner,
 ) -> DeleteResponse:
-    """Delete Sidecar metadata without changing Rust Vault ownership."""
+    """Delete Provider metadata and its owned credential atomically."""
 
     result = await dispatch_application(
         owner,

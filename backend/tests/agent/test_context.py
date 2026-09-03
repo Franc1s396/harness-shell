@@ -13,7 +13,7 @@ from langchain_core.messages import (
 
 from harness_shell_sidecar.agent.context import ContextService, SYSTEM_MESSAGE
 from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
-from harness_shell_sidecar.storage import EncryptedRecord
+from harness_shell_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import make_tool_call
@@ -138,25 +138,25 @@ def test_interruption_results_and_human_message_are_atomic(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Roll back both repair and user input if either encrypted write fails."""
+    """Roll back both repair and user input if either record write fails."""
 
     ai = AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")])
     conversation_id, new_run = _new_run_after_history(agent_storage, [ai])
     real_put = agent_storage.record_store.put
     calls = 0
 
-    def fail_human_record(record: EncryptedRecord) -> None:
-        """Allow synthetic repair encryption and fail the following HumanMessage."""
+    def fail_human_record(record: PlaintextRecord) -> None:
+        """Allow synthetic repair persistence and fail the following HumanMessage."""
 
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise RuntimeError("injected human encryption failure")
+            raise RuntimeError("injected human record failure")
         real_put(record)
 
     monkeypatch.setattr(agent_storage.record_store, "put", fail_human_record)
 
-    with pytest.raises(RuntimeError, match="injected human encryption failure"):
+    with pytest.raises(RuntimeError, match="injected human record failure"):
         ContextService(agent_storage.conversations).load_new_turn(
             new_run.agent_run_id,
             conversation_id,

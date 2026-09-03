@@ -48,6 +48,7 @@ export type ManualSftpAction =
       type: "preparationReady";
       preparation: TransferPreparationSummary;
     }
+  | { type: "preparationDiscarded" }
   | { type: "operationProgress"; progress: MutationProgressProjection }
   | { type: "transferProgress"; progress: TransferProgressProjection }
   | { type: "operationTerminal"; terminal: OperationTerminalProjection }
@@ -131,6 +132,8 @@ export const manualSftpReducer = (
       return { ...state, selectedPath: action.path };
     case "preparationReady":
       return { ...state, preparation: action.preparation, error: null };
+    case "preparationDiscarded":
+      return { ...state, preparation: null };
     case "operationProgress":
       return { ...state, operationProgress: action.progress, error: null };
     case "transferProgress":

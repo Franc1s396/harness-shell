@@ -1,4 +1,6 @@
-# M3 Experimental React Shell Agent Frontend Acceptance
+# M3 Experimental React Shell Agent Frontend Acceptance（历史快照）
+
+> 下文记录旧 Rust 业务边界下的历史观察，不能代表当前 Launcher、React direct Backend 或安装版 Desktop 已验收。当前要求见 `http-backend-migration-acceptance.md`。
 
 本记录只覆盖 2026-08-31 当前 checkout 的 React Agent 前端实现与实际执行证据。Frontend、M3 自动门禁、Tauri Desktop、真实 Provider、生产 SSH、部署和迁移是相互独立的证据层；任一层通过都不能推导其他层通过。
 

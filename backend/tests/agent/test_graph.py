@@ -532,7 +532,7 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Scan durable rows, Trace storage, builder diagnostics, and logs after a turn."""
+    """Scan durable rows, builder diagnostics, and logs after a turn."""
 
     async def scenario() -> None:
         sentinel = "provider-key-sentinel-full-turn-71d4"
@@ -561,10 +561,7 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
 
         assert result.status is AgentRunStatus.COMPLETED
         durable_dump = "\n".join(agent_storage.database.connection.iterdump())
-        trace_rows = agent_storage.database.execute(
-            "SELECT * FROM trace_spans"
-        ).fetchall()
-        diagnostics = f"{builder.kwargs}:{caplog.text}:{trace_rows}:{durable_dump}"
+        diagnostics = f"{builder.kwargs}:{caplog.text}:{durable_dump}"
         assert sentinel not in diagnostics
         assert str(builder.kwargs["api_key"]) == "**********"
 

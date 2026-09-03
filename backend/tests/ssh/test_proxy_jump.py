@@ -109,7 +109,7 @@ class ProxyConnector:
 
 
 def setup_profiles(tmp_path: Path, connector: ProxyConnector):
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
     repository = ConnectionRepository(database)
     jump = repository.create(
         ConnectionProfileInput(

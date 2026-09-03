@@ -7,10 +7,10 @@ from uuid import UUID
 
 from harness_shell_sidecar.manual_sftp.models import TransferSnapshot
 from harness_shell_sidecar.manual_sftp.operation_store import (
+    ManualSftpOperationStore,
     RemoteOperationRecord,
-    RemoteOperationStore,
 )
-from harness_shell_sidecar.storage import EncryptedRecordStore, RuntimeDatabase
+from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 OPERATION_ID = UUID("00000000-0000-4000-8000-000000000301")
@@ -18,11 +18,13 @@ CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000302")
 
 
 def open_store(tmp_path: Path):
-    """Open one encrypted operation store and its owning database."""
+    """Open one plaintext operation store and its owning schema-v6 database."""
 
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
-    records = EncryptedRecordStore(database, b"d" * 32)
-    return database, RemoteOperationStore(records)
+    database = RuntimeDatabase.open_plaintext(
+        (tmp_path / "runtime.sqlite3").resolve()
+    )
+    records = PlaintextRecordStore(database)
+    return database, records, ManualSftpOperationStore(records)
 
 
 def record(operation_id: UUID, state: str) -> RemoteOperationRecord:
@@ -55,10 +57,10 @@ def record(operation_id: UUID, state: str) -> RemoteOperationRecord:
     )
 
 
-def test_operation_store_round_trips_encrypted_records_and_filters_terminal(
+def test_operation_store_round_trips_plaintext_records_and_filters_terminal(
     tmp_path: Path,
 ) -> None:
-    database, operations = open_store(tmp_path)
+    database, records, operations = open_store(tmp_path)
     active_id = OPERATION_ID
     terminal_id = UUID("00000000-0000-4000-8000-000000000303")
     try:
@@ -69,8 +71,10 @@ def test_operation_store_round_trips_encrypted_records_and_filters_terminal(
         assert [value.operation_id for value in operations.list_non_terminal()] == [
             active_id
         ]
-        plaintext = database.path.read_bytes()
-        assert b"/home/demo/data.txt" not in plaintext
+        stored = records.get("manual_sftp_operation", str(active_id))
+        assert stored is not None
+        assert b'"kind":"upload"' in stored.payload
+        assert b"/home/demo/data.txt" in stored.payload
         assert operations.delete(active_id) is True
         assert operations.get(active_id) is None
     finally:

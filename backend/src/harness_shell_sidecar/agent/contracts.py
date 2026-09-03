@@ -28,8 +28,8 @@ class ApiType(StrEnum):
     RESPONSES = "RESPONSES"
 
 
-class ModelApiConfigInput(BaseModel):
-    """Validate non-secret model configuration supplied by a trusted Core caller."""
+class ModelApiConfigFields(BaseModel):
+    """Validate Provider fields which do not contain stored credential identity."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -51,9 +51,6 @@ class ModelApiConfigInput(BaseModel):
         StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
         Field(description="Provider model identifier passed without inference."),
     ]
-    api_key_secret_ref: UUID = Field(
-        description="Opaque Rust Vault reference; never the API key plaintext."
-    )
     enabled: bool = Field(
         default=True,
         description="Whether new Agent runs may use this configuration.",
@@ -65,6 +62,14 @@ class ModelApiConfigInput(BaseModel):
         """Require an HTTP(S) URL and persist its canonical Pydantic form."""
 
         return str(_HTTP_URL_ADAPTER.validate_python(value))
+
+
+class ModelApiConfigInput(ModelApiConfigFields):
+    """Represent the complete internal value written by the Provider repository."""
+
+    api_key_credential_id: UUID = Field(
+        description="Opaque Python credential reference; never API key plaintext."
+    )
 
 
 class AgentRunStatus(StrEnum):

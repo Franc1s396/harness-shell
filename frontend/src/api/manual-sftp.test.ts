@@ -1,115 +1,136 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const invokeMock = vi.hoisted(() => vi.fn());
-const listenMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
+const request = vi.hoisted(() => vi.fn());
+const putBinary = vi.hoisted(() => vi.fn());
+const getBinary = vi.hoisted(() => vi.fn());
+const subscribe = vi.hoisted(() => vi.fn());
+const coordinator = vi.hoisted(() => ({
+  prepareUpload: vi.fn(),
+  prepareDownloadFromUserGesture: vi.fn(),
+  executeUpload: vi.fn(),
+  executeDownload: vi.fn(),
+  discardPreparation: vi.fn(),
+  cancelActive: vi.fn(),
+}));
+vi.mock("./bootstrap", () => ({
+  getBackendClient: () => ({
+    http: { request, putBinary, getBinary },
+    runtimeWebSocket: { subscribe },
+  }),
+}));
+vi.mock("../features/sftp/browser-file-gateway", () => ({
+  BrowserFileGateway: class {},
+}));
+vi.mock("../features/sftp/browser-transfer-coordinator", () => ({
+  BrowserTransferCoordinator: class { constructor() { return coordinator; } },
+}));
 
 import {
   getManualSftpContext,
+  getManualSftpDownloadChunk,
+  listManualSftpRecoveries,
   parseMutationProgress,
   parseTransferProgress,
   prepareManualSftpUpload,
-  removeManualSftpEntry,
+  putManualSftpUploadChunk,
   renameManualSftpEntry,
   subscribeManualSftpEvents,
 } from "./manual-sftp";
 
 describe("manual SFTP API", () => {
   beforeEach(() => {
-    invokeMock.mockReset();
-    listenMock.mockReset();
+    request.mockReset();
+    putBinary.mockReset();
+    getBinary.mockReset();
+    subscribe.mockReset();
+    coordinator.prepareUpload.mockReset();
   });
 
-  it("passes only the active tab session id to context lookup", async () => {
-    invokeMock.mockResolvedValue({ ssh_session_id: "ssh-session-active" });
-    await getManualSftpContext("ssh-session-active");
-    expect(invokeMock).toHaveBeenCalledWith("get_manual_sftp_context", {
-      sshSessionId: "ssh-session-active",
+  it("maps strict upload and download chunks to the shared binary client", async () => {
+    const signal = new AbortController().signal;
+    const body = new Uint8Array([1, 2, 3]);
+    putBinary.mockResolvedValue({ accepted_bytes: 3 });
+    getBinary.mockResolvedValue({
+      sequence: 8,
+      offset: 12,
+      body,
+      eof: false,
+    });
+
+    await putManualSftpUploadChunk("upload-1", 7, 9, body, signal);
+    const chunk = await getManualSftpDownloadChunk("download-1", 8, 12, signal);
+
+    expect(putBinary).toHaveBeenCalledWith(
+      "/v1/sftp/uploads/upload-1/chunks/7", body, 9, signal,
+    );
+    expect(getBinary).toHaveBeenCalledWith(
+      "/v1/sftp/downloads/download-1/chunks/8", 12, signal,
+    );
+    expect(chunk).toEqual({
+      operation_id: "download-1",
+      sequence: 8,
+      offset: 12,
+      data: body,
+      eof: false,
     });
   });
 
-  it("does not expose a local path in upload preparation input", async () => {
-    invokeMock.mockResolvedValue(null);
-    await prepareManualSftpUpload(
-      "ssh-session-active",
-      "/srv/data",
-      "report.csv",
-    );
-    expect(invokeMock).toHaveBeenCalledWith("prepare_manual_sftp_upload", {
-      sshSessionId: "ssh-session-active",
-      remoteDirectory: "/srv/data",
-      targetName: "report.csv",
-    });
-    expect(JSON.stringify(invokeMock.mock.calls)).not.toMatch(/localPath/i);
+  it("maps context and recovery collections to direct HTTP", async () => {
+    request
+      .mockResolvedValueOnce({ request_id: "r", context: { ssh_session_id: "ssh-1" } })
+      .mockResolvedValueOnce({ request_id: "r", recoveries: [] });
+
+    await getManualSftpContext("ssh-1");
+    await listManualSftpRecoveries();
+
+    expect(request.mock.calls).toEqual([
+      ["POST", "/v1/sftp/contexts", { body: { ssh_session_id: "ssh-1" } }],
+      ["GET", "/v1/sftp/recoveries"],
+    ]);
   });
 
-  it("sends rename and remove intent without WebView-controlled snapshots", async () => {
-    invokeMock.mockResolvedValue({ state: "succeeded" });
+  it("delegates upload file ownership to the browser coordinator", async () => {
+    coordinator.prepareUpload.mockResolvedValue(null);
 
-    await (renameManualSftpEntry as (...args: unknown[]) => Promise<unknown>)(
-      "ssh-session-active",
-      "/srv/data/source.txt",
-      "/srv/data/target.txt",
-      true,
-      { path: "/forbidden-source", exists: true },
-      { path: "/forbidden-target", exists: true },
-    );
-    await (removeManualSftpEntry as (...args: unknown[]) => Promise<unknown>)(
-      "ssh-session-active",
-      "/srv/data/source.txt",
-      { path: "/forbidden-remove", exists: true },
-    );
+    await prepareManualSftpUpload("ssh-1", "/srv/data", "report.csv");
 
-    expect(invokeMock).toHaveBeenNthCalledWith(1, "rename_manual_sftp_entry", {
-      sshSessionId: "ssh-session-active",
-      sourcePath: "/srv/data/source.txt",
-      targetPath: "/srv/data/target.txt",
-      overwrite: true,
+    expect(coordinator.prepareUpload).toHaveBeenCalledWith(
+      "ssh-1", "/srv/data", "report.csv",
+    );
+    expect(JSON.stringify(coordinator.prepareUpload.mock.calls)).not.toMatch(/localPath/i);
+  });
+
+  it("sends rename intent without a WebView local path", async () => {
+    request.mockResolvedValue({ request_id: "r", terminal: { state: "succeeded" } });
+
+    await renameManualSftpEntry("ssh-1", "/a", "/b", true);
+
+    expect(request).toHaveBeenCalledWith("POST", "/v1/sftp/renames", {
+      body: expect.objectContaining({
+        ssh_session_id: "ssh-1",
+        source_path: "/a",
+        target_path: "/b",
+        overwrite: true,
+      }),
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(2, "remove_manual_sftp_entry", {
-      sshSessionId: "ssh-session-active",
-      remotePath: "/srv/data/source.txt",
-    });
-    expect(JSON.stringify(invokeMock.mock.calls)).not.toMatch(/snapshot/i);
+    expect(JSON.stringify(request.mock.calls)).not.toMatch(/localPath/i);
   });
 
   it("rejects malformed or extra event fields", () => {
-    expect(() =>
-      parseTransferProgress({
-        operation_id: "operation",
-        direction: "upload",
-        phase: "transferring",
-        display_name: "report.csv",
-        remote_path: "/report.csv",
-        host_label: "host",
-        bytes_completed: 1,
-        bytes_total: 2,
-        cancellable: true,
-        local_path: "C:\\secret\\report.csv",
-      }),
-    ).toThrow(/invalid/i);
+    expect(() => parseTransferProgress({ cancellable: true })).toThrow(/invalid/i);
     expect(() => parseMutationProgress({ cancellable: true })).toThrow(/invalid/i);
   });
 
-  it("cleans up both deterministic event subscriptions", async () => {
-    const unlistenTransfer = vi.fn();
-    const unlistenOperation = vi.fn();
-    listenMock
-      .mockResolvedValueOnce(unlistenTransfer)
-      .mockResolvedValueOnce(unlistenOperation);
-    const unlisten = await subscribeManualSftpEvents(
-      () => undefined,
-      () => undefined,
-      () => undefined,
+  it("subscribes once to the process-wide Runtime WebSocket", async () => {
+    const unsubscribe = vi.fn();
+    subscribe.mockReturnValue(unsubscribe);
+
+    const result = await subscribeManualSftpEvents(
+      () => undefined, () => undefined, () => undefined,
     );
-    expect(listenMock.mock.calls.map(([name]) => name)).toEqual([
-      "manual-sftp://transfer-state",
-      "manual-sftp://operation-state",
-    ]);
-    unlisten();
-    expect(unlistenTransfer).toHaveBeenCalledOnce();
-    expect(unlistenOperation).toHaveBeenCalledOnce();
+    result();
+
+    expect(subscribe).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });

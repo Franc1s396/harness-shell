@@ -9,24 +9,15 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from .conftest import valid_initialize_json
-
-
 def request_headers() -> dict[str, str]:
     """Create one valid HTTP correlation header."""
 
     return {"X-Request-ID": str(uuid4())}
 
 
-def initialize(client, tmp_path: Path):
-    """Initialize and return the unique HTTP runtime owner."""
+def runtime_owner(client):
+    """Return the autonomous HTTP runtime owner."""
 
-    response = client.post(
-        "/v1/runtime/initialize",
-        headers=request_headers(),
-        json=valid_initialize_json(tmp_path),
-    )
-    assert response.status_code == 200
     return client.app.state.runtime_owner
 
 
@@ -51,7 +42,6 @@ def message(
 
 
 def test_runtime_ping_returns_correlated_pong(client, tmp_path: Path) -> None:
-    initialize(client, tmp_path)
     ping_id = uuid4()
     with client.websocket_connect("/v1/runtime/events") as socket:
         socket.send_json(
@@ -76,7 +66,7 @@ def test_second_runtime_websocket_cannot_replace_active_owner(
     client,
     tmp_path: Path,
 ) -> None:
-    owner = initialize(client, tmp_path)
+    owner = runtime_owner(client)
     gateway = owner.websocket_gateway
     assert client.portal.call(gateway.claim) is True
     try:
@@ -93,7 +83,6 @@ def test_pty_domain_failure_returns_correlated_result_and_keeps_connection(
     client,
     tmp_path: Path,
 ) -> None:
-    initialize(client, tmp_path)
     input_id = uuid4()
     pty_session_id = uuid4()
     with client.websocket_connect("/v1/runtime/events") as socket:
@@ -171,7 +160,6 @@ def test_invalid_runtime_message_closes_with_contract_code(
     tmp_path: Path,
     invalid: dict[str, object],
 ) -> None:
-    initialize(client, tmp_path)
     with pytest.raises(WebSocketDisconnect) as disconnected:
         with client.websocket_connect("/v1/runtime/events") as socket:
             socket.send_json(invalid)
@@ -184,7 +172,6 @@ def test_message_larger_than_65536_encoded_bytes_closes_with_1009(
     client,
     tmp_path: Path,
 ) -> None:
-    initialize(client, tmp_path)
     with pytest.raises(WebSocketDisconnect) as disconnected:
         with client.websocket_connect("/v1/runtime/events") as socket:
             socket.send_text("x" * 65_537)
@@ -199,7 +186,7 @@ def test_explicit_heartbeat_timeout_closes_with_4408(
 ) -> None:
     from harness_shell_sidecar.web.websocket import RuntimeWebSocketGateway
 
-    owner = initialize(client, tmp_path)
+    owner = runtime_owner(client)
     owner.websocket_gateway = RuntimeWebSocketGateway(
         heartbeat_timeout_seconds=0.01
     )
@@ -214,7 +201,7 @@ def test_runtime_owner_converts_domain_event_before_websocket_delivery(
     client,
     tmp_path: Path,
 ) -> None:
-    owner = initialize(client, tmp_path)
+    owner = runtime_owner(client)
     pty_session_id = uuid4()
     with client.websocket_connect("/v1/runtime/events") as socket:
         client.portal.call(

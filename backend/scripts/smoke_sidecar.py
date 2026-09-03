@@ -1,13 +1,12 @@
-"""Validate the packaged loopback HTTP/WebSocket backend lifecycle."""
+"""Validate the autonomous desktop Sidecar pipe and HTTP/WebSocket lifecycle."""
 
 from __future__ import annotations
 
-import base64
-import ctypes
 import http.client
 import json
 import os
-import socket
+import queue
+import struct
 import subprocess
 import sys
 import tempfile
@@ -18,147 +17,12 @@ from uuid import UUID, uuid4
 
 from websockets.sync.client import connect
 
+from harness_shell_sidecar.runtime.desktop_control import decode_ready_payload
 
-READY_TIMEOUT_SECONDS = 5
+
+READY_TIMEOUT_SECONDS = 10
 HTTP_TIMEOUT_SECONDS = 1
 CAPTURE_LIMIT = 65_536
-JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS = 1
-JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
-
-
-class IoCounters(ctypes.Structure):
-    """Map the Windows Job Object I/O accounting structure."""
-
-    _fields_ = [
-        ("read_operations", ctypes.c_uint64),
-        ("write_operations", ctypes.c_uint64),
-        ("other_operations", ctypes.c_uint64),
-        ("read_bytes", ctypes.c_uint64),
-        ("write_bytes", ctypes.c_uint64),
-        ("other_bytes", ctypes.c_uint64),
-    ]
-
-
-class BasicLimitInformation(ctypes.Structure):
-    """Map the Windows Job Object basic limit structure."""
-
-    _fields_ = [
-        ("per_process_user_time_limit", ctypes.c_int64),
-        ("per_job_user_time_limit", ctypes.c_int64),
-        ("limit_flags", ctypes.c_uint32),
-        ("minimum_working_set_size", ctypes.c_size_t),
-        ("maximum_working_set_size", ctypes.c_size_t),
-        ("active_process_limit", ctypes.c_uint32),
-        ("affinity", ctypes.c_size_t),
-        ("priority_class", ctypes.c_uint32),
-        ("scheduling_class", ctypes.c_uint32),
-    ]
-
-
-class ExtendedLimitInformation(ctypes.Structure):
-    """Map the Windows Job Object extended limit structure."""
-
-    _fields_ = [
-        ("basic_limit_information", BasicLimitInformation),
-        ("io_info", IoCounters),
-        ("process_memory_limit", ctypes.c_size_t),
-        ("job_memory_limit", ctypes.c_size_t),
-        ("peak_process_memory_used", ctypes.c_size_t),
-        ("peak_job_memory_used", ctypes.c_size_t),
-    ]
-
-
-class BasicAccountingInformation(ctypes.Structure):
-    """Map the Job Object process-count accounting fields."""
-
-    _fields_ = [
-        ("total_user_time", ctypes.c_int64),
-        ("total_kernel_time", ctypes.c_int64),
-        ("this_period_total_user_time", ctypes.c_int64),
-        ("this_period_total_kernel_time", ctypes.c_int64),
-        ("total_page_fault_count", ctypes.c_uint32),
-        ("total_processes", ctypes.c_uint32),
-        ("active_processes", ctypes.c_uint32),
-        ("total_terminated_processes", ctypes.c_uint32),
-    ]
-
-
-def _kernel32():
-    """Configure the small allowlisted Windows Job Object API surface."""
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
-    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-    kernel32.SetInformationJobObject.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-    ]
-    kernel32.SetInformationJobObject.restype = ctypes.c_int
-    kernel32.QueryInformationJobObject.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-        ctypes.c_void_p,
-    ]
-    kernel32.QueryInformationJobObject.restype = ctypes.c_int
-    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    kernel32.CloseHandle.restype = ctypes.c_int
-    return kernel32
-
-
-def create_job() -> tuple[int, str]:
-    """Create the named kill-on-close owner required by the packaged child."""
-
-    kernel32 = _kernel32()
-    name = f"HarnessShellSmoke-{os.getpid()}-{uuid4()}"
-    handle = kernel32.CreateJobObjectW(None, name)
-    if not handle:
-        raise ctypes.WinError(ctypes.get_last_error())
-    limits = ExtendedLimitInformation()
-    limits.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-    if not kernel32.SetInformationJobObject(
-        handle,
-        JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
-        ctypes.byref(limits),
-        ctypes.sizeof(limits),
-    ):
-        kernel32.CloseHandle(handle)
-        raise ctypes.WinError(ctypes.get_last_error())
-    return handle, name
-
-
-def active_job_processes(handle: int) -> int:
-    """Return the exact remaining process count for cleanup verification."""
-
-    kernel32 = _kernel32()
-    accounting = BasicAccountingInformation()
-    if not kernel32.QueryInformationJobObject(
-        handle,
-        JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_CLASS,
-        ctypes.byref(accounting),
-        ctypes.sizeof(accounting),
-        None,
-    ):
-        raise ctypes.WinError(ctypes.get_last_error())
-    return int(accounting.active_processes)
-
-
-def close_handle(handle: int) -> None:
-    """Close the owned Job Object handle exactly once."""
-
-    _kernel32().CloseHandle(handle)
-
-
-def reserve_loopback_port() -> int:
-    """Reserve and release one dynamic loopback port before child spawn."""
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
 
 
 def request_json(
@@ -166,31 +30,25 @@ def request_json(
     method: str,
     path: str,
     *,
-    payload: dict[str, object] | None = None,
     expected_status: int,
 ) -> tuple[dict[str, object], bytes]:
-    """Issue one correlated private HTTP request and validate its typed response."""
+    """Issue one correlated private HTTP request and validate its response."""
 
     request_id = uuid4()
-    encoded = None
-    headers = {
-        "X-Request-ID": str(request_id),
-        "Accept": "application/json, application/problem+json",
-    }
-    if payload is not None:
-        encoded = json.dumps(
-            payload,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-        headers["Content-Type"] = "application/json"
     connection = http.client.HTTPConnection(
         "127.0.0.1",
         port,
         timeout=HTTP_TIMEOUT_SECONDS,
     )
     try:
-        connection.request(method, path, body=encoded, headers=headers)
+        connection.request(
+            method,
+            path,
+            headers={
+                "X-Request-ID": str(request_id),
+                "Accept": "application/json, application/problem+json",
+            },
+        )
         response = connection.getresponse()
         body = response.read(1_048_577)
         if response.status != expected_status:
@@ -207,8 +65,8 @@ def request_json(
         connection.close()
 
 
-def wait_live(port: int) -> bytes:
-    """Poll liveness within the fixed startup deadline."""
+def wait_ready(port: int) -> bytes:
+    """Poll autonomous readiness within the fixed startup deadline."""
 
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
@@ -216,19 +74,19 @@ def wait_live(port: int) -> bytes:
             response, body = request_json(
                 port,
                 "GET",
-                "/v1/health/live",
+                "/v1/health/ready",
                 expected_status=200,
             )
-            if response == {"request_id": response["request_id"], "live": True}:
+            if response["ready"] is True and response["state"] == "READY":
                 return body
-            raise RuntimeError("liveness response contract failed")
+            raise RuntimeError("readiness response contract failed")
         except (ConnectionError, OSError):
             time.sleep(0.025)
-    raise RuntimeError("packaged backend liveness timed out")
+    raise RuntimeError("desktop backend readiness timed out")
 
 
 def drain_pipe(pipe, capture: bytearray, lock: threading.Lock) -> None:
-    """Drain a child pipe so diagnostics cannot block process shutdown."""
+    """Drain a child pipe so bounded diagnostics cannot block shutdown."""
 
     while chunk := pipe.read(4_096):
         with lock:
@@ -237,33 +95,91 @@ def drain_pipe(pipe, capture: bytearray, lock: threading.Lock) -> None:
                 capture.extend(chunk[:remaining])
 
 
-def main() -> int:
-    """Run live, initialize, ready, heartbeat, shutdown, and Job cleanup checks."""
+def read_exact(fd: int, length: int) -> bytes:
+    """Read exactly one byte count or fail on premature pipe EOF."""
 
-    executable = Path(sys.argv[1]).resolve(strict=True)
-    system_root = os.environ.get("SystemRoot")
-    if not system_root:
-        raise RuntimeError("SystemRoot is required for the Windows backend")
-    system32 = str(Path(system_root, "System32").resolve(strict=True))
-    port = reserve_loopback_port()
-    with tempfile.TemporaryDirectory(prefix="harness-shell-smoke-") as extraction_dir:
-        job_handle, job_name = create_job()
+    chunks: list[bytes] = []
+    remaining = length
+    while remaining:
+        chunk = os.read(fd, remaining)
+        if not chunk:
+            raise EOFError("ready pipe closed before the complete frame")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def read_ready_payload(fd: int) -> bytes:
+    """Read one bounded length-prefixed ready payload."""
+
+    (payload_length,) = struct.unpack(">I", read_exact(fd, 4))
+    if not 1 <= payload_length <= 4_096:
+        raise RuntimeError(f"invalid ready payload length {payload_length}")
+    return read_exact(fd, payload_length)
+
+
+def child_command(extraction_dir: Path) -> tuple[list[str], dict[str, str]]:
+    """Build a source or packaged desktop command without secret environment data."""
+
+    environment = os.environ.copy()
+    if len(sys.argv) > 1:
+        executable = Path(sys.argv[1]).resolve(strict=True)
+        command = [str(executable)]
+    else:
+        backend_root = Path(__file__).parents[1]
+        source = str((backend_root / "src").resolve())
+        existing = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = (
+            source if not existing else os.pathsep.join((source, existing))
+        )
+        command = [sys.executable, "-m", "harness_shell_sidecar"]
+    command.extend(
+        [
+            "desktop",
+            "--port",
+            "0",
+            "--data-dir",
+            str(extraction_dir),
+        ]
+    )
+    return command, environment
+
+
+def main() -> int:
+    """Run ready-pipe, HTTP, WebSocket, and control-byte shutdown checks."""
+
+    if sys.platform != "win32":
+        raise RuntimeError("desktop Sidecar smoke requires Windows HANDLEs")
+
+    import msvcrt
+
+    with tempfile.TemporaryDirectory(prefix="harness-shell-smoke-") as temp_dir:
+        data_dir = Path(temp_dir).resolve()
+        command, environment = child_command(data_dir)
+        control_read_fd, control_write_fd = os.pipe()
+        ready_read_fd, ready_write_fd = os.pipe()
+        os.set_inheritable(control_read_fd, True)
+        os.set_inheritable(control_write_fd, False)
+        os.set_inheritable(ready_read_fd, False)
+        os.set_inheritable(ready_write_fd, True)
+        command.extend(
+            [
+                "--control-read-handle",
+                str(msvcrt.get_osfhandle(control_read_fd)),
+                "--ready-write-handle",
+                str(msvcrt.get_osfhandle(ready_write_fd)),
+            ]
+        )
         process = subprocess.Popen(
-            [executable, "serve", "--port", str(port)],
+            command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env={
-                "SystemRoot": system_root,
-                "WINDIR": system_root,
-                "TEMP": extraction_dir,
-                "TMP": extraction_dir,
-                "PATH": system32,
-                "USERNAME": "harness-shell",
-                "USERPROFILE": extraction_dir,
-                "HARNESS_SIDECAR_JOB": job_name,
-            },
+            env=environment,
+            close_fds=False,
         )
+        os.close(control_read_fd)
+        os.close(ready_write_fd)
         stdout_capture = bytearray()
         stderr_capture = bytearray()
         stdout_lock = threading.Lock()
@@ -282,44 +198,28 @@ def main() -> int:
         )
         stdout_thread.start()
         stderr_thread.start()
+        ready_result: queue.Queue[bytes | BaseException] = queue.Queue(maxsize=1)
+
+        def read_ready() -> None:
+            """Move the blocking pipe read behind the smoke deadline."""
+
+            try:
+                ready_result.put(read_ready_payload(ready_read_fd))
+            except BaseException as error:
+                ready_result.put(error)
+
+        ready_thread = threading.Thread(target=read_ready, daemon=True)
+        ready_thread.start()
+        control_open = True
         try:
-            observed_bodies = [wait_live(port)]
-            runtime_data_key = bytes([0x31]) * 32
-            audit_hmac_key = bytes([0x57]) * 32
-            runtime_key_marker = base64.b64encode(runtime_data_key).decode("ascii")
-            initialized, initialized_body = request_json(
-                port,
-                "POST",
-                "/v1/runtime/initialize",
-                payload={
-                    "app_version": "packaged-smoke",
-                    "runtime_db_path": str(
-                        Path(extraction_dir, "runtime.sqlite3").resolve()
-                    ),
-                    "runtime_data_key_b64": runtime_key_marker,
-                    "audit_hmac_key_b64": base64.b64encode(
-                        audit_hmac_key
-                    ).decode("ascii"),
-                    "heartbeat_interval_ms": 5_000,
-                    "heartbeat_timeout_ms": 15_000,
-                },
-                expected_status=200,
-            )
-            observed_bodies.append(initialized_body)
-            if initialized["state"] != "READY":
-                raise RuntimeError("initialize did not publish READY")
-            ready, ready_body = request_json(
-                port,
-                "GET",
-                "/v1/health/ready",
-                expected_status=200,
-            )
-            observed_bodies.append(ready_body)
-            if ready["ready"] is not True or ready["state"] != "READY":
-                raise RuntimeError("ready response contract failed")
+            result = ready_result.get(timeout=READY_TIMEOUT_SECONDS)
+            if isinstance(result, BaseException):
+                raise result
+            ready = decode_ready_payload(result)
+            observed_bodies = [wait_ready(ready.port)]
 
             with connect(
-                f"ws://127.0.0.1:{port}/v1/runtime/events",
+                f"ws://127.0.0.1:{ready.port}/v1/runtime/events",
                 open_timeout=HTTP_TIMEOUT_SECONDS,
                 close_timeout=HTTP_TIMEOUT_SECONDS,
             ) as websocket:
@@ -345,34 +245,31 @@ def main() -> int:
                 if UUID(pong["causation_id"]) != ping_id:
                     raise RuntimeError("runtime pong correlation failed")
 
-            stopped, stopped_body = request_json(
-                port,
-                "POST",
-                "/v1/runtime/shutdown",
-                expected_status=202,
-            )
-            observed_bodies.append(stopped_body)
-            if stopped["state"] != "STOPPED":
-                raise RuntimeError("shutdown did not return STOPPED")
+            os.write(control_write_fd, b"\x01")
+            os.close(control_write_fd)
+            control_open = False
             if process.wait(timeout=READY_TIMEOUT_SECONDS) != 0:
-                raise RuntimeError("packaged backend exited nonzero")
+                raise RuntimeError("desktop backend exited nonzero")
             stdout_thread.join(timeout=1)
             stderr_thread.join(timeout=1)
             with stdout_lock:
                 if stdout_capture:
-                    raise RuntimeError("packaged backend emitted forbidden stdout")
+                    raise RuntimeError("desktop backend emitted forbidden stdout")
             with stderr_lock:
                 observed = b"".join(observed_bodies) + bytes(stderr_capture)
-            if runtime_key_marker.encode("ascii") in observed:
-                raise RuntimeError("runtime key material was exposed")
-            if active_job_processes(job_handle) != 0:
-                raise RuntimeError("packaged backend Job retained a process")
+            old_runtime_key = b"runtime_data" + b"_key_b64"
+            old_audit_key = b"audit" + b"_hmac_key_b64"
+            if old_runtime_key in observed or old_audit_key in observed:
+                raise RuntimeError("removed Runtime key field was exposed")
             return 0
         finally:
+            if control_open:
+                os.close(control_write_fd)
+            os.close(ready_read_fd)
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=3)
-            close_handle(job_handle)
+            ready_thread.join(timeout=1)
 
 
 if __name__ == "__main__":

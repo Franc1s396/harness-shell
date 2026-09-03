@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import SecretStr
 
 from harness_shell_sidecar.agent.api_configs import ApiConfigRepositoryError
@@ -17,7 +21,12 @@ from harness_shell_sidecar.agent.contracts import (
 )
 from harness_shell_sidecar.agent.handlers import register_agent_handlers
 from harness_shell_sidecar.agent.service import AgentServiceError
+from harness_shell_sidecar.credentials import (
+    CredentialRepository,
+    RuntimeCredentialCipher,
+)
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_shell_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 
@@ -89,19 +98,13 @@ def _result() -> AgentTurnResult:
 
 def _turn_params(
     api_config_id: UUID,
-    credential_id: UUID,
-    *,
-    api_key_b64: str | None = None,
 ) -> dict[str, object]:
-    """Build canonical secret turn params for one persisted config."""
+    """Build the identity-only public turn payload."""
 
     return {
         "conversation_id": None,
         "ssh_session_id": str(uuid4()),
         "api_config_id": str(api_config_id),
-        "api_key_credential_id": str(credential_id),
-        "api_key_b64": api_key_b64
-        or base64.b64encode(b"provider-key").decode("ascii"),
         "user_message": "inspect the host",
     }
 
@@ -109,12 +112,69 @@ def _turn_params(
 def _dispatcher(
     agent_storage: AgentStorage,
     service: FakeAgentService,
+    cipher: RuntimeCredentialCipher | None = None,
 ) -> RequestDispatcher:
     """Register all Agent handlers against real config storage and a fake turn service."""
 
     dispatcher = RequestDispatcher()
-    register_agent_handlers(dispatcher, agent_storage.api_configs, service)
+    credential_ids = agent_storage.database.execute(
+        "SELECT api_key_credential_id FROM model_api_configs"
+    ).fetchall()
+    for (credential_id_text,) in credential_ids:
+        credential_id = UUID(credential_id_text)
+        if agent_storage.record_store.get("credential", str(credential_id)) is None:
+            payload = json.dumps(
+                {
+                    "credential_id": str(credential_id),
+                    "kind": "api_key",
+                    "secret": "provider-key",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            agent_storage.record_store.put(
+                PlaintextRecord("credential", str(credential_id), 1, payload)
+            )
+    register_agent_handlers(
+        dispatcher,
+        agent_storage.api_configs,
+        service,
+        CredentialRepository(agent_storage.record_store),
+        cipher or RuntimeCredentialCipher.generate(),
+        agent_storage.database,
+    )
     return dispatcher
+
+
+def encrypted_api_key(
+    cipher: RuntimeCredentialCipher,
+    secret: str,
+) -> dict[str, object]:
+    """Encrypt one API key for direct dispatcher aggregate tests."""
+
+    public_key = cipher.public_key()
+    aes_key = bytes(range(32))
+    iv = bytes(range(12))
+    aad = f"harness-shell-credential-v1\0{public_key.key_id}".encode()
+    ciphertext = AESGCM(aes_key).encrypt(iv, secret.encode(), aad)
+    rsa_public_key = serialization.load_der_public_key(
+        base64.b64decode(public_key.public_key_spki_b64, validate=True)
+    )
+    wrapped_key = rsa_public_key.encrypt(
+        aes_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+    return {
+        "version": 1,
+        "key_id": str(public_key.key_id),
+        "wrapped_key_b64": base64.b64encode(wrapped_key).decode("ascii"),
+        "iv_b64": base64.b64encode(iv).decode("ascii"),
+        "ciphertext_b64": base64.b64encode(ciphertext).decode("ascii"),
+    }
 
 
 @pytest.mark.parametrize(
@@ -174,7 +234,7 @@ def test_agent_turn_rejects_strict_payload_errors(
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
-        params = _turn_params(config.api_config_id, config.api_key_secret_ref)
+        params = _turn_params(config.api_config_id)
         params.update(mutation)
         dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
 
@@ -190,8 +250,9 @@ def test_agent_turn_rejects_strict_payload_errors(
 
 def test_agent_turn_rechecks_enabled_config_and_credential_reference(
     agent_storage: AgentStorage,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Close the Vault lookup race before provider invocation."""
+    """Close the configuration race before provider invocation."""
 
     async def scenario() -> None:
         disabled = agent_storage.api_configs.create(
@@ -202,20 +263,30 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
             await dispatcher.dispatch(
                 *application_frame(
                     "agent.turn.run",
-                    params=_turn_params(
-                        disabled.api_config_id,
-                        disabled.api_key_secret_ref,
-                    ),
+                    params=_turn_params(disabled.api_config_id),
                 )
             )
         assert disabled_error.value.error_code == "MODEL_API_CONFIG_DISABLED"
 
         enabled = agent_storage.api_configs.create(valid_api_config_input())
+        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
+        real_get = agent_storage.api_configs.get
+        get_count = 0
+
+        def changed_get(api_config_id: UUID):
+            nonlocal get_count
+            get_count += 1
+            config = real_get(api_config_id)
+            if get_count == 2 and config is not None:
+                return config.model_copy(update={"model": "changed-model"})
+            return config
+
+        monkeypatch.setattr(agent_storage.api_configs, "get", changed_get)
         with pytest.raises(DispatchError) as changed_error:
             await dispatcher.dispatch(
                 *application_frame(
                     "agent.turn.run",
-                    params=_turn_params(enabled.api_config_id, uuid4()),
+                    params=_turn_params(enabled.api_config_id),
                 )
             )
         assert changed_error.value.error_code == "MODEL_API_CONFIG_CHANGED"
@@ -235,15 +306,12 @@ def test_agent_turn_decodes_key_and_returns_only_turn_result(
         result = await dispatcher.dispatch(
             *application_frame(
                 "agent.turn.run",
-                params=_turn_params(
-                    config.api_config_id,
-                    config.api_key_secret_ref,
-                ),
+                params=_turn_params(config.api_config_id),
             )
         )
 
         assert service.api_keys == ["provider-key"]
-        assert set(result.payload) == {
+        assert set(result) == {
             "conversation_id",
             "agent_run_id",
             "status",
@@ -251,7 +319,7 @@ def test_agent_turn_decodes_key_and_returns_only_turn_result(
             "react_iteration",
             "error_code",
         }
-        assert "api_key" not in str(result.payload)
+        assert "api_key" not in str(result)
 
     asyncio.run(scenario())
 
@@ -277,10 +345,7 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
             await dispatcher.dispatch(
                 *application_frame(
                     "agent.turn.run",
-                    params=_turn_params(
-                        config.api_config_id,
-                        config.api_key_secret_ref,
-                    ),
+                    params=_turn_params(config.api_config_id),
                 )
             )
 
@@ -290,10 +355,10 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
     asyncio.run(scenario())
 
 
-def test_agent_turn_cancellation_flows_through_dispatcher(
+def test_agent_turn_shutdown_cancellation_flows_through_dispatcher(
     agent_storage: AgentStorage,
 ) -> None:
-    """Use the dispatcher cancellation event and return a durable CANCELLED result."""
+    """Use shutdown cancellation and return a durable CANCELLED result."""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -302,20 +367,17 @@ def test_agent_turn_cancellation_flows_through_dispatcher(
         request_id = uuid4()
         request = application_frame(
             "agent.turn.run",
-            params=_turn_params(
-                config.api_config_id,
-                config.api_key_secret_ref,
-            ),
+            params=_turn_params(config.api_config_id),
             request_id=request_id,
         )
 
         running = asyncio.create_task(dispatcher.dispatch(*request))
         await service.started.wait()
-        assert await dispatcher.cancel(request_id) is True
+        await dispatcher.close()
         result = await running
 
-        assert result.payload["status"] == "CANCELLED"
-        assert result.payload["error_code"] == "AGENT_CANCELLED"
+        assert result["status"] == "CANCELLED"
+        assert result["error_code"] == "AGENT_CANCELLED"
 
     asyncio.run(scenario())
 
@@ -328,7 +390,7 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
 
     async def scenario() -> None:
         marker = "remote-output-marker-77"
-        key = "provider-key-marker-88"
+        key = "provider-key"
         config = agent_storage.api_configs.create(valid_api_config_input())
         service = FakeAgentService(RuntimeError(f"{key}:{marker}"))
         dispatcher = _dispatcher(agent_storage, service)
@@ -338,11 +400,7 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
             await dispatcher.dispatch(
                 *application_frame(
                     "agent.turn.run",
-                    params=_turn_params(
-                        config.api_config_id,
-                        config.api_key_secret_ref,
-                        api_key_b64=base64.b64encode(key.encode()).decode("ascii"),
-                    ),
+                    params=_turn_params(config.api_config_id),
                 )
             )
 
@@ -358,19 +416,25 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
 def test_api_config_handlers_round_trip_without_secret_bytes(
     agent_storage: AgentStorage,
 ) -> None:
-    """Expose CRUD metadata and opaque Vault references through normal frames."""
+    """Create aggregate credentials while exposing only references in results."""
 
     async def scenario() -> None:
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
+        cipher = RuntimeCredentialCipher.generate()
+        dispatcher = _dispatcher(
+            agent_storage,
+            FakeAgentService(_result()),
+            cipher,
+        )
         value = valid_api_config_input()
+        params = value.model_dump(mode="json", exclude={"api_key_credential_id"})
+        params["api_key_envelope"] = encrypted_api_key(cipher, "provider-key")
         created = await dispatcher.dispatch(
             *application_frame(
                 "agent.api_configs.create",
-                params=value.model_dump(mode="json"),
+                params=params,
             )
         )
-        config = created.payload["config"]
-        config_id = UUID(config["api_config_id"])
+        config = created["config"]
 
         listed = await dispatcher.dispatch(
             *application_frame(
@@ -378,16 +442,8 @@ def test_api_config_handlers_round_trip_without_secret_bytes(
                 params={},
             )
         )
-        fetched = await dispatcher.dispatch(
-            *application_frame(
-                "agent.api_configs.get",
-                params={"api_config_id": str(config_id)},
-            )
-        )
-
-        assert listed.payload["configs"] == [config]
-        assert fetched.payload["config"] == config
-        assert "provider-key" not in str(listed.payload)
+        assert listed["configs"] == [config]
+        assert "provider-key" not in str(listed)
 
     asyncio.run(scenario())
 
@@ -414,10 +470,7 @@ def test_oversized_agent_response_fails_without_truncating_final_text(
             await dispatcher.dispatch(
                 *application_frame(
                     "agent.turn.run",
-                    params=_turn_params(
-                        config.api_config_id,
-                        config.api_key_secret_ref,
-                    ),
+                    params=_turn_params(config.api_config_id),
                 )
             )
 

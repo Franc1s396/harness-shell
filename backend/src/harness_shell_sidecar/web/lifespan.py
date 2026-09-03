@@ -4,22 +4,17 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from threading import Lock
 
 from fastapi import FastAPI
 
-from harness_shell_sidecar.runtime.models import (
-    RuntimeInitializeRequest,
-    RuntimePhase,
-)
+from harness_shell_sidecar.runtime.models import RuntimePhase
 from harness_shell_sidecar.runtime.resources import EventSink, RuntimeResources
+from harness_shell_sidecar.runtime.settings import RuntimeSettings
 
 from .websocket import RuntimeWebSocketGateway
 
 
-ResourceFactory = Callable[
-    [RuntimeInitializeRequest, EventSink], RuntimeResources
-]
+ResourceFactory = Callable[[RuntimeSettings, EventSink], RuntimeResources]
 
 
 class RuntimeOwnerError(RuntimeError):
@@ -36,42 +31,42 @@ class RuntimeOwnerError(RuntimeError):
 class RuntimeOwner:
     """Initialize, expose, and converge exactly one RuntimeResources instance."""
 
-    def __init__(self, resource_factory: ResourceFactory) -> None:
-        """Create a live but not initialized owner and bounded future event queue."""
+    def __init__(
+        self,
+        settings: RuntimeSettings,
+        resource_factory: ResourceFactory,
+    ) -> None:
+        """Create an owner that must initialize before ASGI accepts requests."""
 
+        self._settings = settings  # Fixed paths derived from the CLI data directory.
         self._resource_factory = resource_factory  # Atomic graph constructor.
         self._resources: RuntimeResources | None = None  # Sole graph reference.
-        self._state = RuntimePhase.LIVE_NOT_INITIALIZED  # Shared public phase.
-        self._initialize_lock = Lock()  # Serialize the unique sync initialization.
+        self._state = RuntimePhase.INITIALIZING  # Shared public phase.
+        self._start_attempted = False  # Lifespan startup is one-shot.
         self.websocket_gateway = RuntimeWebSocketGateway()
+
+    async def start(self, event_sink: EventSink) -> RuntimeResources:
+        """Initialize all resources before ASGI accepts requests."""
+
+        if self._start_attempted:
+            raise RuntimeOwnerError(
+                "RUNTIME_ALREADY_INITIALIZED",
+                "Runtime initialization has already been attempted",
+            )
+        self._start_attempted = True
+        try:
+            resources = self._resource_factory(self._settings, event_sink)
+        except BaseException:
+            self._state = RuntimePhase.FAILED
+            raise
+        self._resources = resources
+        self._state = RuntimePhase.READY
+        return resources
 
     async def event_sink(self, event: dict[str, object]) -> None:
         """Apply bounded backpressure to domain events until WebSocket delivery."""
 
         await self.websocket_gateway.publish_domain_event(event)
-
-    def initialize_once(
-        self,
-        payload: RuntimeInitializeRequest,
-        event_sink: EventSink,
-    ) -> RuntimeResources:
-        """Construct and publish one complete graph or enter terminal FAILED."""
-
-        with self._initialize_lock:
-            if self._state is not RuntimePhase.LIVE_NOT_INITIALIZED:
-                raise RuntimeOwnerError(
-                    "RUNTIME_ALREADY_INITIALIZED",
-                    "Runtime initialization has already been attempted",
-                )
-            self._state = RuntimePhase.INITIALIZING
-            try:
-                resources = self._resource_factory(payload, event_sink)
-            except BaseException:
-                self._state = RuntimePhase.FAILED
-                raise
-            self._resources = resources
-            self._state = RuntimePhase.READY
-            return resources
 
     def state(self) -> RuntimePhase:
         """Return the current safe lifecycle phase."""
@@ -90,8 +85,6 @@ class RuntimeOwner:
 
         resources = self._resources
         if resources is None:
-            if self._state is RuntimePhase.LIVE_NOT_INITIALIZED:
-                self._state = RuntimePhase.STOPPED
             return self._state
         if self._state in (RuntimePhase.STOPPED, RuntimePhase.FAILED):
             return self._state
@@ -108,12 +101,12 @@ class RuntimeOwner:
 
 
 def default_resource_factory(
-    payload: RuntimeInitializeRequest,
+    settings: RuntimeSettings,
     event_sink: EventSink,
 ) -> RuntimeResources:
-    """Construct the production runtime graph without adding import side effects."""
+    """Construct the plaintext graph without injected Runtime keys."""
 
-    return RuntimeResources.initialize(payload, event_sink)
+    return RuntimeResources.initialize_from_settings(settings, event_sink)
 
 
 @asynccontextmanager
@@ -121,8 +114,9 @@ async def runtime_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Own the unique RuntimeOwner for the entire ASGI application lifespan."""
 
     factory = app.state.resource_factory
-    owner = RuntimeOwner(factory)
+    owner = RuntimeOwner(app.state.settings, factory)
     app.state.runtime_owner = owner
+    await owner.start(owner.event_sink)
     try:
         yield
     finally:

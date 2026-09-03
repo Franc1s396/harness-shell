@@ -24,7 +24,7 @@ from .models import (
     UploadChunkAck,
     UploadReady,
 )
-from .operation_store import RemoteOperationRecord, RemoteOperationStore
+from .operation_store import ManualSftpOperationStore, RemoteOperationRecord
 from .paths import validate_remote_path
 
 
@@ -40,7 +40,7 @@ MAX_JS_SAFE_INTEGER = 2**53 - 1
 class _UploadState:
     """Own one upload channel, handle, sequence, offset, and canonical snapshot."""
 
-    #: Stable operation identity shared with Rust and encrypted records.
+    #: Stable operation identity shared with React and plaintext records.
     operation_id: UUID
     #: Isolated SFTP channel lease.
     lease: SftpChannelLease
@@ -94,9 +94,9 @@ class UploadManager:
     """Own remote upload temporaries through strict atomic commit or cleanup."""
 
     def __init__(
-        self, channels: SftpChannelFactory, operations: RemoteOperationStore
+        self, channels: SftpChannelFactory, operations: ManualSftpOperationStore
     ) -> None:
-        """Bind channel and encrypted operation owners."""
+        """Bind channel and plaintext operation owners."""
 
         self._channels = channels
         self._operations = operations
@@ -522,7 +522,7 @@ class UploadManager:
         record_state: str,
         receipt: OperationTerminalProjection | None = None,
     ) -> None:
-        """Persist one complete encrypted upload state transition."""
+        """Persist one complete plaintext upload state transition."""
 
         self._operations.put(
             RemoteOperationRecord(
@@ -898,7 +898,7 @@ def _terminal(
 
 
 def _utc_now() -> str:
-    """Return a stable RFC 3339 UTC timestamp for encrypted records."""
+    """Return a stable RFC 3339 UTC timestamp for plaintext records."""
 
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"

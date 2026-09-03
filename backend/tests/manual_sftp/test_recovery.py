@@ -159,7 +159,7 @@ def terminal(operation_id: UUID, message: str) -> OperationTerminalProjection:
 def recovery_record(
     operation_id: UUID, *, kind: str = "recursive_delete"
 ) -> RemoteOperationRecord:
-    """Build one encrypted-record shape requiring tombstone restoration."""
+    """Build one plaintext-record shape requiring tombstone restoration."""
 
     return RemoteOperationRecord(
         operation_id=operation_id,

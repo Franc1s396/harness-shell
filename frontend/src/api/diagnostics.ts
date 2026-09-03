@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { getBackendClient } from "./bootstrap";
 
 export type DiagnosticsCommandError = {
   code: string;
@@ -22,6 +22,12 @@ export const normalizeDiagnosticsCommandError = (
 };
 
 export const diagnosticsApi = {
-  getLogDirectory: () => invoke<string>("get_log_directory"),
-  openLogDirectory: () => invoke<void>("open_log_directory"),
+  getLogDirectory: () =>
+    getBackendClient().http.request<{ request_id: string; available: boolean }>(
+      "GET", "/v1/diagnostics/log-directory",
+    ).then((value) => ({ available: value.available })),
+  openLogDirectory: () =>
+    getBackendClient().http.request<void>(
+      "POST", "/v1/diagnostics/log-directory/open",
+    ),
 };

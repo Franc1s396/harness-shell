@@ -127,10 +127,6 @@ class FakeSftpClient:
         assert isinstance(path, bytes)
         return b"../target.txt"
 
-    async def realpath(self, path: bytes) -> bytes:
-        assert isinstance(path, bytes)
-        return b"/home/target.txt"
-
     async def open(self, path: bytes, mode: str) -> FakeRemoteFile:
         assert isinstance(path, bytes)
         assert mode == "rb"
@@ -323,10 +319,6 @@ def test_browse_metadata_listing_and_hash_map_permission_denial_to_stable_code()
         async def readlink(self, path: bytes) -> bytes:
             raise asyncssh.SFTPPermissionDenied("denied")
 
-    class RealpathDeniedClient(FakeSftpClient):
-        async def realpath(self, path: bytes) -> bytes:
-            raise asyncssh.SFTPPermissionDenied("denied")
-
     class HashDeniedClient(FakeSftpClient):
         async def open(self, path: bytes, mode: str):
             raise asyncssh.SFTPPermissionDenied("denied")
@@ -348,7 +340,6 @@ def test_browse_metadata_listing_and_hash_map_permission_denial_to_stable_code()
             BrowseDeniedClient(),
             LstatDeniedClient(),
             ReadlinkDeniedClient(),
-            RealpathDeniedClient(),
             HashDeniedClient(),
             ListingDeniedClient(),
             ScandirCallDeniedClient(),
@@ -359,7 +350,6 @@ def test_browse_metadata_listing_and_hash_map_permission_denial_to_stable_code()
             lambda: service.open(owner.ssh_session_id),
             lambda: service.lstat(owner.ssh_session_id, "/home/demo/data.txt"),
             lambda: service.readlink(owner.ssh_session_id, "/home/demo/link"),
-            lambda: service.realpath(owner.ssh_session_id, "/home/demo/link"),
             lambda: service.sha256(owner.ssh_session_id, "/home/demo/data.txt"),
             lambda: service.list_begin(owner.ssh_session_id, "/home/demo"),
             lambda: service.list_begin(owner.ssh_session_id, "/home/demo"),

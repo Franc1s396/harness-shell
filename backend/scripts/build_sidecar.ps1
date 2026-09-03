@@ -62,6 +62,9 @@ if ($hostLines.Count -ne 1) {
     throw "Expected exactly one rustc host line, found $($hostLines.Count)"
 }
 $targetTriple = [regex]::Match($hostLines[0], '^host: (\S+)$').Groups[1].Value
+if ($targetTriple -ne 'x86_64-pc-windows-msvc') {
+    throw "Sidecar packaging supports only x86_64-pc-windows-msvc, found $targetTriple"
+}
 
 if (-not (Test-Path -LiteralPath $distExe -PathType Leaf)) {
     throw "PyInstaller output is missing: $distExe"

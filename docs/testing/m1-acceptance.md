@@ -1,4 +1,6 @@
-# M1 桌面基础设施验收
+# M1 桌面基础设施验收（历史快照）
+
+> 本文件记录旧桌面架构的历史验收，不是当前 Launcher + React direct Backend 架构的有效验收。当前入口与证据边界见 `http-backend-migration-acceptance.md` 和 `docs/agents/testing.md`。
 
 ## 自动化证据
 

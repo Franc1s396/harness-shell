@@ -36,14 +36,6 @@ class DispatchError(RuntimeError):
         self.details = details or {}  # 可选的非敏感机器可读错误上下文。
 
 
-@dataclass(frozen=True, slots=True)
-class DispatchResult:
-    """处理器完成后交回调用 adapter 的业务响应。"""
-
-    #: 由 application handler 返回的严格 JSON object。
-    payload: dict[str, object]
-
-
 @dataclass(slots=True)
 class _ActiveRequest:
     """分发器为一个进行中请求保存的取消与任务状态。"""
@@ -55,7 +47,7 @@ class _ActiveRequest:
 
 
 class RequestDispatcher:
-    """以固定并发容量注册、执行、取消并收敛应用请求。"""
+    """以固定并发容量注册、执行并在关闭时收敛应用请求。"""
 
     def __init__(self, *, capacity: int = 16) -> None:
         """创建具有正数并发上限且尚未注册处理器的分发器。"""
@@ -84,7 +76,7 @@ class RequestDispatcher:
         request_id: UUID,
         operation: str,
         params: Mapping[str, object],
-    ) -> DispatchResult:
+    ) -> dict[str, object]:
         """执行一个已校验请求，并保证完成后清除活动状态。"""
 
         if self._closing:
@@ -100,8 +92,7 @@ class RequestDispatcher:
                 )
             return payload
 
-        payload = await self.execute(request_id, invoke)
-        return DispatchResult(payload)
+        return await self.execute(request_id, invoke)
 
     async def execute(
         self,
@@ -136,15 +127,6 @@ class RequestDispatcher:
             ) from exc
         finally:
             self._active.pop(request_id, None)
-
-    async def cancel(self, target_request_id: UUID) -> bool:
-        """设置目标请求的协作式取消事件，并返回目标是否存在。"""
-
-        active = self._active.get(target_request_id)
-        if active is None:
-            return False
-        active.cancelled.set()
-        return True
 
     async def close(self) -> None:
         """拒绝新请求、取消全部活动请求并等待其任务收敛。"""

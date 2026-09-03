@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Annotated
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from harness_shell_sidecar.agent.contracts import ModelApiConfigInput
-from harness_shell_sidecar.agent.handlers import AgentTurnRequest
+from harness_shell_sidecar.agent.handlers import (
+    AgentTurnRequest,
+    ModelApiConfigCreateRequest,
+    ModelApiConfigUpdateRequest,
+)
+from harness_shell_sidecar.connections.handlers import (
+    ConnectionCreateRequest,
+    ConnectionUpdateRequest,
+)
 from harness_shell_sidecar.connections.models import (
-    ConnectionProfileInput,
     HostKeyCandidate,
 )
 from harness_shell_sidecar.ssh.models import HostKeyInspectionRequest, SshConnectRequest
+from harness_shell_sidecar.runtime.settings import RuntimeSettings
 
 from .app import create_app
 from .models import (
@@ -46,8 +54,8 @@ from .websocket import MAX_WEBSOCKET_TEXT_BYTES, WEBSOCKET_QUEUE_CAPACITY
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _JSON_BODY_MODELS: dict[tuple[str, str], type[BaseModel]] = {
-    ("post", "/v1/connections"): ConnectionProfileInput,
-    ("patch", "/v1/connections/{connection_id}"): ConnectionProfileInput,
+    ("post", "/v1/connections"): ConnectionCreateRequest,
+    ("patch", "/v1/connections/{connection_id}"): ConnectionUpdateRequest,
     ("post", "/v1/host-key-inspections"): HostKeyInspectionRequest,
     ("post", "/v1/host-key-confirmations"): HostKeyCandidate,
     ("post", "/v1/host-key-replacements"): HostKeyReplacementRequest,
@@ -58,7 +66,6 @@ _JSON_BODY_MODELS: dict[tuple[str, str], type[BaseModel]] = {
     ("post", "/v1/sftp/listings"): SftpPathRequest,
     ("post", "/v1/sftp/metadata/lstat"): SftpPathRequest,
     ("post", "/v1/sftp/metadata/readlink"): SftpPathRequest,
-    ("post", "/v1/sftp/metadata/realpath"): SftpPathRequest,
     ("post", "/v1/sftp/hashes/sha256"): SftpPathRequest,
     ("post", "/v1/sftp/uploads/preflight"): SftpPathRequest,
     ("post", "/v1/sftp/uploads"): SftpUploadBeginRequest,
@@ -68,8 +75,8 @@ _JSON_BODY_MODELS: dict[tuple[str, str], type[BaseModel]] = {
     ("post", "/v1/sftp/removals"): SftpRemoveRequest,
     ("post", "/v1/sftp/deletions/preflight"): SftpDeletePreflightRequest,
     ("post", "/v1/sftp/recoveries/{recovery_id}/actions"): SftpRecoveryActionRequest,
-    ("post", "/v1/agent/api-configs"): ModelApiConfigInput,
-    ("patch", "/v1/agent/api-configs/{api_config_id}"): ModelApiConfigInput,
+    ("post", "/v1/agent/api-configs"): ModelApiConfigCreateRequest,
+    ("patch", "/v1/agent/api-configs/{api_config_id}"): ModelApiConfigUpdateRequest,
     ("post", "/v1/agent/turns"): AgentTurnRequest,
 }
 
@@ -130,7 +137,8 @@ def _success_headers() -> dict[str, object]:
 def build_openapi_document() -> dict[str, object]:
     """Generate the strict HTTP document from the actual FastAPI application."""
 
-    document = create_app().openapi()
+    settings = RuntimeSettings.from_data_dir(Path("C:/harness-shell-contract"))
+    document = create_app(settings=settings).openapi()
     components = document.setdefault("components", {})
     schemas = components.setdefault("schemas", {})
     problem_name = _add_model_schema(schemas, ProblemDetails)

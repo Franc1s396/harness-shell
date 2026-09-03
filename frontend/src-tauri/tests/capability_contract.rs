@@ -7,79 +7,7 @@ use std::{
 use serde::Deserialize;
 use serde_json::Value;
 
-const CUSTOM_COMMANDS: [&str; 51] = [
-    "get_runtime_status",
-    "open_approval_window",
-    "get_approval_context",
-    "submit_approval_decision",
-    "store_ssh_password",
-    "store_private_key_passphrase",
-    "import_private_key",
-    "delete_ssh_credential",
-    "store_model_api_key",
-    "delete_model_api_key",
-    "list_connections",
-    "create_connection",
-    "update_connection",
-    "delete_connection",
-    "confirm_host_key",
-    "replace_host_key",
-    "inspect_host_key",
-    "connect_ssh",
-    "disconnect_ssh",
-    "open_pty",
-    "write_pty",
-    "resize_pty",
-    "close_pty",
-    "get_manual_sftp_context",
-    "list_manual_sftp_directory",
-    "next_manual_sftp_directory_batch",
-    "close_manual_sftp_listing",
-    "inspect_manual_sftp_entry",
-    "hash_manual_sftp_file",
-    "open_manual_sftp_link",
-    "prepare_manual_sftp_upload",
-    "execute_manual_sftp_upload",
-    "prepare_manual_sftp_download",
-    "execute_manual_sftp_download",
-    "discard_manual_sftp_preparation",
-    "create_manual_sftp_directory",
-    "rename_manual_sftp_entry",
-    "remove_manual_sftp_entry",
-    "preflight_manual_sftp_delete",
-    "execute_manual_sftp_delete",
-    "cancel_manual_sftp_operation",
-    "list_manual_sftp_recoveries",
-    "inspect_manual_sftp_recovery",
-    "execute_manual_sftp_recovery",
-    "list_model_api_configs",
-    "create_model_api_config",
-    "update_model_api_config",
-    "delete_model_api_config",
-    "run_agent_turn",
-    "get_log_directory",
-    "open_log_directory",
-];
-
-const FORBIDDEN_COMMAND_FRAGMENTS: [&str; 8] = [
-    "resolve_secret",
-    "read_private_key",
-    "sidecar_frame",
-    "agent_exec",
-    "sftp_write",
-    "shell",
-    "sudo",
-    "vault",
-];
-
-const FORBIDDEN_AGENT_SFTP_ROUTES: [&str; 6] = [
-    "agent_exec",
-    "remote_read_range",
-    "RemoteExecutor",
-    "RemoteSftp",
-    "agent_sftp",
-    "sftp_write",
-];
+const CUSTOM_COMMANDS: [&str; 1] = ["get_backend_bootstrap"];
 
 #[derive(Debug, Deserialize)]
 struct PermissionFile {
@@ -111,278 +39,120 @@ fn manifest_dir() -> PathBuf {
 }
 
 fn json(path: &Path) -> Value {
-    let contents = fs::read_to_string(path)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-    serde_json::from_str(&contents)
-        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
+    serde_json::from_str(
+        &fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display())),
+    )
+    .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
 }
 
 fn capabilities() -> BTreeMap<String, Capability> {
-    let directory = manifest_dir().join("capabilities");
-    let mut capabilities = BTreeMap::new();
-
-    for entry in fs::read_dir(&directory).expect("capabilities directory must exist") {
-        let path = entry.expect("capability entry must be readable").path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+    let mut result = BTreeMap::new();
+    for entry in fs::read_dir(manifest_dir().join("capabilities")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
         }
         let value = json(&path);
-        let identifier = value["identifier"]
-            .as_str()
-            .expect("capability identifier must be a string")
-            .to_owned();
-        let permissions = value["permissions"]
-            .as_array()
-            .expect("capability permissions must be an array")
-            .iter()
-            .map(|permission| {
-                permission
-                    .as_str()
-                    .expect("scoped permissions are not allowed in M1")
-                    .to_owned()
-            })
-            .collect();
-        let windows = value["windows"]
-            .as_array()
-            .expect("capability windows must be an array")
-            .iter()
-            .map(|window| {
-                window
-                    .as_str()
-                    .expect("window labels must be strings")
-                    .to_owned()
-            })
-            .collect();
-
-        assert!(
-            capabilities
-                .insert(
-                    identifier,
-                    Capability {
-                        permissions,
-                        windows,
-                    },
-                )
-                .is_none(),
-            "capability identifiers must be unique"
-        );
+        let identifier = value["identifier"].as_str().unwrap().to_owned();
+        let capability = Capability {
+            permissions: value["permissions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|permission| permission.as_str().unwrap().to_owned())
+                .collect(),
+            windows: value["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|window| window.as_str().unwrap().to_owned())
+                .collect(),
+        };
+        assert!(result.insert(identifier, capability).is_none());
     }
-
-    capabilities
+    result
 }
 
 fn permission_commands() -> BTreeMap<String, BTreeSet<String>> {
-    let directory = manifest_dir().join("permissions");
-    let mut permissions = BTreeMap::new();
-    if !directory.exists() {
-        return permissions;
-    }
-
-    for entry in fs::read_dir(&directory).expect("permissions directory must be readable") {
-        let path = entry.expect("permission entry must be readable").path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+    let mut result = BTreeMap::new();
+    for entry in fs::read_dir(manifest_dir().join("permissions")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|value| value.to_str()) != Some("toml") {
             continue;
         }
-        let contents = fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-        let file: PermissionFile = toml::from_str(&contents)
-            .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+        let file: PermissionFile = toml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         for permission in file.permission {
-            assert!(
-                permissions
-                    .insert(
-                        permission.identifier,
-                        permission.commands.allow.into_iter().collect(),
-                    )
-                    .is_none(),
-                "permission identifiers must be unique"
+            result.insert(
+                permission.identifier,
+                permission.commands.allow.into_iter().collect(),
             );
         }
     }
-
-    permissions
+    result
 }
 
 fn allowed_commands(capability: &Capability) -> BTreeSet<String> {
-    let permission_commands = permission_commands();
+    let permissions = permission_commands();
     capability
         .permissions
         .iter()
-        .flat_map(|permission| {
-            permission_commands
-                .get(permission)
-                .cloned()
-                .unwrap_or_default()
-        })
+        .flat_map(|permission| permissions.get(permission).cloned().unwrap_or_default())
         .collect()
 }
 
-fn capability<'a>(all: &'a BTreeMap<String, Capability>, identifier: &str) -> &'a Capability {
-    all.get(identifier)
-        .unwrap_or_else(|| panic!("missing capability {identifier}"))
-}
-
 #[test]
-fn window_capabilities_are_least_privilege() {
+fn main_window_capability_exposes_only_bootstrap() {
     let all = capabilities();
-    assert_eq!(
-        all.keys().cloned().collect::<Vec<_>>(),
-        vec!["approval", "main"],
-        "only the main and approval capabilities may exist"
-    );
+    assert_eq!(all.keys().cloned().collect::<Vec<_>>(), vec!["main"]);
 
-    let main = capability(&all, "main");
+    let main = &all["main"];
+    assert_eq!(main.windows, vec!["main"]);
     assert_eq!(
         main.permissions.iter().cloned().collect::<BTreeSet<_>>(),
         BTreeSet::from([
-            "connections".to_owned(),
-            "agent".to_owned(),
-            "core:event:allow-listen".to_owned(),
-            "core:event:allow-unlisten".to_owned(),
+            "bootstrap".to_owned(),
             "core:window:allow-close".to_owned(),
             "core:window:allow-destroy".to_owned(),
-            "credentials".to_owned(),
-            "diagnostics".to_owned(),
-            "runtime".to_owned(),
-            "sftp".to_owned(),
-            "terminal".to_owned(),
         ])
     );
-    assert!(!main.permissions.iter().any(|permission| {
-        permission == "core:event:allow-emit" || permission == "core:event:allow-emit-to"
-    }));
     assert_eq!(
-        main.permissions
-            .iter()
-            .filter(|permission| permission.starts_with("core:window:"))
-            .cloned()
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([
-            "core:window:allow-close".to_owned(),
-            "core:window:allow-destroy".to_owned(),
-        ])
+        allowed_commands(main),
+        CUSTOM_COMMANDS.into_iter().map(str::to_owned).collect()
     );
-    let main_commands = allowed_commands(main);
-    assert!(main_commands.contains("get_runtime_status"));
-    assert!(main_commands.contains("open_approval_window"));
-    assert!(main_commands.contains("get_manual_sftp_context"));
-    assert!(main_commands.contains("execute_manual_sftp_recovery"));
-    assert!(main_commands.contains("run_agent_turn"));
-    assert!(main_commands.contains("get_log_directory"));
-    assert!(main_commands.contains("open_log_directory"));
-    assert!(!main_commands.contains("execute_command"));
-    assert!(!main_commands.contains("get_approval_context"));
-    assert!(!main_commands.contains("submit_approval_decision"));
-    assert!(main
-        .permissions
-        .iter()
-        .all(|permission| !permission.starts_with("shell:")));
-
-    let approval = capability(&all, "approval");
-    assert_eq!(approval.permissions, vec!["approval"]);
-    assert!(approval
-        .permissions
-        .iter()
-        .all(|permission| !permission.starts_with("core:event:")));
-    let approval_commands = allowed_commands(approval);
-    assert!(approval_commands.contains("get_approval_context"));
-    assert!(approval_commands.contains("submit_approval_decision"));
-    assert!(!approval_commands.contains("get_runtime_status"));
-    assert!(!approval_commands.contains("open_approval_window"));
-    assert!(!approval_commands.contains("get_manual_sftp_context"));
-    assert!(!approval_commands.contains("run_agent_turn"));
-    assert!(!approval_commands.contains("get_log_directory"));
-    assert!(!approval_commands.contains("open_log_directory"));
-    assert!(!approval.permissions.contains(&"sftp".to_owned()));
-    assert!(approval
-        .permissions
-        .iter()
-        .all(|permission| !permission.starts_with("shell:")));
-
-    for command in main_commands.iter().chain(approval_commands.iter()) {
-        for forbidden in FORBIDDEN_COMMAND_FRAGMENTS {
-            assert!(
-                !command.contains(forbidden),
-                "forbidden command fragment {forbidden:?} exposed by {command}"
-            );
-        }
-    }
-    for capability in all.values() {
-        assert!(
-            capability.permissions.iter().all(|permission| {
-                !permission.starts_with("dialog:") && !permission.starts_with("fs:")
-            }),
-            "WebView dialog and filesystem plugin permissions are forbidden"
-        );
-        assert!(
-            capability
-                .windows
-                .iter()
-                .all(|window| !window.contains('*')),
-            "window label wildcards are forbidden"
-        );
-    }
 }
 
 #[test]
-fn only_main_window_can_request_confirmed_close() {
-    let main = fs::read_to_string(manifest_dir().join("capabilities/main.json"))
-        .expect("main capability must be readable");
-    let approval = fs::read_to_string(manifest_dir().join("capabilities/approval.json"))
-        .expect("approval capability must be readable");
-
-    assert!(main.contains("core:window:allow-close"));
-    assert!(main.contains("core:window:allow-destroy"));
-    assert!(!approval.contains("core:window:allow-close"));
-    assert!(!approval.contains("core:window:allow-destroy"));
-}
-
-#[test]
-fn config_enables_only_explicit_capabilities_and_strict_csp() {
+fn config_uses_dynamic_loopback_http_and_websocket_only() {
     let config = json(&manifest_dir().join("tauri.conf.json"));
     let security = &config["app"]["security"];
+    assert_eq!(security["capabilities"], serde_json::json!(["main"]));
+    let production = security["csp"]["connect-src"].as_str().unwrap();
     assert_eq!(
-        security["capabilities"],
-        serde_json::json!(["main", "approval"])
+        production,
+        "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*"
     );
-    assert!(
-        security["csp"].is_object(),
-        "production CSP must be an object"
-    );
-    assert!(
-        security["devCsp"].is_object(),
-        "development CSP must be an object"
-    );
+    let development = security["devCsp"]["connect-src"].as_str().unwrap();
+    assert!(development.starts_with(production));
+    assert!(development.contains("http://localhost:1420"));
+    assert!(development.contains("ws://localhost:1420"));
 }
 
 #[test]
-fn build_manifest_scopes_exactly_the_m2_management_commands() {
-    let build_script =
-        fs::read_to_string(manifest_dir().join("build.rs")).expect("build.rs must be readable");
-    assert!(build_script.contains("AppManifest::new()"));
-    assert!(!build_script.contains("raw_sftp"));
-    assert!(!build_script.contains("agent_sftp"));
-
+fn build_manifest_and_invoke_handler_register_only_bootstrap() {
+    let build_script = fs::read_to_string(manifest_dir().join("build.rs")).unwrap();
     for command in CUSTOM_COMMANDS {
-        assert!(
-            build_script.contains(&format!("\"{command}\"")),
-            "build manifest is missing {command}"
-        );
+        assert!(build_script.contains(&format!("\"{command}\"")));
     }
-    assert_eq!(
-        build_script.matches('"').count(),
-        CUSTOM_COMMANDS.len() * 2,
-        "build manifest must declare exactly the approved command strings"
-    );
+    assert_eq!(build_script.matches('"').count(), CUSTOM_COMMANDS.len() * 2);
 
-    let library =
-        fs::read_to_string(manifest_dir().join("src/lib.rs")).expect("src/lib.rs must be readable");
+    let library = fs::read_to_string(manifest_dir().join("src/lib.rs")).unwrap();
     let handler = library
         .split_once("tauri::generate_handler![")
-        .expect("invoke handler must use generate_handler")
+        .unwrap()
         .1
         .split_once("])")
-        .expect("invoke handler command list must close")
+        .unwrap()
         .0;
     let registered = handler
         .split(',')
@@ -390,53 +160,4 @@ fn build_manifest_scopes_exactly_the_m2_management_commands() {
         .filter(|command| !command.is_empty())
         .collect::<BTreeSet<_>>();
     assert_eq!(registered, CUSTOM_COMMANDS.into_iter().collect());
-}
-
-#[test]
-fn approval_window_creation_uses_an_async_command_on_windows() {
-    let runtime_commands = fs::read_to_string(manifest_dir().join("src/commands/runtime.rs"))
-        .expect("runtime commands must be readable");
-
-    assert!(
-        runtime_commands.contains("pub async fn open_approval_window("),
-        "WebviewWindowBuilder deadlocks when called from a synchronous command on Windows"
-    );
-    assert!(
-        !runtime_commands.contains("install_approval_window_lifecycle"),
-        "native close behavior must not be patched after a deadlocked window is created"
-    );
-}
-
-#[test]
-fn terminal_bridge_exposes_no_remote_control_side_effect_api() {
-    let terminal_commands = fs::read_to_string(manifest_dir().join("src/commands/terminal.rs"))
-        .expect("terminal commands must be readable");
-    for forbidden in [
-        "set_title(",
-        "clipboard",
-        "open_path",
-        "open_url",
-        "register_uri_scheme_protocol",
-        "on_window_event",
-    ] {
-        assert!(
-            !terminal_commands.contains(forbidden),
-            "terminal byte bridge must not invoke {forbidden}"
-        );
-    }
-}
-
-#[test]
-fn agent_sftp_routes_do_not_exist() {
-    let build_script =
-        fs::read_to_string(manifest_dir().join("build.rs")).expect("build.rs must be readable");
-    let library =
-        fs::read_to_string(manifest_dir().join("src/lib.rs")).expect("lib.rs must be readable");
-    let exposed = format!("{build_script}\n{library}");
-    for forbidden in FORBIDDEN_AGENT_SFTP_ROUTES {
-        assert!(
-            !exposed.contains(forbidden),
-            "forbidden Agent SFTP route: {forbidden}"
-        );
-    }
 }

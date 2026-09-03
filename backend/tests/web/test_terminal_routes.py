@@ -3,30 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from .conftest import valid_initialize_json
-
-
 def request_headers() -> dict[str, str]:
     """Create one valid request correlation header."""
 
     return {"X-Request-ID": str(uuid4())}
 
 
-def initialize(client, tmp_path: Path) -> None:
-    """Initialize a disposable domain runtime."""
-
-    assert client.post(
-        "/v1/runtime/initialize",
-        headers=request_headers(),
-        json=valid_initialize_json(tmp_path),
-    ).status_code == 200
-
-
 def test_pty_control_routes_map_missing_sessions_without_network_io(
     client,
     tmp_path: Path,
 ) -> None:
-    initialize(client, tmp_path)
     opened = client.post(
         "/v1/pty/sessions",
         headers=request_headers(),

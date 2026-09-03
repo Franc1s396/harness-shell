@@ -11,7 +11,7 @@ from uuid import UUID
 import asyncssh
 
 from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
-from harness_shell_sidecar.storage import EncryptedRecordStore
+from harness_shell_sidecar.storage import PlaintextRecordStore
 
 from .channels import SftpChannelFactory, SftpChannelLease
 from .errors import ManualSftpError, map_typed_sftp_status
@@ -31,7 +31,7 @@ from .models import (
     UploadReady,
 )
 from .mutations import MutationManager
-from .operation_store import RemoteOperationStore
+from .operation_store import ManualSftpOperationStore
 from .paths import validate_remote_path
 from .recovery import RecoveryManager
 from .transfers import DownloadManager, UploadManager
@@ -49,7 +49,7 @@ class ManualSftpService:
     def __init__(
         self,
         ssh_sessions: SshSessionRegistry,
-        records: EncryptedRecordStore,
+        records: PlaintextRecordStore,
         event_listener: Callable[[dict], Awaitable[None]],
     ) -> None:
         """Create read owners while retaining collaborators for later operation stages."""
@@ -58,7 +58,7 @@ class ManualSftpService:
         self._listings = ListingManager(self._channels)
         self._records = records
         self._event_listener = event_listener
-        self._operations = RemoteOperationStore(records)
+        self._operations = ManualSftpOperationStore(records)
         self._uploads = UploadManager(self._channels, self._operations)
         self._downloads = DownloadManager(self._channels)
         self._mutations = MutationManager(
@@ -158,34 +158,6 @@ class ManualSftpService:
             raise ManualSftpError(
                 "SFTP_PERMISSION_DENIED",
                 "The server denied the remote link request.",
-            ) from exc
-        except (asyncssh.SFTPNoSuchFile, asyncssh.SFTPNoSuchPath) as exc:
-            raise map_typed_sftp_status(exc) from exc
-        finally:
-            await lease.close()
-
-    async def realpath(self, ssh_session_id: UUID, path: str) -> RemoteEntry:
-        """Resolve an explicitly opened link/path and return target metadata."""
-
-        remote_path = validate_remote_path(path)
-        lease = await self._channels.open(ssh_session_id)
-        try:
-            async with asyncio.timeout(METADATA_TIMEOUT_SECONDS):
-                resolved = validate_remote_path(
-                    _decode_remote_path(
-                        await lease.client.realpath(remote_path.encode("utf-8"))
-                    )
-                )
-                attrs = await lease.client.lstat(resolved.encode("utf-8"))
-            return remote_entry(resolved, attrs)
-        except TimeoutError as exc:
-            raise ManualSftpError(
-                "SFTP_OPERATION_TIMEOUT", "The SFTP metadata request timed out."
-            ) from exc
-        except asyncssh.SFTPPermissionDenied as exc:
-            raise ManualSftpError(
-                "SFTP_PERMISSION_DENIED",
-                "The server denied the remote path resolution request.",
             ) from exc
         except (asyncssh.SFTPNoSuchFile, asyncssh.SFTPNoSuchPath) as exc:
             raise map_typed_sftp_status(exc) from exc
@@ -413,7 +385,7 @@ class ManualSftpService:
     async def delete_preflight(
         self, operation_id: UUID, ssh_session_id: UUID, path: str
     ) -> DeletePlanSummary:
-        """Build one complete encrypted no-follow recursive-delete plan."""
+        """Build one complete plaintext no-follow recursive-delete plan."""
 
         return await self._mutations.delete_preflight(
             ssh_session_id, path, operation_id=operation_id
@@ -427,7 +399,7 @@ class ManualSftpService:
         return await self._mutations.delete_execute(delete_plan_id)
 
     def list_recoveries(self) -> tuple[RecoverySummary, ...]:
-        """Return non-terminal encrypted recovery summaries."""
+        """Return non-terminal remote-only recovery summaries."""
 
         return self._recovery.list()
 
@@ -439,7 +411,7 @@ class ManualSftpService:
     async def recovery_execute(
         self, recovery_id: UUID, action: str, operation_id: UUID
     ):
-        """Execute a recovery action with the Rust-selected fresh mutation identity."""
+        """Execute a recovery action with a React-selected fresh operation identity."""
 
         return await self._recovery.execute(recovery_id, action, operation_id)
 

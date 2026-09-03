@@ -40,7 +40,7 @@ describe("SettingsDialog", () => {
     diagnosticsMocks.getLogDirectory.mockReset();
     diagnosticsMocks.openLogDirectory.mockReset();
     diagnosticsMocks.getLogDirectory.mockResolvedValue(
-      "C:\\Users\\test\\AppData\\Local\\com.harnessshell.app\\logs",
+      { available: true },
     );
     diagnosticsMocks.openLogDirectory.mockResolvedValue(undefined);
   });
@@ -119,10 +119,8 @@ describe("SettingsDialog", () => {
     expect(screen.getByRole("combobox", { name: "Language" })).toBeVisible();
   });
 
-  it("loads and displays the fixed log directory in General", async () => {
-    const logDirectory =
-      "C:\\Users\\test\\AppData\\Local\\com.harnessshell.app\\logs";
-    diagnosticsMocks.getLogDirectory.mockResolvedValueOnce(logDirectory);
+  it("shows availability without displaying an absolute log path", async () => {
+    diagnosticsMocks.getLogDirectory.mockResolvedValueOnce({ available: true });
 
     render(
       <SettingsDialog
@@ -133,7 +131,8 @@ describe("SettingsDialog", () => {
       />,
     );
 
-    expect(await screen.findByText(logDirectory)).toBeVisible();
+    expect(await screen.findByText("The log directory is available.")).toBeVisible();
+    expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();
     expect(diagnosticsMocks.getLogDirectory).toHaveBeenCalledOnce();
   });
 
@@ -211,14 +210,14 @@ describe("SettingsDialog", () => {
     );
   });
 
-  it("ignores an old pending path response after close and reopen", async () => {
-    let resolveOld: (value: string) => void = () => undefined;
-    const oldRequest = new Promise<string>((resolve) => {
+  it("ignores an old pending availability response after close and reopen", async () => {
+    let resolveOld: (value: { available: boolean }) => void = () => undefined;
+    const oldRequest = new Promise<{ available: boolean }>((resolve) => {
       resolveOld = resolve;
     });
     diagnosticsMocks.getLogDirectory
       .mockReturnValueOnce(oldRequest)
-      .mockResolvedValueOnce("C:\\logs\\current");
+      .mockResolvedValueOnce({ available: true });
     const props = {
       initialCategory: "general" as const,
       onClose: vi.fn(),
@@ -228,11 +227,11 @@ describe("SettingsDialog", () => {
 
     view.rerender(<SettingsDialog {...props} open={false} />);
     view.rerender(<SettingsDialog {...props} open />);
-    expect(await screen.findByText("C:\\logs\\current")).toBeVisible();
+    expect(await screen.findByText("The log directory is available.")).toBeVisible();
 
-    resolveOld("C:\\logs\\stale");
+    resolveOld({ available: false });
     await waitFor(() =>
-      expect(screen.queryByText("C:\\logs\\stale")).not.toBeInTheDocument(),
+      expect(screen.getByText("The log directory is available.")).toBeVisible(),
     );
   });
 });

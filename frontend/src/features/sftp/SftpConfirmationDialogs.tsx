@@ -75,8 +75,8 @@ export function SftpConfirmationDialogs({
         <div className="mt-4 grid gap-2 text-sm">
           <strong>{preparation.display_name}</strong>
           <code className="break-all">{preparation.remote_path}</code>
-          <span>{preparation.source_byte_count} bytes</span>
-          <code className="break-all text-xs">SHA-256 {preparation.source_sha256}</code>
+          <span>{preparation.byte_count} bytes</span>
+          <code className="break-all text-xs">SHA-256 {preparation.sha256}</code>
           {preparation.overwrite_required ? (
             <>
               <p className="text-warning">{t("sftp.overwriteWarning")}</p>

@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "terminal"
-description = "Allows the main window to operate opaque interactive SSH PTY byte streams."
-commands.allow = ["open_pty", "write_pty", "resize_pty", "close_pty"]

@@ -50,7 +50,7 @@ const uiError = (code: string): AgentCommandError => ({
 const providerFailure = (error: unknown): ProviderMutationFailure =>
   error instanceof ProviderMutationFailure
     ? error
-    : new ProviderMutationFailure(normalizeAgentCommandError(error), null);
+    : new ProviderMutationFailure(normalizeAgentCommandError(error));
 
 export type UseAgentControllerInput = {
   sessions: readonly TerminalSessionModel[];
@@ -74,8 +74,6 @@ export function useAgentController(
   const [configsError, setConfigsError] = useState<AgentCommandError | null>(null);
   const [providerMutationError, setProviderMutationError] =
     useState<ProviderMutationFailure | null>(null);
-  const [providerCleanupError, setProviderCleanupError] =
-    useState<AgentCommandError | null>(null);
   const turnReservationsRef = useRef(new Set<string>());
 
   const refreshConfigs = useCallback(async (): Promise<ModelApiConfig[]> => {
@@ -382,22 +380,15 @@ export function useAgentController(
 
   const runProviderMutation = useCallback(
     async (
-      mutation: () => Promise<{
-        cleanupError: AgentCommandError | null;
-      }>,
+      mutation: () => Promise<object>,
     ): Promise<void> => {
-      // The choreography helper owns Vault compensation. This layer only
-      // publishes primary/cleanup outcomes and refreshes non-secret configs.
       setProviderMutationError(null);
-      setProviderCleanupError(null);
       try {
-        const result = await mutation();
-        setProviderCleanupError(result.cleanupError);
+        await mutation();
         await refreshConfigs();
       } catch (error) {
         const failure = providerFailure(error);
         setProviderMutationError(failure);
-        setProviderCleanupError(failure.cleanupError);
         throw failure;
       }
     },
@@ -421,10 +412,8 @@ export function useAgentController(
       if (activeApiConfigIds.has(config.api_config_id)) {
         const failure = new ProviderMutationFailure(
           uiError("UI_MODEL_API_CONFIG_ACTIVE_RUN"),
-          null,
         );
         setProviderMutationError(failure);
-        setProviderCleanupError(null);
         throw failure;
       }
       await runProviderMutation(() =>
@@ -439,10 +428,8 @@ export function useAgentController(
       if (activeApiConfigIds.has(config.api_config_id)) {
         const failure = new ProviderMutationFailure(
           uiError("UI_MODEL_API_CONFIG_ACTIVE_RUN"),
-          null,
         );
         setProviderMutationError(failure);
-        setProviderCleanupError(null);
         throw failure;
       }
       await runProviderMutation(() =>
@@ -487,7 +474,6 @@ export function useAgentController(
     configsLoading,
     configsError,
     providerMutationError,
-    providerCleanupError,
     backgroundByTab,
     aggregateBackground,
     activeAgentRunTabIds,

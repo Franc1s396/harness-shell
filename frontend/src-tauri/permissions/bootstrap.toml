@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "bootstrap"
+description = "Allows a fixed window to read the immutable Backend loopback origin."
+commands.allow = ["get_backend_bootstrap"]

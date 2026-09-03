@@ -67,7 +67,7 @@ class SshRuntimeError(RuntimeError):
         self.node = node  # 失败发生的连接流程节点。
         self.recoverable = recoverable  # 是否允许修正输入后显式重试。
         self.remote_state = remote_state  # 失败时可确认的远端副作用阶段。
-        self.correlation_id = correlation_id or uuid4()  # 审计和 Span 关联标识符。
+        self.correlation_id = correlation_id or uuid4()  # SSH 状态与错误的关联标识符。
         self.candidate = candidate  # 可选的新观察 Host Key。
         # Host Key 不匹配时供 UI 对比的受信任指纹。
         self.trusted_fingerprint_sha256 = trusted_fingerprint_sha256

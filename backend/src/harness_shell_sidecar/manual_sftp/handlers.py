@@ -33,7 +33,6 @@ class _ManualSftpServiceProtocol(Protocol):
     async def list_close(self, listing_id: UUID) -> None: ...
     async def lstat(self, ssh_session_id: UUID, path: str): ...
     async def readlink(self, ssh_session_id: UUID, path: str): ...
-    async def realpath(self, ssh_session_id: UUID, path: str): ...
     async def sha256(
         self,
         ssh_session_id: UUID,
@@ -57,6 +56,7 @@ class _ManualSftpServiceProtocol(Protocol):
         self, operation_id: UUID, ssh_session_id: UUID, path: str
     ): ...
     async def delete_execute(self, delete_plan_id: UUID): ...
+    def list_recoveries(self) -> tuple[RecoverySummary, ...]: ...
     async def recovery_inspect(self, recovery_id: UUID): ...
     async def recovery_execute(
         self, recovery_id: UUID, action: str, operation_id: UUID
@@ -101,7 +101,7 @@ class _OperationParams(_StrictParams):
 
 
 class _UploadBeginParams(_SessionPathParams):
-    """Begin an upload from canonical privileged source/target snapshots."""
+    """Begin an upload from React File metadata and a remote target snapshot."""
 
     operation_id: UUID
     source_sha256: Sha256Hex
@@ -142,7 +142,7 @@ class _RemoveParams(_SessionPathParams):
 
 
 class _DeleteExecuteParams(_StrictParams):
-    """Consume one encrypted recursive-delete plan."""
+    """Consume one durable plaintext recursive-delete plan."""
 
     delete_plan_id: UUID
 
@@ -154,9 +154,13 @@ class _DeletePreflightParams(_SessionPathParams):
 
 
 class _RecoveryParams(_StrictParams):
-    """Select one encrypted recovery record."""
+    """Select one remote-only recovery record."""
 
     recovery_id: UUID
+
+
+class _RecoveryListParams(_StrictParams):
+    """Require an empty object for recovery listing."""
 
 
 class _RecoveryExecuteParams(_RecoveryParams):
@@ -168,7 +172,6 @@ class _RecoveryExecuteParams(_RecoveryParams):
         "delete_temp",
         "continue_delete",
         "restore_tombstone",
-        "open_local_folder",
         "keep",
     ]
 
@@ -276,11 +279,6 @@ def register_manual_sftp_handlers(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
         return await _entry_result(context, raw_params, service.readlink)
-
-    async def realpath(
-        context: RequestContext, raw_params: Mapping[str, object]
-    ) -> dict[str, object]:
-        return await _entry_result(context, raw_params, service.realpath)
 
     async def sha256(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -438,6 +436,19 @@ def register_manual_sftp_handlers(
             raise _dispatch_error(exc) from exc
         return {"terminal": terminal.model_dump(mode="json")}
 
+    async def recovery_list(
+        context: RequestContext, raw_params: Mapping[str, object]
+    ) -> dict[str, object]:
+        _params(raw_params, _RecoveryListParams)
+        context.require_active()
+        try:
+            recoveries = service.list_recoveries()
+        except ManualSftpError as exc:
+            raise _dispatch_error(exc) from exc
+        return {
+            "recoveries": [value.model_dump(mode="json") for value in recoveries]
+        }
+
     async def recovery_inspect(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
@@ -494,7 +505,6 @@ def register_manual_sftp_handlers(
     dispatcher.register("manual_sftp.list.close", list_close)
     dispatcher.register("manual_sftp.lstat", lstat)
     dispatcher.register("manual_sftp.readlink", readlink)
-    dispatcher.register("manual_sftp.realpath", realpath)
     dispatcher.register("manual_sftp.sha256", sha256)
     dispatcher.register("manual_sftp.upload.preflight", upload_preflight)
     dispatcher.register("manual_sftp.upload.begin", upload_begin)
@@ -508,6 +518,7 @@ def register_manual_sftp_handlers(
     dispatcher.register("manual_sftp.remove", remove)
     dispatcher.register("manual_sftp.delete.preflight", delete_preflight)
     dispatcher.register("manual_sftp.delete.execute", delete_execute)
+    dispatcher.register("manual_sftp.recovery.list", recovery_list)
     dispatcher.register("manual_sftp.recovery.inspect", recovery_inspect)
     dispatcher.register("manual_sftp.recovery.execute", recovery_execute)
 

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
 from typing import Any
 from uuid import UUID, uuid4
 
 import asyncssh
 
 from harness_shell_sidecar.connections import ConnectionRepository
-from harness_shell_sidecar.storage import AuditEvent, AuditLedger
 
 from .auth import build_auth_options
 from .errors import ConnectionStatus, SshRuntimeError
@@ -35,16 +33,12 @@ class SshRuntime:
         repository: ConnectionRepository,
         *,
         connector: Callable[..., Awaitable[Any]] = asyncssh.connect,
-        audit_ledger: AuditLedger | None = None,
-        tracer: Any = None,
         status_listener: StatusListener | None = None,
     ) -> None:
-        """注入持久化与可观测性依赖，并创建空会话注册表。"""
+        """注入连接仓储与状态监听器，并创建空会话注册表。"""
 
         self._repository = repository  # 读取连接配置和受信任 Host Key。
         self._connector = connector  # AsyncSSH 连接工厂；测试可替换为 Fake。
-        self._audit_ledger = audit_ledger  # 可选的链式 SSH 尝试审计入口。
-        self._tracer = tracer  # 可选的本地 OpenTelemetry Tracer。
         self._status_listener = status_listener  # 向桌面端发布状态事件的回调。
         self.sessions = SshSessionRegistry()  # 对 PTY/exec/SFTP 暴露的活动会话。
 
@@ -214,7 +208,6 @@ class SshRuntime:
         await self._emit(
             self._status(connection_id, "CONNECTING", correlation_id)
         )
-
         for attempt in (1, 2):
             try:
                 connection = await self._open_verified(
@@ -225,17 +218,9 @@ class SshRuntime:
                     node="target",
                 )
             except SshRuntimeError as error:
-                self._record_attempt(
-                    profile.connection_id,
-                    correlation_id,
-                    attempt,
-                    "failed",
-                    error.error_code,
-                )
                 await self._emit_error(profile.connection_id, error)
                 raise
             except (OSError, asyncssh.DisconnectError) as exc:
-                self._record_attempt(profile.connection_id, correlation_id, attempt, "failed", "SSH_CONNECT_FAILED")
                 if attempt == 1:
                     continue
                 error = SshRuntimeError(
@@ -248,7 +233,6 @@ class SshRuntime:
                 await self._emit_error(profile.connection_id, error)
                 raise error from exc
             else:
-                self._record_attempt(profile.connection_id, correlation_id, attempt, "succeeded", None)
                 session = self.sessions.register(
                     profile.connection_id,
                     connection,
@@ -339,25 +323,11 @@ class SshRuntime:
             except SshRuntimeError as error:
                 if jump_connection is not None:
                     await self._close_connection(jump_connection)
-                self._record_attempt(
-                    profile.connection_id,
-                    correlation_id,
-                    attempt,
-                    "failed",
-                    error.error_code,
-                )
                 await self._emit_error(profile.connection_id, error)
                 raise
             except (OSError, asyncssh.DisconnectError) as exc:
                 if jump_connection is not None:
                     await self._close_connection(jump_connection)
-                self._record_attempt(
-                    profile.connection_id,
-                    correlation_id,
-                    attempt,
-                    "failed",
-                    "SSH_CONNECT_FAILED",
-                )
                 if attempt == 1:
                     continue
                 error = SshRuntimeError(
@@ -370,13 +340,6 @@ class SshRuntime:
                 await self._emit_error(profile.connection_id, error)
                 raise error from exc
             else:
-                self._record_attempt(
-                    profile.connection_id,
-                    correlation_id,
-                    attempt,
-                    "succeeded",
-                    None,
-                )
                 session = self.sessions.register(
                     profile.connection_id,
                     target_connection,
@@ -598,36 +561,3 @@ class SshRuntime:
                 candidate=error.candidate,
             )
         )
-
-    def _record_attempt(
-        self,
-        connection_id: UUID,
-        correlation_id: UUID,
-        attempt: int,
-        outcome: str,
-        error_code: str | None,
-    ) -> None:
-        """将一次有界连接尝试同时写入本地 Span 和 HMAC 审计链。"""
-
-        span_context = (
-            self._tracer.start_as_current_span("ssh.connect.attempt")
-            if self._tracer is not None
-            else nullcontext()
-        )
-        with span_context as span:
-            if span is not None:
-                span.set_attribute("ssh.connection_id", str(connection_id))
-                span.set_attribute("ssh.connect.attempt", attempt)
-                span.set_attribute("ssh.connect.outcome", outcome)
-                if error_code is not None:
-                    span.set_attribute("error.code", error_code)
-            if self._audit_ledger is not None:
-                self._audit_ledger.append(
-                    AuditEvent.ssh_connect_attempt(
-                        connection_id=connection_id,
-                        correlation_id=correlation_id,
-                        attempt=attempt,
-                        outcome=outcome,
-                        error_code=error_code,
-                    )
-                )

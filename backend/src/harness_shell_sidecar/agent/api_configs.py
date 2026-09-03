@@ -22,7 +22,7 @@ class ApiConfigRepositoryError(RuntimeError):
 
 
 class ApiConfigRepository:
-    """Persist API metadata while leaving all API key bytes in the Rust Vault."""
+    """Persist API metadata while credentials remain in Python-owned records."""
 
     _database: RuntimeDatabase
 
@@ -40,7 +40,7 @@ class ApiConfigRepository:
             """
             INSERT INTO model_api_configs(
                 api_config_id, display_name, api_type, base_url, model,
-                api_key_secret_ref, enabled, created_at, updated_at
+                api_key_credential_id, enabled, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _config_parameters(api_config_id, value, now, now),
@@ -86,7 +86,7 @@ class ApiConfigRepository:
             """
             UPDATE model_api_configs SET
                 display_name = ?, api_type = ?, base_url = ?, model = ?,
-                api_key_secret_ref = ?, enabled = ?, updated_at = ?
+                api_key_credential_id = ?, enabled = ?, updated_at = ?
             WHERE api_config_id = ?
             """,
             (
@@ -94,7 +94,7 @@ class ApiConfigRepository:
                 value.api_type.value,
                 value.base_url,
                 value.model,
-                str(value.api_key_secret_ref),
+                str(value.api_key_credential_id),
                 int(value.enabled),
                 _utc_now(),
                 str(api_config_id),
@@ -114,7 +114,7 @@ class ApiConfigRepository:
         return updated
 
     def delete(self, api_config_id: UUID) -> bool:
-        """Delete unreferenced metadata without touching its Rust Vault secret."""
+        """Delete unreferenced metadata without deleting the credential record."""
 
         try:
             cursor = self._database.execute(
@@ -131,7 +131,7 @@ class ApiConfigRepository:
 
 _CONFIG_SELECT = """
 SELECT api_config_id, display_name, api_type, base_url, model,
-       api_key_secret_ref, enabled, created_at, updated_at
+       api_key_credential_id, enabled, created_at, updated_at
 FROM model_api_configs
 """
 
@@ -150,7 +150,7 @@ def _config_parameters(
         value.api_type.value,
         value.base_url,
         value.model,
-        str(value.api_key_secret_ref),
+        str(value.api_key_credential_id),
         int(value.enabled),
         created_at,
         updated_at,
@@ -166,7 +166,7 @@ def _config_from_row(row: tuple[object, ...]) -> ModelApiConfig:
         api_type=ApiType(str(row[2])),
         base_url=str(row[3]),
         model=str(row[4]),
-        api_key_secret_ref=UUID(str(row[5])),
+        api_key_credential_id=UUID(str(row[5])),
         enabled=bool(row[6]),
         created_at=_parse_time(str(row[7])),
         updated_at=_parse_time(str(row[8])),

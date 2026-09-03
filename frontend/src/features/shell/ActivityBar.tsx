@@ -7,7 +7,7 @@ import { useWorkspaceUiStore, type WorkspaceActivity } from "../../stores/worksp
 import { ShellIcon, type ShellIconName } from "./icons";
 
 type Activity = {
-  id: "connections" | "files" | "sftp" | "settings" | "approval";
+  id: "connections" | "files" | "sftp" | "settings";
   labelKey: string;
   unavailableKey?: string;
   icon: ShellIconName;
@@ -21,18 +21,15 @@ export const activities: readonly Activity[] = [
   { id: "files", labelKey: "nav.files", unavailableKey: "activity.filesUnavailable", icon: "files", enabled: false, milestone: "M3+" },
   { id: "sftp", labelKey: "nav.sftp", icon: "sftp", enabled: true, milestone: "M2", activity: "sftp" },
   { id: "settings", labelKey: "activity.settings", icon: "settings", enabled: true, milestone: "M2", activity: "settings" },
-  { id: "approval", labelKey: "activity.approval", icon: "security", enabled: true, milestone: "M2", activity: "approval" },
 ];
 
 type ActivityBarProps = {
   onToggleConnections: () => void;
-  onOpenApproval: () => void;
   onOpenSettings: (anchor: HTMLButtonElement) => void;
 };
 
 export function ActivityBar({
   onToggleConnections,
-  onOpenApproval,
   onOpenSettings,
 }: ActivityBarProps) {
   const { t } = useTranslation();
@@ -47,7 +44,6 @@ export function ActivityBar({
     useWorkspaceUiStore.getState().setActiveActivity(activity.activity);
     if (activity.id === "connections") onToggleConnections();
     if (activity.id === "settings") onOpenSettings(event.currentTarget);
-    if (activity.id === "approval") onOpenApproval();
   };
 
   return (

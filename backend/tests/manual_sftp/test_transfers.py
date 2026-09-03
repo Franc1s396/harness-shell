@@ -15,10 +15,10 @@ from asyncssh.constants import FXR_ATOMIC, FXR_OVERWRITE
 
 from harness_shell_sidecar.manual_sftp.channels import SftpChannelFactory
 from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.operation_store import RemoteOperationStore
+from harness_shell_sidecar.manual_sftp.operation_store import ManualSftpOperationStore
 from harness_shell_sidecar.manual_sftp.transfers import DownloadManager, UploadManager
 from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
-from harness_shell_sidecar.storage import EncryptedRecordStore, RuntimeDatabase
+from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000311")
@@ -140,8 +140,10 @@ class FakeRemote:
 def managers(tmp_path: Path, remote: FakeRemote):
     """Build transfer managers bound to one live SSH session."""
 
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
-    records = RemoteOperationStore(EncryptedRecordStore(database, b"d" * 32))
+    database = RuntimeDatabase.open_plaintext(
+        (tmp_path / "runtime.sqlite3").resolve()
+    )
+    records = ManualSftpOperationStore(PlaintextRecordStore(database))
     sessions = SshSessionRegistry()
     owner = sessions.register(
         CONNECTION_ID,

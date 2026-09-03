@@ -1,4 +1,4 @@
-"""Encrypted LangChain conversation history and Agent run persistence."""
+"""Plaintext LangChain conversation history and Agent run persistence."""
 
 from __future__ import annotations
 
@@ -18,11 +18,7 @@ from langchain_core.messages import (
     messages_from_dict,
 )
 
-from harness_shell_sidecar.storage import (
-    EncryptedRecord,
-    EncryptedRecordStore,
-    RuntimeDatabase,
-)
+from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore, RuntimeDatabase
 
 from .contracts import AgentRun, AgentRunStatus
 
@@ -38,15 +34,15 @@ class ConversationRepositoryError(RuntimeError):
 
 
 class ConversationRepository:
-    """Own Agent metadata transactions while borrowing the encrypted record store."""
+    """Own Agent metadata transactions while borrowing the plaintext record store."""
 
     _database: RuntimeDatabase
-    _record_store: EncryptedRecordStore
+    _record_store: PlaintextRecordStore
 
     def __init__(
         self,
         database: RuntimeDatabase,
-        record_store: EncryptedRecordStore,
+        record_store: PlaintextRecordStore,
     ) -> None:
         """Bind runtime-owned storage collaborators without taking their cleanup."""
 
@@ -118,7 +114,7 @@ class ConversationRepository:
         conversation_id: UUID,
         message: AnyMessage,
     ) -> int:
-        """Atomically encrypt and append one LangChain message, returning its sequence."""
+        """Atomically persist and append one LangChain message, returning its sequence."""
 
         return self.append_messages_atomic(
             agent_run_id,
@@ -132,7 +128,7 @@ class ConversationRepository:
         conversation_id: UUID,
         messages: Sequence[AnyMessage],
     ) -> tuple[int, ...]:
-        """Append messages and ciphertext in one immediate transaction or roll back all."""
+        """Append messages and plaintext records in one transaction or roll back all."""
 
         if not messages:
             return ()
@@ -151,7 +147,7 @@ class ConversationRepository:
                 message_id = uuid4()
                 record_id = str(message_id)
                 self._record_store.put(
-                    EncryptedRecord(
+                    PlaintextRecord(
                         record_type="agent_message",
                         record_id=record_id,
                         schema_version=1,
@@ -162,7 +158,7 @@ class ConversationRepository:
                     """
                     INSERT INTO agent_messages(
                         message_id, conversation_id, sequence, message_type,
-                        encrypted_record_id, tool_call_id, agent_run_id, created_at
+                        record_id, tool_call_id, agent_run_id, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
@@ -193,11 +189,11 @@ class ConversationRepository:
             raise
 
     def load_messages(self, conversation_id: UUID) -> list[AnyMessage]:
-        """Authenticate and restore the complete ordered history for one conversation."""
+        """Restore the complete ordered history for one conversation."""
 
         rows = self._database.execute(
             """
-            SELECT message_type, encrypted_record_id, tool_call_id
+            SELECT message_type, record_id, tool_call_id
             FROM agent_messages
             WHERE conversation_id = ?
             ORDER BY sequence
@@ -210,7 +206,7 @@ class ConversationRepository:
             if record is None:
                 raise ConversationRepositoryError(
                     "AGENT_MESSAGE_RECORD_MISSING",
-                    "encrypted Agent message record is missing",
+                    "Agent message record is missing",
                 )
             message = _deserialize_message(record.payload)
             if _message_type(message) != message_type or (
@@ -219,7 +215,7 @@ class ConversationRepository:
             ):
                 raise ConversationRepositoryError(
                     "AGENT_MESSAGE_METADATA_MISMATCH",
-                    "Agent message metadata does not match authenticated content",
+                    "Agent message metadata does not match its record",
                 )
             messages.append(message)
         return messages
@@ -289,7 +285,7 @@ class ConversationRepository:
         return self._get_run(agent_run_id)
 
     def _get_run(self, agent_run_id: UUID) -> AgentRun | None:
-        """Load one strict run model from trusted schema-v4 metadata."""
+        """Load one strict run model from schema-v6 metadata."""
 
         row = self._database.execute(
             """
@@ -322,7 +318,7 @@ def _serialize_message(message: AnyMessage) -> bytes:
 
 
 def _deserialize_message(payload: bytes) -> AnyMessage:
-    """Restore one authenticated message or fail on an unsupported record."""
+    """Restore one plaintext message or fail on an unsupported record."""
 
     try:
         value = json.loads(payload.decode("utf-8"))
@@ -332,7 +328,7 @@ def _deserialize_message(payload: bytes) -> AnyMessage:
     except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
         raise ConversationRepositoryError(
             "AGENT_MESSAGE_SCHEMA_UNSUPPORTED",
-            "encrypted Agent message payload is unsupported",
+            "Agent message payload is unsupported",
         ) from exc
 
 

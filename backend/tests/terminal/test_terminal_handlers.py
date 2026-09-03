@@ -36,7 +36,7 @@ def test_pty_write_accepts_only_canonical_bounded_bytes() -> None:
         }
 
         result = await dispatcher.dispatch(uuid4(), "pty.write", params)
-        assert result.payload == {"accepted_bytes": len("中文🙂".encode())}
+        assert result == {"accepted_bytes": len("中文🙂".encode())}
         assert manager.writes == [(pty_session_id, "中文🙂".encode())]
 
         invalid_base64 = dict(params)

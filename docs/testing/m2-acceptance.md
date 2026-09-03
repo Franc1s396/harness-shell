@@ -1,4 +1,6 @@
-# M2 Windows Desktop Manual Acceptance
+# M2 Windows Desktop Manual Acceptance（历史快照）
+
+> 本文件保留旧桌面架构下的人工观察，不能推导当前 Launcher、direct HTTP/WebSocket、schema v6 或安装包已经验收。当前规则以 `docs/agents/testing.md` 为准。
 
 This checklist is separate from `scripts/verify-m2.ps1`. Record the Windows host, app build, start/end time, and every displayed `correlation_id`. Passing it proves only this checkout against the selected local/container hosts; it is not production-host acceptance.
 

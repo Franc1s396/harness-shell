@@ -32,7 +32,7 @@ import {
   type DeletePlanSummary,
   type OperationTerminalProjection,
   type RecoveryAction,
-  type RecoveryResponse,
+  type RecoverySummary,
   type RemoteEntry,
 } from "../../api/manual-sftp";
 import type { TerminalSessionModel } from "../terminal/terminal-session";
@@ -242,18 +242,14 @@ export const useManualSftpController = ({
   useEffect(() => {
     const preparation = state.preparation;
     if (!preparation) return;
-    const delay = Math.max(0, Date.parse(preparation.expires_at) - Date.now());
+    const delay = Math.max(0, preparation.expires_at_ms - Date.now());
     const timer = window.setTimeout(() => {
       if (preparationRef.current?.preparation_id !== preparation.preparation_id) {
         return;
       }
       preparationRef.current = null;
       void discardManualSftpPreparation(preparation.preparation_id).then(
-        () =>
-          dispatch({
-            type: "operationTerminal",
-            terminal: cancelledPreparation(preparation.operation_id),
-          }),
+        () => dispatch({ type: "preparationDiscarded" }),
         (error) =>
           dispatch({
             type: "listingFailed",
@@ -352,10 +348,7 @@ export const useManualSftpController = ({
     if (!preparation) return;
     preparationRef.current = null;
     await discardManualSftpPreparation(preparation.preparation_id);
-    dispatch({
-      type: "operationTerminal",
-      terminal: cancelledPreparation(preparation.operation_id),
-    });
+    dispatch({ type: "preparationDiscarded" });
     transferOwnerTabRef.current = null;
   }, []);
 
@@ -438,7 +431,7 @@ export const useManualSftpController = ({
   );
 
   const inspectRecovery = useCallback(
-    async (recoveryId: string): Promise<RecoveryResponse> => {
+    async (recoveryId: string): Promise<RecoverySummary> => {
       dispatch({ type: "recoveriesLoadStarted" });
       try {
         const response = await inspectManualSftpRecovery(recoveryId);
@@ -462,10 +455,6 @@ export const useManualSftpController = ({
         action,
         true,
       );
-      if ("state" in response && "error_code" in response) {
-        transferOwnerTabRef.current = null;
-        dispatch({ type: "operationTerminal", terminal: response });
-      }
       await loadRecoveries();
       return response;
     },
@@ -513,13 +502,3 @@ export const useManualSftpController = ({
 };
 
 export type ManualSftpController = ReturnType<typeof useManualSftpController>;
-
-const cancelledPreparation = (operationId: string) => ({
-  operation_id: operationId,
-  state: "cancelled" as const,
-  error_code: null,
-  message: "The manual SFTP preparation was discarded.",
-  sha256: null,
-  byte_count: null,
-  recovery_id: null,
-});

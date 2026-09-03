@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
 from harness_shell_sidecar.agent.conversations import ConversationRepositoryError
-from harness_shell_sidecar.storage import EncryptedRecord
+from harness_shell_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 
@@ -26,7 +26,7 @@ def _started_run(agent_storage: AgentStorage) -> tuple[UUID, AgentRun]:
     return conversation_id, run
 
 
-def test_tool_message_round_trips_only_through_encrypted_record(
+def test_tool_message_round_trips_through_plaintext_record(
     agent_storage: AgentStorage,
 ) -> None:
     marker = "agent-stdout-secret-marker-98af"
@@ -48,7 +48,10 @@ def test_tool_message_round_trips_only_through_encrypted_record(
         "SELECT message_type, sequence, tool_call_id FROM agent_messages"
     ).fetchall()
     assert rows == [("TOOL", 1, "call-1")]
-    assert marker.encode() not in agent_storage.database.path.read_bytes()
+    assert agent_storage.record_store.get(
+        "agent_message",
+        agent_storage.database.execute("SELECT record_id FROM agent_messages").fetchone()[0],
+    ).payload.find(marker.encode()) >= 0
 
 
 def test_ai_tool_calls_and_responses_content_blocks_round_trip(
@@ -88,7 +91,7 @@ def test_ai_tool_calls_and_responses_content_blocks_round_trip(
     assert agent_storage.conversations.load_messages(conversation_id) == messages
 
 
-def test_append_messages_rolls_back_metadata_and_ciphertext_on_encryption_failure(
+def test_append_messages_rolls_back_metadata_and_records_on_write_failure(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -96,18 +99,18 @@ def test_append_messages_rolls_back_metadata_and_ciphertext_on_encryption_failur
     real_put = agent_storage.record_store.put
     calls = 0
 
-    def fail_second_put(record: EncryptedRecord) -> None:
-        """Persist the first record, then simulate a second-record crypto failure."""
+    def fail_second_put(record: PlaintextRecord) -> None:
+        """Persist the first record, then simulate a second-record write failure."""
 
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise RuntimeError("injected encryption failure")
+            raise RuntimeError("injected record failure")
         real_put(record)
 
     monkeypatch.setattr(agent_storage.record_store, "put", fail_second_put)
 
-    with pytest.raises(RuntimeError, match="injected encryption failure"):
+    with pytest.raises(RuntimeError, match="injected record failure"):
         agent_storage.conversations.append_messages_atomic(
             run.agent_run_id,
             conversation_id,
@@ -118,11 +121,11 @@ def test_append_messages_rolls_back_metadata_and_ciphertext_on_encryption_failur
         "SELECT COUNT(*) FROM agent_messages"
     ).fetchone() == (0,)
     assert agent_storage.database.execute(
-        "SELECT COUNT(*) FROM encrypted_records WHERE record_type = 'agent_message'"
+        "SELECT COUNT(*) FROM runtime_records WHERE record_type = 'agent_message'"
     ).fetchone() == (0,)
 
 
-def test_load_messages_fails_closed_when_ciphertext_record_is_missing(
+def test_load_messages_fails_closed_when_record_is_missing(
     agent_storage: AgentStorage,
 ) -> None:
     conversation_id, run = _started_run(agent_storage)
@@ -132,7 +135,7 @@ def test_load_messages_fails_closed_when_ciphertext_record_is_missing(
         HumanMessage(content="inspect"),
     )
     record_id = agent_storage.database.execute(
-        "SELECT encrypted_record_id FROM agent_messages"
+        "SELECT record_id FROM agent_messages"
     ).fetchone()[0]
     assert agent_storage.record_store.delete("agent_message", record_id) is True
 

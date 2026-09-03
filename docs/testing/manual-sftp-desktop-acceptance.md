@@ -1,10 +1,12 @@
 # 用户手动 SFTP 文件管理器桌面验收
 
+> 本清单已按当前 Launcher + React direct Backend 架构更新；任何旧 Rust 本地文件 owner 或可恢复本地下载状态均不再适用。
+
 ## 证据边界
 
 本清单只记录当前 Windows checkout 的 Tauri Desktop 人工观察。自动门禁、containerized OpenSSH Lab、桌面人工验收和 production host/deployment/migration 验收是不同证据层级，不能相互替代。
 
-用户手动 SFTP 只允许人类在 SFTP Activity 中显式操作。Agent、M3 Workflow、approval window 和 WebView raw Protocol 均无 SFTP/exec 路由；失败后不得自动联网、恢复或重放 mutation。
+用户手动 SFTP 只允许人类在 SFTP Activity 中显式操作。Agent、M3 Workflow 和 WebView raw Protocol 均无 SFTP/exec 路由；当前也不存在独立 approval UI。失败后不得自动联网、恢复或重放 mutation。
 
 ## 环境与构建身份
 
@@ -75,7 +77,7 @@ npm run tauri:dev
 
 - [ ] DOM、React props/state、console、Tauri event payload 和 error text 不出现 Windows 本地绝对路径。
 - [ ] DOM、console、event、SQLite 明文和错误中不出现上传/下载文件内容 marker。
-- [ ] WebView 不可见 credential、raw Protocol frame、Sidecar stderr、runtime key、DPAPI/AES-GCM plaintext 或 native picker 返回路径。
+- [ ] UI store、日志和错误详情不可见 credential、Backend stderr 或 native picker 返回路径；React 只在当前页面内持有 File/System Access handle，Python 不接收本地绝对路径。
 - [ ] `manual-sftp://operation-state` 与 `manual-sftp://transfer-state` 只包含批准的 typed projection 字段。
 
 ## 结果

@@ -120,7 +120,6 @@ const recoveryActionLabel = (
     delete_temp: t("sftp.recoveryActions.deleteTemp"),
     continue_delete: t("sftp.recoveryActions.continueDelete"),
     restore_tombstone: t("sftp.recoveryActions.restoreTombstone"),
-    open_local_folder: t("sftp.recoveryActions.openLocalFolder"),
     keep: t("sftp.recoveryActions.keep"),
   };
   return labels[action];

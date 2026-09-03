@@ -53,7 +53,7 @@ function LanguageSetting() {
 function DiagnosticsSetting({ open }: { open: boolean }) {
   const { t } = useTranslation();
   const requestGeneration = useRef(0);
-  const [logDirectory, setLogDirectory] = useState<string | null>(null);
+  const [logDirectoryAvailable, setLogDirectoryAvailable] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<DiagnosticsCommandError | null>(null);
@@ -66,13 +66,13 @@ function DiagnosticsSetting({ open }: { open: boolean }) {
 
     const generation = ++requestGeneration.current;
     setLoading(true);
-    setLogDirectory(null);
+    setLogDirectoryAvailable(null);
     setError(null);
     void diagnosticsApi
       .getLogDirectory()
-      .then((directory) => {
+      .then(({ available }) => {
         if (requestGeneration.current !== generation) return;
-        setLogDirectory(directory);
+        setLogDirectoryAvailable(available);
         setLoading(false);
       })
       .catch((cause: unknown) => {
@@ -116,14 +116,11 @@ function DiagnosticsSetting({ open }: { open: boolean }) {
           {t("settings.diagnostics.loading")}
         </p>
       ) : null}
-      {logDirectory ? (
+      {logDirectoryAvailable ? (
         <div className="grid gap-2">
           <span className="text-xs text-ink-muted">
-            {t("settings.diagnostics.path")}
+            {t("settings.diagnostics.available")}
           </span>
-          <code className="break-all rounded border border-line bg-input px-3 py-2 text-xs text-ink">
-            {logDirectory}
-          </code>
           <div>
             <Button
               variant="secondary"

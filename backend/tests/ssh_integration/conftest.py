@@ -10,13 +10,7 @@ import pytest
 
 from harness_shell_sidecar.connections import ConnectionProfileInput, ConnectionRepository
 from harness_shell_sidecar.ssh.runtime import SshRuntime
-from harness_shell_sidecar.storage import (
-    AuditLedger,
-    EncryptedRecordStore,
-    LocalTraceStore,
-    RuntimeDatabase,
-)
-from harness_shell_sidecar.telemetry import build_local_tracer_provider
+from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
@@ -99,21 +93,12 @@ class RuntimeContext:
     """拥有单个 SSH 集成测试所需全部本地运行时资源的夹具上下文。"""
 
     def __init__(self, path: Path) -> None:
-        """创建隔离数据库、加密仓储、审计、Trace 和 SSH Runtime。"""
+        """创建隔离数据库、明文仓储和 SSH Runtime。"""
 
-        self.database = RuntimeDatabase.open(path.resolve())  # 本测试隔离数据库。
-        self.records = EncryptedRecordStore(self.database, b"m" * 32)  # 加密记录仓储。
+        self.database = RuntimeDatabase.open_plaintext(path.resolve())  # 本测试隔离数据库。
+        self.records = PlaintextRecordStore(self.database)  # 明文记录仓储。
         self.repository = ConnectionRepository(self.database)  # 连接与 Host Key 仓储。
-        self.audit = AuditLedger(self.database, b"a" * 32)  # 测试审计链。
-        # 仅写当前测试数据库的 Trace Provider。
-        self.trace_provider = build_local_tracer_provider(
-            LocalTraceStore(self.database)
-        )
-        self.runtime = SshRuntime(  # 连接真实 SSH lab 的运行时。
-            self.repository,
-            audit_ledger=self.audit,
-            tracer=self.trace_provider.get_tracer("harness_shell_sidecar.ssh_integration"),
-        )
+        self.runtime = SshRuntime(self.repository)  # 连接真实 SSH lab 的运行时。
 
     def create_profile(
         self,
@@ -143,13 +128,9 @@ class RuntimeContext:
         )
 
     async def close(self) -> None:
-        """按依赖顺序关闭 SSH、遥测、Key 与数据库资源。"""
+        """按依赖顺序关闭 SSH 与数据库资源。"""
 
         await self.runtime.close_all()
-        self.trace_provider.force_flush()
-        self.trace_provider.shutdown()
-        self.audit.zeroize()
-        self.records.zeroize()
         self.database.close()
 
 

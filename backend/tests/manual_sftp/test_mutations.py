@@ -19,10 +19,10 @@ from harness_shell_sidecar.manual_sftp.channels import SftpChannelFactory
 from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
 from harness_shell_sidecar.manual_sftp.mutations import MutationManager
 from harness_shell_sidecar.manual_sftp.models import TransferSnapshot
-from harness_shell_sidecar.manual_sftp.operation_store import RemoteOperationStore
+from harness_shell_sidecar.manual_sftp.operation_store import ManualSftpOperationStore
 from harness_shell_sidecar.manual_sftp.transfers import UploadManager
 from harness_shell_sidecar.ssh.sessions import SshSession, SshSessionRegistry
-from harness_shell_sidecar.storage import EncryptedRecordStore, RuntimeDatabase
+from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000401")
@@ -229,11 +229,13 @@ def manager(tmp_path: Path, remote: FakeMutationRemote):
 
 def manager_with_operations(
     tmp_path: Path, remote: FakeMutationRemote
-) -> tuple[RuntimeDatabase, SshSession, MutationManager, RemoteOperationStore]:
-    """Build a mutation manager while exposing its encrypted operation store to tests."""
+) -> tuple[RuntimeDatabase, SshSession, MutationManager, ManualSftpOperationStore]:
+    """Build a mutation manager while exposing its plaintext operation store."""
 
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
-    operations = RemoteOperationStore(EncryptedRecordStore(database, b"d" * 32))
+    database = RuntimeDatabase.open_plaintext(
+        (tmp_path / "runtime.sqlite3").resolve()
+    )
+    operations = ManualSftpOperationStore(PlaintextRecordStore(database))
     sessions = SshSessionRegistry()
     owner = sessions.register(
         CONNECTION_ID,
@@ -269,7 +271,9 @@ def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
         target_path = ROOT + "/existing-target.txt"
         target_payload = b"existing target"
         remote.nodes[target_path] = Node("file", target_payload)
-        database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+        database = RuntimeDatabase.open_plaintext(
+            (tmp_path / "runtime.sqlite3").resolve()
+        )
         sessions = SshSessionRegistry()
         owner = sessions.register(
             CONNECTION_ID,
@@ -280,7 +284,7 @@ def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
         )
         uploads = UploadManager(
             SftpChannelFactory(sessions),
-            RemoteOperationStore(EncryptedRecordStore(database, b"u" * 32)),
+            ManualSftpOperationStore(PlaintextRecordStore(database)),
         )
         try:
             snapshot = await uploads.preflight(owner.ssh_session_id, target_path)
@@ -766,7 +770,7 @@ def test_mutation_snapshot_permission_denial_uses_the_stable_error_code(
     asyncio.run(scenario())
 
 
-def test_recursive_delete_is_one_shot_bottom_up_and_manifest_is_encrypted(
+def test_recursive_delete_is_one_shot_bottom_up_and_manifest_is_plaintext(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> None:
@@ -780,7 +784,7 @@ def test_recursive_delete_is_one_shot_bottom_up_and_manifest_is_encrypted(
             persisted = b"".join(
                 path.read_bytes() for path in persisted_files if path.exists()
             )
-            assert ROOT.encode("utf-8") not in persisted
+            assert ROOT.encode("utf-8") in persisted
 
             terminal = await mutations.delete_execute(plan.delete_plan_id)
             assert terminal.state == "succeeded"

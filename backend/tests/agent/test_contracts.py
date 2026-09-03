@@ -20,7 +20,7 @@ def test_api_config_rejects_unknown_api_type() -> None:
             api_type="AUTO",
             base_url="http://127.0.0.1:8000/v1",
             model="test-model",
-            api_key_secret_ref=uuid4(),
+            api_key_credential_id=uuid4(),
             enabled=True,
         )
 
@@ -31,7 +31,7 @@ def test_api_config_is_strict_and_normalizes_http_url() -> None:
         api_type=ApiType.RESPONSES,
         base_url="https://example.test/v1",
         model="  gpt-test  ",
-        api_key_secret_ref=uuid4(),
+        api_key_credential_id=uuid4(),
         enabled=True,
     )
 
@@ -52,7 +52,7 @@ def test_api_config_rejects_non_http_base_url() -> None:
             api_type=ApiType.CHAT_COMPLETIONS,
             base_url="file:///tmp/provider",
             model="test-model",
-            api_key_secret_ref=uuid4(),
+            api_key_credential_id=uuid4(),
             enabled=True,
         )
 

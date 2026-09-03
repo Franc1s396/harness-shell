@@ -11,9 +11,6 @@ from harness_shell_sidecar.manual_sftp.models import DownloadChunk, UploadChunkA
 from harness_shell_sidecar.web.errors import HttpProblem
 from harness_shell_sidecar.web.routes.manual_sftp import read_exact_binary_body
 
-from .conftest import valid_initialize_json
-
-
 def request_headers(**overrides: str) -> dict[str, str]:
     """Create strict request headers for one HTTP application operation."""
 
@@ -22,15 +19,9 @@ def request_headers(**overrides: str) -> dict[str, str]:
     return headers
 
 
-def initialize(client, tmp_path: Path):
-    """Initialize and return the disposable runtime resource graph."""
+def runtime_resources(client):
+    """Return the autonomous runtime resource graph."""
 
-    response = client.post(
-        "/v1/runtime/initialize",
-        headers=request_headers(),
-        json=valid_initialize_json(tmp_path),
-    )
-    assert response.status_code == 200
     return client.app.state.runtime_owner.require_resources()
 
 
@@ -79,7 +70,7 @@ def test_binary_upload_and_download_preserve_raw_bytes_and_identity(
     client,
     tmp_path: Path,
 ) -> None:
-    resources = initialize(client, tmp_path)
+    resources = runtime_resources(client)
     application = _ChunkApplication()
     resources.manual_sftp_application = application
     operation_id = uuid4()
@@ -168,7 +159,7 @@ def test_upload_chunk_rejects_invalid_binary_contract_before_application(
     expected_status: int,
     expected_code: str,
 ) -> None:
-    resources = initialize(client, tmp_path)
+    resources = runtime_resources(client)
     application = _ChunkApplication()
     resources.manual_sftp_application = application
 
@@ -187,7 +178,7 @@ def test_download_rejects_request_body_and_invalid_application_identity(
     client,
     tmp_path: Path,
 ) -> None:
-    resources = initialize(client, tmp_path)
+    resources = runtime_resources(client)
     resources.manual_sftp_application = _ChunkApplication()
     operation_id = uuid4()
 
@@ -226,7 +217,7 @@ def test_upload_rejects_invalid_application_receipt_before_success_response(
     client,
     tmp_path: Path,
 ) -> None:
-    resources = initialize(client, tmp_path)
+    resources = runtime_resources(client)
     operation_id = uuid4()
 
     class _MismatchedApplication(_ChunkApplication):
@@ -339,7 +330,6 @@ def test_binary_reader_rejects_noncanonical_content_length(
         ("DELETE", f"/v1/sftp/listings/{uuid4()}", None),
         ("POST", "/v1/sftp/metadata/lstat", {"ssh_session_id": str(uuid4()), "path": "/tmp/a"}),
         ("POST", "/v1/sftp/metadata/readlink", {"ssh_session_id": str(uuid4()), "path": "/tmp/a"}),
-        ("POST", "/v1/sftp/metadata/realpath", {"ssh_session_id": str(uuid4()), "path": "/tmp/a"}),
         ("POST", "/v1/sftp/hashes/sha256", {"ssh_session_id": str(uuid4()), "path": "/tmp/a"}),
         ("POST", "/v1/sftp/uploads/preflight", {"ssh_session_id": str(uuid4()), "path": "/tmp/a"}),
         ("POST", "/v1/sftp/uploads", {}),
@@ -355,7 +345,8 @@ def test_binary_reader_rejects_noncanonical_content_length(
         ("POST", "/v1/sftp/removals", {}),
         ("POST", "/v1/sftp/deletions/preflight", {}),
         ("POST", f"/v1/sftp/deletions/{uuid4()}/execute", {}),
-        ("GET", f"/v1/sftp/recoveries?recovery_id={uuid4()}", None),
+        ("GET", "/v1/sftp/recoveries", None),
+        ("GET", f"/v1/sftp/recoveries/{uuid4()}", None),
         ("POST", f"/v1/sftp/recoveries/{uuid4()}/actions", {}),
     ],
 )
@@ -379,4 +370,6 @@ def test_complete_manual_sftp_route_table_exists(
         kwargs["headers"] = request_headers()
     response = client.request(method, path, **kwargs)
 
-    assert response.status_code not in (404, 405)
+    assert response.status_code != 405
+    if response.status_code == 404:
+        assert "error_code" in response.json()

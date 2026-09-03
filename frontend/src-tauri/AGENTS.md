@@ -11,13 +11,11 @@
 
 ## 本目录即时规则
 
-- Rust Core 是凭据、DPAPI Vault、Sidecar 进程和 WebView 暴露面的安全边界；不得绕过受控 Tauri command 暴露特权能力。
-- 新增或修改 command 时，同步检查实现、re-export、handler 注册、permission、capability、Frontend typed wrapper 和契约测试。
-- capability/permission 保持按窗口最小授权；不得让 approval window 获得 main window 的 SSH 或 terminal 权限。
-- raw secret、private key、passphrase、runtime key、HTTP/WebSocket body 和 SFTP bytes 不得由调用方主动写入 event、日志、`Debug` 或普通错误详情；Sidecar stderr 由 Rust 原样持久化，不执行内容扫描、截断或脱敏。
-- `src/logging.rs` 独占 Tauri terminal/LogDir/rotation policy；`src/commands/diagnostics.rs` 独占固定日志目录查询与 Explorer 打开命令。不得新增 WebView 路径输入、日志内容 API 或通用 shell/filesystem capability。
-- HTTP/WebSocket model、limit、route 或 event 改动必须同步 Python 侧、fixture、协议文档和 Rust/Python 契约测试。
-- RuntimeClient/Supervisor 失败必须显式可见；未知 response/event、heartbeat timeout 或 Sidecar crash 均不得静默降级、自动重放、reconnect、respawn 或伪造 READY。
-- async task、channel、child process、Job Object、temporary extraction 和锁必须有明确 owner 与关闭路径。
+- 本 crate 只是最小 Tauri UI shell；Launcher 独占 Sidecar/UI child、Windows Job、动态端口和退出顺序，Python 独占凭据与业务 runtime。不得把这些 owner 移回本目录。
+- custom command 仅允许 `get_backend_bootstrap`；修改时同步检查实现、re-export、handler、permission、capability、Frontend wrapper 和契约测试。
+- capability/permission 保持最小授权；只允许 main window 获得 bootstrap 与固定 close/destroy 权限，不得重新引入独立 approval window。
+- raw secret、private key、passphrase、HTTP/WebSocket body、Backend stderr 和 SFTP bytes 不得进入 Tauri event、日志、`Debug` 或普通错误详情。
+- 本 crate 不实现业务 HTTP/WebSocket client、日志目录 API、通用 shell/filesystem capability、child process 或 Job Object。
+- production 缺失/非法 `--backend-url` 必须 native error 后退出；不得扫描端口、fallback 到默认地址或伪造 bootstrap。
 - 至少运行最小相关 Rust test；跨层或打包改动按 Testing Guide 扩大验证范围。
 - 任务结束前检查上述领域文档是否因长期事实变化需要同步更新，并报告结果。

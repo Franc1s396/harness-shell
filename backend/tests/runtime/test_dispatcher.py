@@ -6,11 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.runtime.dispatcher import (
-    DispatchError,
-    DispatchResult,
-    RequestDispatcher,
-)
+from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
 from harness_shell_sidecar.runtime.request_context import RequestContext
 
 
@@ -33,7 +29,7 @@ def test_dispatcher_passes_only_request_context_and_params() -> None:
 
         result = await dispatcher.dispatch(request_id, "probe.read", {"value": 7})
 
-        assert result.payload == {"result": "ok"}
+        assert result == {"result": "ok"}
         assert observed == [(request_id, {"value": 7})]
 
     asyncio.run(scenario())
@@ -82,9 +78,7 @@ def test_dispatcher_allows_heartbeat_loop_to_continue_while_request_runs() -> No
         assert heartbeat_progressed is True
         assert active.done() is False
         release.set()
-        assert await active == DispatchResult(
-            payload={"result": "done", "cancelled": False},
-        )
+        assert await active == {"result": "done", "cancelled": False}
 
     asyncio.run(scenario())
 
@@ -164,65 +158,6 @@ def test_dispatcher_capacity_defaults_to_sixteen() -> None:
     asyncio.run(scenario())
 
 
-def test_cancel_sets_only_the_target_request_event() -> None:
-    async def scenario() -> None:
-        started = asyncio.Event()
-
-        async def wait_for_cancel(
-            context: RequestContext,
-            params: Mapping[str, object],
-        ) -> dict[str, object]:
-            del params
-            started.set()
-            await context.cancelled.wait()
-            return {"cancelled": True}
-
-        dispatcher = RequestDispatcher()
-        dispatcher.register("wait", wait_for_cancel)
-        request_id = uuid4()
-        active = asyncio.create_task(dispatcher.dispatch(request_id, "wait", {}))
-        await started.wait()
-
-        assert await dispatcher.cancel(uuid4()) is False
-        assert await dispatcher.cancel(request_id) is True
-        assert (await active).payload == {"cancelled": True}
-        assert await dispatcher.cancel(request_id) is False
-
-    asyncio.run(scenario())
-
-
-def test_request_context_cancellation_maps_to_stable_dispatch_error() -> None:
-    """Map cooperative cancellation without exposing transport types to handlers."""
-
-    async def scenario() -> None:
-        started = asyncio.Event()
-        continue_handler = asyncio.Event()
-
-        async def require_active(
-            context: RequestContext,
-            params: Mapping[str, object],
-        ) -> dict[str, object]:
-            del params
-            started.set()
-            await continue_handler.wait()
-            context.require_active()
-            return {"result": "unexpected"}
-
-        dispatcher = RequestDispatcher()
-        dispatcher.register("wait", require_active)
-        request_id = uuid4()
-        active = asyncio.create_task(dispatcher.dispatch(request_id, "wait", {}))
-        await started.wait()
-        assert await dispatcher.cancel(request_id) is True
-        continue_handler.set()
-
-        with pytest.raises(DispatchError) as cancelled:
-            await active
-        assert cancelled.value.error_code == "REQUEST_CANCELLED"
-
-    asyncio.run(scenario())
-
-
 def test_close_rejects_new_work_and_releases_active_handlers() -> None:
     async def scenario() -> None:
         started = asyncio.Event()
@@ -241,7 +176,7 @@ def test_close_rejects_new_work_and_releases_active_handlers() -> None:
         active = asyncio.create_task(dispatcher.dispatch(uuid4(), "wait", {}))
         await started.wait()
         await dispatcher.close()
-        assert (await active).payload == {"cancelled": True}
+        assert await active == {"cancelled": True}
 
         with pytest.raises(DispatchError) as stopped:
             await dispatcher.dispatch(uuid4(), "wait", {})

@@ -11,7 +11,7 @@ import {
   type WidthBounds,
 } from "../features/shell/workspace-layout";
 
-export type WorkspaceActivity = "connections" | "sftp" | "approval" | "settings";
+export type WorkspaceActivity = "connections" | "sftp" | "settings";
 export type ConnectionDialogState =
   | { kind: "closed" }
   | { kind: "create" }
@@ -90,7 +90,7 @@ const validWidthOrDefault = (
     : defaultValue;
 
 const validActivity = (value: unknown): WorkspaceActivity => {
-  if (value === "sftp" || value === "approval" || value === "settings") {
+  if (value === "sftp" || value === "settings") {
     return value;
   }
   return "connections";

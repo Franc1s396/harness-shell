@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from uuid import uuid4
 
 
-SCHEMA_VERSION = 4
-REQUIRED_TABLES = frozenset(
+PLAINTEXT_SCHEMA_VERSION = 6
+PLAINTEXT_REQUIRED_TABLES = frozenset(
     {
         "schema_migrations",
-        "encrypted_records",
-        "audit_entries",
-        "trace_spans",
+        "runtime_records",
         "connection_profiles",
         "host_keys",
-        "artifact_metadata",
         "model_api_configs",
         "agent_conversations",
         "agent_runs",
@@ -40,19 +38,29 @@ class RuntimeDatabase:
         self._closed = False  # 防止关闭后继续执行 SQL 或重复 checkpoint。
 
     @classmethod
-    def open(cls, path: Path) -> RuntimeDatabase:
-        """创建数据库、执行全部迁移和自检，任一步失败即关闭连接。"""
+    def open_plaintext(cls, path: Path) -> RuntimeDatabase:
+        """Open a fresh schema-v6 database or reject every older schema."""
 
         if not path.is_absolute():
             raise StorageSelfCheckFailed("runtime database path must be absolute")
         path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(path, isolation_level=None)
-        database = cls(path, connection)
+        existed = path.exists() and path.stat().st_size > 0
+        connection = sqlite3.connect(path.resolve(), isolation_level=None)
+        database = cls(path.resolve(), connection)
         try:
-            database._configure()
-            database._migrate()
-            database._self_check()
-        except Exception:
+            if existed:
+                database._require_exact_schema_version(PLAINTEXT_SCHEMA_VERSION)
+                database._configure()
+            else:
+                database._configure()
+                migration = (
+                    Path(__file__).parent
+                    / "migrations"
+                    / "006_plaintext_runtime.sql"
+                ).read_text(encoding="utf-8")
+                connection.executescript(migration)
+            database._self_check_plaintext_v6()
+        except BaseException:
             connection.close()
             raise
         return database
@@ -65,6 +73,21 @@ class RuntimeDatabase:
         if self._closed:
             raise StorageSelfCheckFailed("runtime database is closed")
         return self.connection.execute(statement, parameters)
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Own one immediate transaction across cooperating domain repositories."""
+
+        self.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            self.execute("COMMIT")
+        except BaseException as error:
+            try:
+                self.execute("ROLLBACK")
+            except BaseException as rollback_error:
+                error.add_note(f"SQLite rollback failed: {rollback_error!r}")
+            raise
 
     def close(self) -> None:
         """截断 WAL 后关闭连接；该操作可安全重复调用。"""
@@ -96,129 +119,13 @@ class RuntimeDatabase:
         if self.connection.execute("PRAGMA busy_timeout").fetchone()[0] != 5_000:
             raise StorageSelfCheckFailed("SQLite busy timeout is unavailable")
 
-    def _migrate(self) -> None:
-        """仅从空库或受支持的连续版本执行内置顺序迁移。"""
-
-        tables = self._table_names()
-        if "schema_migrations" not in tables:
-            if tables:
-                raise StorageSelfCheckFailed(
-                    "runtime database contains an unversioned schema"
-                )
-            migration = (
-                Path(__file__).parent / "migrations" / "001_m1.sql"
-            ).read_text(encoding="utf-8")
-            try:
-                self.connection.executescript(migration)
-            except sqlite3.DatabaseError as exc:
-                raise StorageSelfCheckFailed("schema v1 migration failed") from exc
-
-        versions = self._schema_versions()
-        if (
-            not versions
-            or versions != list(range(1, versions[-1] + 1))
-            or versions[-1] > SCHEMA_VERSION
-        ):
-            raise StorageSelfCheckFailed(
-                f"unsupported schema versions: {versions!r}"
-            )
-
-        migration_names = {
-            2: "002_m2.sql",
-            3: "003_connection_profile_version.sql",
-            4: "004_react_shell_agent.sql",
-        }
-        for next_version in range(versions[-1] + 1, SCHEMA_VERSION + 1):
-            migration = (
-                Path(__file__).parent
-                / "migrations"
-                / migration_names[next_version]
-            ).read_text(encoding="utf-8")
-            try:
-                self.connection.executescript(migration)
-            except sqlite3.DatabaseError as exc:
-                raise StorageSelfCheckFailed(
-                    f"schema v{next_version} migration failed"
-                ) from exc
-            versions = self._schema_versions()
-            if versions != list(range(1, next_version + 1)):
-                raise StorageSelfCheckFailed(
-                    f"unsupported schema versions: {versions!r}"
-                )
-        if versions != list(range(1, SCHEMA_VERSION + 1)):
-            raise StorageSelfCheckFailed(
-                f"unsupported schema versions: {versions!r}"
-            )
-
-    def _self_check(self) -> None:
-        """验证 SQLite 完整性、必需表、关键列和唯一索引。"""
-
-        integrity = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
-        if integrity != "ok":
-            raise StorageSelfCheckFailed("SQLite integrity check failed")
-        missing = REQUIRED_TABLES - self._table_names()
-        if missing:
-            raise StorageSelfCheckFailed(
-                f"schema v1 is missing required tables: {sorted(missing)!r}"
-            )
-        columns = {
-            row[1]
-            for row in self.connection.execute(
-                "PRAGMA table_info(encrypted_records)"
-            ).fetchall()
-        }
-        required_columns = {
-            "record_type",
-            "record_id",
-            "schema_version",
-            "nonce",
-            "ciphertext",
-            "created_at",
-            "updated_at",
-        }
-        if columns != required_columns:
-            raise StorageSelfCheckFailed(
-                "encrypted_records schema does not match version 2"
-            )
-        indexes = {
-            row[1]
-            for row in self.connection.execute("PRAGMA index_list(host_keys)").fetchall()
-        }
-        if "one_active_host_key_per_connection" not in indexes:
-            raise StorageSelfCheckFailed(
-                "schema v2 is missing the active host-key index"
-            )
-        profile_columns = {
-            row[1]: row
-            for row in self.connection.execute(
-                "PRAGMA table_info(connection_profiles)"
-            ).fetchall()
-        }
-        version_column = profile_columns.get("version")
-        if (
-            version_column is None
-            or str(version_column[2]).upper() != "INTEGER"
-            or version_column[3] != 1
-            or str(version_column[4]) != "1"
-        ):
-            raise StorageSelfCheckFailed(
-                "connection_profiles version schema does not match version 3"
-            )
-        invalid_version = self.connection.execute(
-            """
-            SELECT 1 FROM connection_profiles
-            WHERE version < 1 OR version > 9007199254740991
-            LIMIT 1
-            """
-        ).fetchone()
-        if invalid_version is not None:
-            raise StorageSelfCheckFailed(
-                "connection_profiles contains an invalid version"
-            )
-        self._check_agent_schema()
-
-    def _check_agent_schema(self) -> None:
-        """Verify schema-v4 Agent types, constraints, foreign keys, and indexes."""
+    def _check_agent_schema(
+        self,
+        api_key_column: str,
+        message_record_column: str,
+        schema_version: int,
+    ) -> None:
+        """Verify Agent types, constraints, foreign keys, and indexes."""
 
         expected_columns = {
             "model_api_configs": {
@@ -227,7 +134,7 @@ class RuntimeDatabase:
                 "api_type": ("TEXT", 1, 0),
                 "base_url": ("TEXT", 1, 0),
                 "model": ("TEXT", 1, 0),
-                "api_key_secret_ref": ("TEXT", 1, 0),
+                api_key_column: ("TEXT", 1, 0),
                 "enabled": ("INTEGER", 1, 0),
                 "created_at": ("TEXT", 1, 0),
                 "updated_at": ("TEXT", 1, 0),
@@ -253,7 +160,7 @@ class RuntimeDatabase:
                 "conversation_id": ("TEXT", 1, 0),
                 "sequence": ("INTEGER", 1, 0),
                 "message_type": ("TEXT", 1, 0),
-                "encrypted_record_id": ("TEXT", 1, 0),
+                message_record_column: ("TEXT", 1, 0),
                 "tool_call_id": ("TEXT", 0, 0),
                 "agent_run_id": ("TEXT", 1, 0),
                 "created_at": ("TEXT", 1, 0),
@@ -268,7 +175,7 @@ class RuntimeDatabase:
             metadata = table_metadata.get(table_name)
             if metadata is None or metadata[5] != 1:
                 raise StorageSelfCheckFailed(
-                    f"{table_name} schema does not match version 4"
+                    f"{table_name} schema does not match version {schema_version}"
                 )
             actual = {
                 row[1]: (str(row[2]).upper(), row[3], row[5])
@@ -278,7 +185,7 @@ class RuntimeDatabase:
             }
             if actual != required:
                 raise StorageSelfCheckFailed(
-                    f"{table_name} schema does not match version 4"
+                    f"{table_name} schema does not match version {schema_version}"
                 )
         unique_indexes = {
             tuple(
@@ -293,11 +200,12 @@ class RuntimeDatabase:
             if index[2] == 1
         }
         if not {
-            ("encrypted_record_id",),
+            (message_record_column,),
             ("conversation_id", "sequence"),
         } <= unique_indexes:
             raise StorageSelfCheckFailed(
-                "agent_messages uniqueness schema does not match version 4"
+                "agent_messages uniqueness schema does not match "
+                f"version {schema_version}"
             )
         expected_foreign_keys = {
             "agent_runs": {
@@ -318,143 +226,81 @@ class RuntimeDatabase:
             }
             if actual != expected:
                 raise StorageSelfCheckFailed(
-                    f"{table_name} schema does not match version 4"
+                    f"{table_name} schema does not match version {schema_version}"
                 )
-        self._probe_agent_checks()
 
-    def _probe_agent_checks(self) -> None:
-        """Use a rolled-back write probe to prove critical CHECK constraints execute."""
+    def _require_exact_schema_version(self, expected_version: int) -> None:
+        """Reject an existing database unless it contains only the target version."""
 
-        connection = self.connection
-        conversation_id = str(uuid4())
-        config_id = str(uuid4())
-        valid_run_id = str(uuid4())
-        invalid_status_run_id = str(uuid4())
-        invalid_iteration_run_id = str(uuid4())
-        invalid_negative_iteration_run_id = str(uuid4())
-        connection.execute("SAVEPOINT agent_schema_probe")
+        tables = self._table_names()
+        if "schema_migrations" not in tables:
+            raise StorageSelfCheckFailed("incompatible schema")
         try:
-            connection.execute(
-                "INSERT INTO agent_conversations VALUES (?, 'now', 'now')",
-                (conversation_id,),
-            )
-            connection.execute(
-                """
-                INSERT INTO model_api_configs VALUES (
-                    ?, 'probe', 'RESPONSES', 'https://example.invalid/', 'model',
-                    '00000000-0000-4000-8000-00000000a003', 1, 'now', 'now'
-                )
-                """,
-                (config_id,),
-            )
-            for invalid_column, invalid_value in (
-                ("display_name", ""),
-                ("display_name", "x" * 81),
-                ("api_type", "INVALID"),
-                ("base_url", ""),
-                ("base_url", "x" * 2049),
-                ("model", ""),
-                ("model", "x" * 256),
-                ("enabled", 2),
-            ):
-                values: dict[str, object] = {
-                    "api_config_id": str(uuid4()),
-                    "display_name": "probe",
-                    "api_type": "RESPONSES",
-                    "base_url": "https://example.invalid/",
-                    "model": "model",
-                    "api_key_secret_ref": str(uuid4()),
-                    "enabled": 1,
-                }
-                values[invalid_column] = invalid_value
-                self._expect_agent_constraint_failure(
-                    """
-                    INSERT INTO model_api_configs VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, 'now', 'now'
-                    )
-                    """,
-                    (
-                        values["api_config_id"],
-                        values["display_name"],
-                        values["api_type"],
-                        values["base_url"],
-                        values["model"],
-                        values["api_key_secret_ref"],
-                        values["enabled"],
-                    ),
-                )
-            self._expect_agent_constraint_failure(
-                """
-                INSERT INTO agent_runs VALUES (
-                    ?, ?,
-                    '00000000-0000-4000-8000-00000000a005', ?,
-                    'INVALID', 0, NULL, 'now', NULL
-                )
-                """,
-                (invalid_status_run_id, conversation_id, config_id),
-            )
-            self._expect_agent_constraint_failure(
-                """
-                INSERT INTO agent_runs VALUES (
-                    ?, ?,
-                    '00000000-0000-4000-8000-00000000a007', ?,
-                    'RUNNING', 129, NULL, 'now', NULL
-                )
-                """,
-                (invalid_iteration_run_id, conversation_id, config_id),
-            )
-            self._expect_agent_constraint_failure(
-                """
-                INSERT INTO agent_runs VALUES (
-                    ?, ?,
-                    '00000000-0000-4000-8000-00000000a008', ?,
-                    'RUNNING', -1, NULL, 'now', NULL
-                )
-                """,
-                (invalid_negative_iteration_run_id, conversation_id, config_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO agent_runs VALUES (
-                    ?, ?,
-                    '00000000-0000-4000-8000-00000000a009', ?,
-                    'RUNNING', 0, NULL, 'now', NULL
-                )
-                """,
-                (valid_run_id, conversation_id, config_id),
-            )
-            self._expect_agent_constraint_failure(
-                """
-                INSERT INTO agent_messages VALUES (
-                    ?, ?, 0, 'HUMAN', ?, NULL, ?, 'now'
-                )
-                """,
-                (str(uuid4()), conversation_id, str(uuid4()), valid_run_id),
-            )
-            self._expect_agent_constraint_failure(
-                """
-                INSERT INTO agent_messages VALUES (
-                    ?, ?, 1, 'INVALID', ?, NULL, ?, 'now'
-                )
-                """,
-                (str(uuid4()), conversation_id, str(uuid4()), valid_run_id),
-            )
-        finally:
-            connection.execute("ROLLBACK TO agent_schema_probe")
-            connection.execute("RELEASE agent_schema_probe")
+            versions = self._schema_versions()
+        except sqlite3.DatabaseError as exc:
+            raise StorageSelfCheckFailed("incompatible schema") from exc
+        if versions != [expected_version]:
+            raise StorageSelfCheckFailed("incompatible schema")
 
-    def _expect_agent_constraint_failure(
-        self,
-        statement: str,
-        parameters: tuple[object, ...],
-    ) -> None:
-        """Fail self-check when an invalid Agent row is unexpectedly accepted."""
+    def _self_check_plaintext_v6(self) -> None:
+        """Verify the complete fresh-only plaintext schema-v6 contract."""
 
-        try:
-            self.connection.execute(statement, parameters)
-        except sqlite3.IntegrityError:
-            return
-        raise StorageSelfCheckFailed("Agent schema does not match version 4")
+        integrity = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise StorageSelfCheckFailed("SQLite integrity check failed")
+        tables = self._table_names()
+        if tables != PLAINTEXT_REQUIRED_TABLES:
+            raise StorageSelfCheckFailed("plaintext schema v6 tables do not match")
+        expected_columns = {
+            "runtime_records": {
+                "record_type",
+                "record_id",
+                "schema_version",
+                "payload",
+                "created_at",
+                "updated_at",
+            },
+        }
+        for table_name, expected in expected_columns.items():
+            actual = {
+                row[1]
+                for row in self.connection.execute(
+                    f"PRAGMA table_info({table_name})"
+                ).fetchall()
+            }
+            if actual != expected:
+                raise StorageSelfCheckFailed(
+                    f"{table_name} schema does not match version 6"
+                )
+        profile_columns = {
+            row[1]: row
+            for row in self.connection.execute(
+                "PRAGMA table_info(connection_profiles)"
+            ).fetchall()
+        }
+        version_column = profile_columns.get("version")
+        if (
+            version_column is None
+            or str(version_column[2]).upper() != "INTEGER"
+            or version_column[3] != 1
+            or str(version_column[4]) != "1"
+        ):
+            raise StorageSelfCheckFailed(
+                "connection_profiles version schema does not match version 6"
+            )
+        indexes = {
+            row[1]
+            for row in self.connection.execute("PRAGMA index_list(host_keys)").fetchall()
+        }
+        if "one_active_host_key_per_connection" not in indexes:
+            raise StorageSelfCheckFailed(
+                "schema v6 is missing the active host-key index"
+            )
+        self._check_agent_schema(
+            api_key_column="api_key_credential_id",
+            message_record_column="record_id",
+            schema_version=6,
+        )
 
     def _schema_versions(self) -> list[int]:
         """按升序返回已经持久化的全部连续 schema 版本。"""

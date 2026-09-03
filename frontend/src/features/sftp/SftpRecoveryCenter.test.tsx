@@ -11,19 +11,19 @@ import type { RecoverySummary } from "../../api/manual-sftp";
 const recovery: RecoverySummary = {
   recovery_id: "recovery-1",
   operation_id: "operation-1",
-  kind: "download_part" as const,
+  kind: "upload_temp" as const,
   host_label: "test.example",
   remote_path: "/home/test/payload.bin",
   display_name: "payload.bin",
   state: "cleanup_required" as const,
   created_at: "2026-08-30T00:00:00Z",
-  available_actions: ["verify", "open_local_folder", "keep"],
+  available_actions: ["verify", "delete_temp", "keep"],
 };
 
 describe("SftpRecoveryCenter", () => {
   afterEach(cleanup);
 
-  it("renders safe local recovery labels and exposes keep/open actions", () => {
+  it("renders remote recovery labels and exposes verify/keep actions", () => {
     const onInspect = vi.fn();
     const onExecute = vi.fn();
     render(
@@ -37,8 +37,8 @@ describe("SftpRecoveryCenter", () => {
     );
 
     expect(screen.getByText("test.example")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Open local folder" }));
-    expect(onExecute).toHaveBeenCalledWith("recovery-1", "open_local_folder");
+    fireEvent.click(screen.getByRole("button", { name: "Verify result" }));
+    expect(onInspect).toHaveBeenCalledWith("recovery-1");
     fireEvent.click(screen.getByRole("button", { name: "Keep for later" }));
     expect(onExecute).toHaveBeenCalledWith("recovery-1", "keep");
   });

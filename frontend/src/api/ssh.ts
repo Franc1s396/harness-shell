@@ -1,32 +1,28 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-
 import { bytesToBase64 } from "../features/terminal/base64";
+import { getBackendClient } from "./bootstrap";
+import { createCredentialEnvelope, type CredentialPublicKey } from "./credential-envelope";
 
-export type CredentialKind =
-  | "ssh_password"
-  | "private_key_passphrase"
-  | "imported_private_key";
+type UnlistenFn = () => void;
 
-export type CredentialReference = {
-  credential_id: string;
-  kind: CredentialKind;
-};
-
-export type ConnectionProfileInput = {
+export type ConnectionProfileFields = {
   display_name: string;
   group_name: string | null;
   host: string;
   port: number;
   username: string;
   auth_kind: "password" | "private_key";
-  credential_id: string;
-  passphrase_credential_id: string | null;
   proxy_jump_id: string | null;
   favorite: boolean;
 };
 
-export type ConnectionProfile = ConnectionProfileInput & {
+export type ConnectionProfileInput = ConnectionProfileFields & {
+  credential_secret: string | null;
+  passphrase_secret: string | null;
+};
+
+export type ConnectionProfile = ConnectionProfileFields & {
+  credential_id: string;
+  passphrase_credential_id: string | null;
   connection_id: string;
   version: number;
   created_at: string;
@@ -115,75 +111,105 @@ export type SshCommandError = {
   };
 };
 
-export const storeSshPassword = (secret: string) =>
-  invoke<CredentialReference>("store_ssh_password", { secret });
-
-export const storePrivateKeyPassphrase = (secret: string) =>
-  invoke<CredentialReference>("store_private_key_passphrase", { secret });
-
-export const importPrivateKey = () =>
-  invoke<CredentialReference | null>("import_private_key");
-
-export const deleteSshCredential = (credentialId: string) =>
-  invoke<void>("delete_ssh_credential", { credentialId });
-
 export const listConnections = () =>
-  invoke<ConnectionProfile[]>("list_connections");
+  getBackendClient().http.request<{ request_id: string; connections: ConnectionProfile[] }>(
+    "GET", "/v1/connections",
+  ).then((value) => value.connections);
 
-export const createConnection = (input: ConnectionProfileInput) =>
-  invoke<ConnectionProfile>("create_connection", { input });
+export const createConnection = async (input: ConnectionProfileInput) => {
+  if (input.credential_secret === null) {
+    throw new Error("Connection credential is required.");
+  }
+  const body = await connectionMutationBody(input);
+  const value = await getBackendClient().http.request<{
+    request_id: string;
+    connection: ConnectionProfile;
+  }>("POST", "/v1/connections", { body });
+  return value.connection;
+};
 
-export const updateConnection = (
+export const updateConnection = async (
   connectionId: string,
   input: ConnectionProfileInput,
-) => invoke<ConnectionProfile>("update_connection", { connectionId, input });
+) => {
+  const body = await connectionMutationBody(input);
+  const value = await getBackendClient().http.request<{
+    request_id: string;
+    connection: ConnectionProfile;
+  }>("PATCH", `/v1/connections/${connectionId}`, { body });
+  return value.connection;
+};
 
 export const deleteConnection = (connectionId: string) =>
-  invoke<boolean>("delete_connection", { connectionId });
+  getBackendClient().http.request<{ request_id: string; deleted: boolean }>(
+    "DELETE", `/v1/connections/${connectionId}`,
+  ).then((value) => value.deleted);
 
 export const confirmHostKey = (candidate: HostKeyCandidate) =>
-  invoke<HostKeyRecord>("confirm_host_key", { candidate });
+  getBackendClient().http.request<{ request_id: string; host_key: HostKeyRecord }>(
+    "POST", "/v1/host-key-confirmations", { body: candidate },
+  ).then((value) => value.host_key);
 
 export const replaceHostKey = (
   candidate: HostKeyCandidate,
   expectedOldFingerprint: string,
-) =>
-  invoke<HostKeyRecord>("replace_host_key", {
-    candidate,
-    expectedOldFingerprint,
-  });
+) => getBackendClient().http.request<{ request_id: string; host_key: HostKeyRecord }>(
+  "POST", "/v1/host-key-replacements", {
+    body: { ...candidate, expected_old_fingerprint: expectedOldFingerprint },
+  },
+).then((value) => value.host_key);
 
 export const inspectHostKey = (connectionId: string) =>
-  invoke<ConnectionStatus>("inspect_host_key", { connectionId });
+  getBackendClient().http.request<{ request_id: string; status: ConnectionStatus }>(
+    "POST", "/v1/host-key-inspections", { body: { connection_id: connectionId } },
+  ).then((value) => value.status);
 
 export const connectSsh = (connectionId: string) =>
-  invoke<ConnectionStatus>("connect_ssh", { connectionId });
+  getBackendClient().http.request<{ request_id: string; status: ConnectionStatus }>(
+    "POST", "/v1/ssh/sessions", { body: { connection_id: connectionId } },
+  ).then((value) => value.status);
 
 export const disconnectSsh = (sshSessionId: string) =>
-  invoke<ConnectionStatus>("disconnect_ssh", { sshSessionId });
+  getBackendClient().http.request<{ request_id: string; status: ConnectionStatus }>(
+    "DELETE", `/v1/ssh/sessions/${sshSessionId}`,
+  ).then((value) => value.status);
 
 export const openPty = (sshSessionId: string, cols: number, rows: number) =>
-  invoke<PtySession>("open_pty", { sshSessionId, cols, rows });
+  getBackendClient().http.request<{ request_id: string; pty_session: PtySession }>(
+    "POST", "/v1/pty/sessions", { body: { ssh_session_id: sshSessionId, cols, rows } },
+  ).then((value) => value.pty_session);
 
-export const writePty = (ptySessionId: string, data: Uint8Array) =>
-  invoke<number>("write_pty", {
+export const writePty = (ptySessionId: string, data: Uint8Array): void =>
+  getBackendClient().runtimeWebSocket.sendPtyInput({
     ptySessionId,
     dataB64: bytesToBase64(data),
   });
 
 export const resizePty = (ptySessionId: string, cols: number, rows: number) =>
-  invoke<PtySession>("resize_pty", { ptySessionId, cols, rows });
+  getBackendClient().http.request<{ request_id: string; pty_session: PtySession }>(
+    "POST", `/v1/pty/sessions/${ptySessionId}/resize`, { body: { cols, rows } },
+  ).then((value) => value.pty_session);
 
 export const closePty = (ptySessionId: string) =>
-  invoke<PtySession>("close_pty", { ptySessionId });
+  getBackendClient().http.request<{ request_id: string; pty_session: PtySession }>(
+    "DELETE", `/v1/pty/sessions/${ptySessionId}`,
+  ).then((value) => value.pty_session);
 
 export const subscribeSshEvents = (
   onEvent: (event: SshEvent) => void,
   onProtocolError: (error: SshProtocolError) => void,
-): Promise<UnlistenFn> =>
-  listen<unknown>("ssh://event", ({ payload }) => {
+): Promise<UnlistenFn> => Promise.resolve(
+  getBackendClient().runtimeWebSocket.subscribe((message) => {
     try {
-      onEvent(parseSshEvent(payload));
+      if (message.type === "ssh.connection_state") {
+        onEvent(parseSshEvent({ event: "ssh.connection.status", status: message.payload }));
+      } else if (message.type === "pty.output") {
+        onEvent(parseSshEvent({ event: "ssh.pty.output", ...message.payload }));
+      } else if (message.type === "pty.closed") {
+        onEvent(parseSshEvent({ event: "ssh.pty.closed", ...message.payload }));
+      } else if (message.type === "runtime.disconnected") {
+        throw new SshProtocolError(message.errorCode);
+      }
     } catch (error) {
       onProtocolError(
         error instanceof SshProtocolError
@@ -191,7 +217,39 @@ export const subscribeSshEvents = (
           : new SshProtocolError("SSH event validation failed."),
       );
     }
-  });
+  }),
+);
+
+const connectionMutationBody = async (input: ConnectionProfileInput) => {
+  const http = getBackendClient().http;
+  let publicKey: Promise<CredentialPublicKey> | null = null;
+  const loadPublicKey = () => {
+    publicKey ??= http.request<CredentialPublicKey & { request_id: string }>(
+      "GET", "/v1/runtime/credential-encryption-key",
+    );
+    return publicKey;
+  };
+  const {
+    credential_secret: credentialSecret,
+    passphrase_secret: passphraseSecret,
+    ...fields
+  } = input;
+  const credentialEnvelope = credentialSecret === null
+    ? undefined
+    : await createCredentialEnvelope(credentialSecret, loadPublicKey);
+  const passphraseEnvelope = passphraseSecret === null
+    ? undefined
+    : await createCredentialEnvelope(passphraseSecret, loadPublicKey);
+  return {
+    ...fields,
+    ...(credentialEnvelope === undefined
+      ? {}
+      : { credential_envelope: credentialEnvelope }),
+    ...(passphraseEnvelope === undefined
+      ? {}
+      : { passphrase_envelope: passphraseEnvelope }),
+  };
+};
 
 export const parseSshEvent = (payload: unknown): SshEvent => {
   if (!isRecord(payload) || typeof payload.event !== "string") {

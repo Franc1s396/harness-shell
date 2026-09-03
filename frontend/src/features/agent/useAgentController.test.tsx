@@ -39,8 +39,6 @@ const mockAgentApi = {
   createModelApiConfig: vi.fn(),
   updateModelApiConfig: vi.fn(),
   deleteModelApiConfig: vi.fn(),
-  storeModelApiKey: vi.fn(),
-  deleteModelApiKey: vi.fn(),
   runAgentTurn: vi.fn(),
 } satisfies AgentApi;
 
@@ -230,17 +228,10 @@ describe("useAgentController", () => {
     ).toBeNull();
   });
 
-  it("surfaces partial Provider success and refreshes the list", async () => {
-    mockAgentApi.storeModelApiKey.mockResolvedValue({
-      credential_id: "credential-new",
-      kind: "api_key",
-    });
+  it("submits a replacement Key through the Provider aggregate and refreshes", async () => {
     mockAgentApi.updateModelApiConfig.mockResolvedValue({
       ...config,
       api_key_secret_ref: "credential-new",
-    });
-    mockAgentApi.deleteModelApiKey.mockRejectedValue({
-      code: "VAULT_OPERATION_FAILED",
     });
     const view = renderController([connectedSession]);
 
@@ -248,8 +239,10 @@ describe("useAgentController", () => {
       view.result.current.updateProvider(config, providerDraft, "replacement"),
     );
 
-    expect(view.result.current.providerCleanupError?.code).toBe(
-      "VAULT_OPERATION_FAILED",
+    expect(mockAgentApi.updateModelApiConfig).toHaveBeenCalledWith(
+      config.api_config_id,
+      expect.any(Object),
+      "replacement",
     );
     expect(mockAgentApi.listModelApiConfigs).toHaveBeenCalled();
   });

@@ -1,4 +1,6 @@
-# M3 Experimental ReAct Shell Agent Acceptance
+# M3 Experimental ReAct Shell Agent Acceptance（历史快照）
+
+> 下文是切换到 Python CredentialRepository 与 schema v6 之前的证据，仅用于历史追踪，不能代表当前架构通过。当前 M3 门禁范围以 `docs/agents/testing.md` 为准。
 
 本记录区分自动门禁、真实 Provider、Tauri Desktop 和生产环境证据。任何一层 PASS 都不能推导其他层已经验收。
 

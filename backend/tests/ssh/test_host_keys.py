@@ -75,7 +75,7 @@ def profile(repository: ConnectionRepository, port: int):
 
 
 def repository(tmp_path: Path):
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
     return database, ConnectionRepository(database)
 
 

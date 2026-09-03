@@ -7,9 +7,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
 
+from harness_shell_sidecar.connections.handlers import (
+    ConnectionCreateRequest,
+    ConnectionUpdateRequest,
+)
 from harness_shell_sidecar.connections.models import (
     ConnectionProfile,
-    ConnectionProfileInput,
 )
 
 from ..dependencies import (
@@ -47,28 +50,6 @@ async def list_connections(
     return ConnectionListResponse(request_id=request_id, connections=connections)
 
 
-@router.get("/v1/connections/{connection_id}", response_model=ConnectionResponse)
-async def get_connection(
-    connection_id: UUID,
-    response: Response,
-    request_id: CorrelationId,
-    owner: Owner,
-) -> ConnectionResponse:
-    """Return one profile by opaque identity."""
-
-    result = await dispatch_application(
-        owner,
-        request_id,
-        "connections.get",
-        {"connection_id": str(connection_id)},
-    )
-    set_correlation(response, request_id)
-    return ConnectionResponse(
-        request_id=request_id,
-        connection=model_from_result(result["connection"], ConnectionProfile),
-    )
-
-
 @router.post(
     "/v1/connections",
     response_model=ConnectionResponse,
@@ -82,7 +63,7 @@ async def create_connection(
 ) -> ConnectionResponse:
     """Validate and persist one complete connection profile."""
 
-    value = validate_json_model(payload, ConnectionProfileInput, request_id)
+    value = validate_json_model(payload, ConnectionCreateRequest, request_id)
     result = await dispatch_application(
         owner,
         request_id,
@@ -109,7 +90,7 @@ async def update_connection(
 ) -> ConnectionResponse:
     """Replace one complete connection profile while preserving its identity."""
 
-    value = validate_json_model(payload, ConnectionProfileInput, request_id)
+    value = validate_json_model(payload, ConnectionUpdateRequest, request_id)
     params = value.model_dump(mode="json")
     params["connection_id"] = str(connection_id)
     result = await dispatch_application(

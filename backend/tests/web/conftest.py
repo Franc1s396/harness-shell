@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 import os
 from pathlib import Path
@@ -20,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harness_shell_sidecar.web import create_app
+from harness_shell_sidecar.runtime.settings import RuntimeSettings
 
 
 @pytest.fixture
@@ -30,24 +30,21 @@ def request_id() -> UUID:
 
 
 @pytest.fixture
-def client() -> TestClient:
-    """Run a fresh import-side-effect-free ASGI application lifespan."""
+def client(tmp_path: Path) -> TestClient:
+    """Run one fresh autonomous schema-v6 ASGI application lifespan."""
 
-    with TestClient(create_app()) as test_client:
+    settings = RuntimeSettings.from_data_dir((tmp_path / "runtime-data").resolve())
+    with TestClient(create_app(settings=settings)) as test_client:
         yield test_client
 
 
-def valid_initialize_json(tmp_path: Path) -> dict[str, object]:
-    """Build a strict initialize request for a disposable runtime database."""
+@pytest.fixture
+def autonomous_client(tmp_path: Path) -> Iterator[TestClient]:
+    """Run one schema-v6 Runtime initialized entirely by ASGI lifespan."""
 
-    return {
-        "app_version": "0.1.0",
-        "runtime_db_path": str((tmp_path / "http-runtime.sqlite3").resolve()),
-        "runtime_data_key_b64": base64.b64encode(b"d" * 32).decode("ascii"),
-        "audit_hmac_key_b64": base64.b64encode(b"a" * 32).decode("ascii"),
-        "heartbeat_interval_ms": 5_000,
-        "heartbeat_timeout_ms": 15_000,
-    }
+    settings = RuntimeSettings.from_data_dir((tmp_path / "runtime-data").resolve())
+    with TestClient(create_app(settings=settings)) as test_client:
+        yield test_client
 
 
 def reserve_then_release_loopback_port() -> int:

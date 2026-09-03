@@ -9,16 +9,8 @@ import type { ConnectionProfile } from "../../api/ssh";
 import { i18n, i18nReady } from "../../i18n";
 import { ConnectionDialog } from "./ConnectionDialog";
 
-const vault = vi.hoisted(() => ({
-  storeSshPassword: vi.fn(),
-  storePrivateKeyPassphrase: vi.fn(),
-  importPrivateKey: vi.fn(),
-}));
-
-vi.mock("../../api/ssh", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../api/ssh")>()),
-  ...vault,
-}));
+const selectPrivateKeyText = vi.hoisted(() => vi.fn());
+vi.mock("./private-key-file", () => ({ selectPrivateKeyText }));
 
 const existing: ConnectionProfile = {
   connection_id: "c1",
@@ -60,12 +52,7 @@ describe("ConnectionDialog", () => {
   });
   beforeEach(() => {
     localStorage.clear();
-    vault.storeSshPassword.mockReset().mockResolvedValue({
-      credential_id: "cred-new",
-      kind: "ssh_password",
-    });
-    vault.storePrivateKeyPassphrase.mockReset();
-    vault.importPrivateKey.mockReset();
+    selectPrivateKeyText.mockReset();
   });
   afterEach(cleanup);
 
@@ -116,7 +103,10 @@ describe("ConnectionDialog", () => {
 
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ credential_id: "cred-new" }),
+        expect.objectContaining({
+          credential_secret: "SECRET_MARKER",
+          passphrase_secret: null,
+        }),
         intent,
       ),
     );
@@ -202,12 +192,9 @@ describe("ConnectionDialog", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Favorite" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() =>
-      expect(vault.storeSshPassword).toHaveBeenCalledWith("SECRET_MARKER"),
-    );
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        credential_id: "cred-new",
+        credential_secret: "SECRET_MARKER",
         favorite: true,
       }),
       "save",
@@ -215,14 +202,7 @@ describe("ConnectionDialog", () => {
   });
 
   it("preserves an unsaved private-key passphrase while switching to Advanced", async () => {
-    vault.importPrivateKey.mockResolvedValue({
-      credential_id: "key-new",
-      kind: "ssh_private_key",
-    });
-    vault.storePrivateKeyPassphrase.mockResolvedValue({
-      credential_id: "passphrase-new",
-      kind: "ssh_private_key_passphrase",
-    });
+    selectPrivateKeyText.mockResolvedValue("PRIVATE_KEY_MARKER");
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -250,7 +230,7 @@ describe("ConnectionDialog", () => {
       target: { value: "private_key" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Private key" }));
-    await waitFor(() => expect(vault.importPrivateKey).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(selectPrivateKeyText).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText("Passphrase"), {
       target: { value: "PASSPHRASE_MARKER" },
     });
@@ -258,15 +238,10 @@ describe("ConnectionDialog", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Advanced" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() =>
-      expect(vault.storePrivateKeyPassphrase).toHaveBeenCalledWith(
-        "PASSPHRASE_MARKER",
-      ),
-    );
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        credential_id: "key-new",
-        passphrase_credential_id: "passphrase-new",
+        credential_secret: "PRIVATE_KEY_MARKER",
+        passphrase_secret: "PASSPHRASE_MARKER",
       }),
       "save",
     );

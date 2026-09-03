@@ -35,7 +35,7 @@ def profile_input(name: str, **overrides: object) -> ConnectionProfileInput:
 
 @pytest.fixture
 def repository(tmp_path: Path):
-    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
     try:
         yield ConnectionRepository(database)
     finally:

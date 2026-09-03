@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
-from harness_shell_sidecar.manual_sftp.models import RemoteEntry
+from harness_shell_sidecar.manual_sftp.models import RecoverySummary, RemoteEntry
 
 
 def test_remote_entry_rejects_unknown_fields_and_unsafe_size() -> None:
@@ -38,3 +40,11 @@ def test_remote_entry_rejects_coerced_sizes(size: object) -> None:
             mtime_ns=None,
             link_target=None,
         )
+
+
+def test_recovery_contract_has_no_local_download_kind() -> None:
+    schema = RecoverySummary.model_json_schema()
+    encoded = json.dumps(schema, sort_keys=True)
+
+    assert "download" + "_part" not in encoded
+    assert "open_local" + "_folder" not in encoded

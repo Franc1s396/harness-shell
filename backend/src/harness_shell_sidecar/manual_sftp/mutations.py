@@ -28,8 +28,8 @@ from .models import (
 )
 from .operation_store import (
     DeletePlanRecord,
+    ManualSftpOperationStore,
     RemoteOperationRecord,
-    RemoteOperationStore,
 )
 from .paths import join_remote_path, validate_basename, validate_remote_path
 from .transfers import _snapshot
@@ -44,7 +44,7 @@ MUTATION_REQUEST_TIMEOUT_SECONDS = 15
 class _ScannedEntry:
     """Pair canonical projected manifest metadata with the actual remote path."""
 
-    #: Canonical entry used for hashing and encrypted persistence.
+    #: Canonical entry used for hashing and plaintext persistence.
     manifest: DeleteManifestEntry
     #: Actual path used only by the current in-memory operation.
     actual_path: str
@@ -84,10 +84,10 @@ class MutationManager:
     def __init__(
         self,
         channels: SftpChannelFactory,
-        operations: RemoteOperationStore,
+        operations: ManualSftpOperationStore,
         event_listener: Callable[[dict], Awaitable[None]],
     ) -> None:
-        """Bind channel, encrypted state, and safe progress projection owners."""
+        """Bind channel, plaintext state, and safe progress projection owners."""
 
         self._channels = channels
         self._operations = operations
@@ -671,12 +671,12 @@ class MutationManager:
             await lease.close()
 
     async def close_all(self) -> None:
-        """Discard only non-replayable in-memory live bindings; records remain encrypted."""
+        """Discard only non-replayable live bindings; plaintext records remain."""
 
         self._delete_plans.clear()
 
     def _require_new_operation(self, operation_id: UUID) -> None:
-        """Forbid reusing any encrypted operation identity."""
+        """Forbid reusing any persisted operation identity."""
 
         if self._operations.get(operation_id) is not None:
             raise ManualSftpError(
@@ -693,7 +693,7 @@ class MutationManager:
         temp_path: str | None,
         snapshot: TransferSnapshot | None,
     ) -> RemoteOperationRecord:
-        """Build one encrypted preparing record before dispatching a mutation."""
+        """Build one plaintext preparing record before dispatching a mutation."""
 
         return RemoteOperationRecord(
             operation_id=operation_id,
@@ -1042,7 +1042,7 @@ def _terminal(
 
 
 def _utc_now() -> str:
-    """Return a stable RFC 3339 UTC timestamp for encrypted records."""
+    """Return a stable RFC 3339 UTC timestamp for plaintext records."""
 
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"

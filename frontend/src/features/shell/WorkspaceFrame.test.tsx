@@ -21,8 +21,18 @@ const tauriWindow = vi.hoisted(() => ({
   emitCloseRequested: null as null | ((event: { preventDefault: () => void }) => void),
 }));
 
+const diagnosticsApi = vi.hoisted(() => ({
+  getLogDirectory: vi.fn(),
+  openLogDirectory: vi.fn(),
+}));
+
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => tauriWindow,
+}));
+
+vi.mock("../../api/diagnostics", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/diagnostics")>()),
+  diagnosticsApi,
 }));
 
 const setViewport = (width: number) => {
@@ -49,7 +59,6 @@ const renderFrame = (overrides: Partial<React.ComponentProps<typeof WorkspaceFra
     onCreateConnection: vi.fn(),
     onEditConnection: vi.fn(),
     onFocusTerminal: vi.fn(),
-    onOpenApproval: vi.fn(),
     onSettingsOpening: vi.fn(),
   };
   render(
@@ -99,6 +108,10 @@ describe("WorkspaceFrame", () => {
         tauriWindow.emitCloseRequested = null;
       };
     });
+    diagnosticsApi.getLogDirectory.mockReset().mockResolvedValue({
+      available: true,
+    });
+    diagnosticsApi.openLogDirectory.mockReset().mockResolvedValue(undefined);
   });
 
   it("confirms an application close even without an active terminal", async () => {
@@ -267,7 +280,7 @@ describe("WorkspaceFrame", () => {
       within(header).getByRole("button", { name: /Quick actions/i }),
     );
     const menu = screen.getByRole("menu", { name: /Quick actions/i });
-    expect(within(menu).getAllByRole("menuitem")).toHaveLength(4);
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(3);
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Focus/i }));
     expect(callbacks.onFocusTerminal).toHaveBeenCalledTimes(1);
   });
@@ -285,19 +298,16 @@ describe("WorkspaceFrame", () => {
     expect(status).toHaveTextContent("Route: Direct");
   });
 
-  it("enables Connections, SFTP, Approval, and Settings but not future Files", () => {
-    const callbacks = renderFrame();
+  it("enables Connections, SFTP, and Settings without exposing the removed Approval activity", () => {
+    renderFrame();
     expect(screen.getByRole("button", { name: /Files/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /SFTP/i })).toBeEnabled();
     const settings = screen.getByRole("button", { name: /Settings/i });
-    const approval = screen.getByRole("button", { name: /Approval/i });
     expect(settings).toBeEnabled();
-    expect(approval).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Approval/i })).not.toBeInTheDocument();
     fireEvent.click(settings);
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Language" })).toBeVisible();
-    fireEvent.click(approval);
-    expect(callbacks.onOpenApproval).toHaveBeenCalledTimes(1);
   });
 
   it("hides both Agent surfaces while the SFTP activity is active", () => {

@@ -80,6 +80,23 @@ class FakeService:
             available_actions=("keep",),
         )
 
+    def list_recoveries(self) -> tuple[RecoverySummary, ...]:
+        """Return one remote-only recovery summary."""
+
+        return (
+            RecoverySummary(
+                recovery_id=RECOVERY_ID,
+                operation_id=RECOVERY_ID,
+                kind="mutation_unknown",
+                host_label="demo-host",
+                remote_path="/home/demo/payload.bin",
+                display_name="payload.bin",
+                state="outcome_unknown",
+                created_at="2026-08-29T00:00:00Z",
+                available_actions=("keep",),
+            ),
+        )
+
     async def delete_preflight(self, *args, **kwargs):
         self.calls.append(("delete_preflight", args, kwargs))
         return DeletePlanSummary(
@@ -157,7 +174,7 @@ def test_manual_sftp_open_is_strict_and_returns_typed_context() -> None:
         result = await dispatcher.dispatch(
             uuid4(), "manual_sftp.open", {"ssh_session_id": str(SESSION_ID)}
         )
-        assert result.payload["context"]["home"] == "/home/demo"
+        assert result["context"]["home"] == "/home/demo"
         assert service.calls == [("open", (SESSION_ID,), {})]
 
         with pytest.raises(DispatchError) as raised:
@@ -198,13 +215,13 @@ def test_manual_sftp_registers_read_and_transfer_families() -> None:
         "manual_sftp.list.close",
         "manual_sftp.lstat",
         "manual_sftp.readlink",
-        "manual_sftp.realpath",
         "manual_sftp.sha256",
     }
     assert all(dispatcher.handles(operation) for operation in expected)
     assert dispatcher.handles("manual_sftp.upload.begin") is True
     assert dispatcher.handles("manual_sftp.download.abort") is True
     assert dispatcher.handles("manual_sftp.delete.execute") is True
+    assert dispatcher.handles("manual_sftp.recovery.list") is True
     assert dispatcher.handles("manual_sftp.recovery.execute") is True
     assert dispatcher.handles("agent_sftp.upload") is False
 
@@ -223,7 +240,7 @@ def test_recovery_execute_forwards_fresh_operation_id() -> None:
         result = await dispatcher.dispatch(
             uuid4(), "manual_sftp.recovery.execute", params
         )
-        assert result.payload["recovery"]["recovery_id"] == str(RECOVERY_ID)
+        assert result["recovery"]["recovery_id"] == str(RECOVERY_ID)
         assert service.calls == [
             (
                 "recovery_execute",
@@ -257,7 +274,7 @@ def test_delete_preflight_forwards_selected_operation_id() -> None:
         result = await dispatcher.dispatch(
             uuid4(), "manual_sftp.delete.preflight", params
         )
-        assert result.payload["delete_plan"]["operation_id"] == str(
+        assert result["delete_plan"]["operation_id"] == str(
             FRESH_OPERATION_ID
         )
         assert service.calls == [

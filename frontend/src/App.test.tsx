@@ -11,7 +11,6 @@ import { useWorkspaceUiStore } from "./stores/workspace-ui-store";
 
 const runtimeApi = vi.hoisted(() => ({
   getRuntimeStatus: vi.fn(),
-  openApprovalWindow: vi.fn(),
 }));
 
 const tauriWindow = vi.hoisted(() => ({
@@ -26,14 +25,11 @@ const sshApi = vi.hoisted(() => ({
   createConnection: vi.fn(),
   deleteConnection: vi.fn(),
   disconnectSsh: vi.fn(),
-  importPrivateKey: vi.fn(),
   inspectHostKey: vi.fn(),
   listConnections: vi.fn(),
   openPty: vi.fn(),
   replaceHostKey: vi.fn(),
   resizePty: vi.fn(),
-  storePrivateKeyPassphrase: vi.fn(),
-  storeSshPassword: vi.fn(),
   subscribeSshEvents: vi.fn(),
   updateConnection: vi.fn(),
   writePty: vi.fn(),
@@ -260,7 +256,6 @@ describe("App connection orchestration", () => {
     terminalTabMock.outputBuffer = null;
     terminalTabMock.renderCount = 0;
     runtimeApi.getRuntimeStatus.mockResolvedValue(runtimeReadyStatus);
-    runtimeApi.openApprovalWindow.mockResolvedValue(undefined);
     tauriWindow.close.mockResolvedValue(undefined);
     tauriWindow.onCloseRequested.mockResolvedValue(() => undefined);
     sshApi.subscribeSshEvents.mockResolvedValue(() => undefined);
@@ -276,10 +271,6 @@ describe("App connection orchestration", () => {
     manualSftpApi.cancelManualSftpOperation.mockResolvedValue(undefined);
     manualSftpApi.closeManualSftpListing.mockResolvedValue(true);
     manualSftpApi.listManualSftpRecoveries.mockResolvedValue([]);
-    sshApi.storeSshPassword.mockResolvedValue({
-      credential_id: savedProfile.credential_id,
-      kind: "ssh_password",
-    });
     sshApi.createConnection.mockResolvedValue(savedProfile);
     sshApi.listConnections
       .mockResolvedValueOnce([])
@@ -1046,18 +1037,6 @@ describe("App connection orchestration", () => {
     });
   });
 
-  it("surfaces approval-window launch failures", async () => {
-    runtimeApi.openApprovalWindow.mockRejectedValue({
-      code: "APPROVAL_WINDOW_FAILED",
-      message: "window failed",
-    });
-    render(<App />);
-
-    fireEvent.click((await screen.findAllByRole("button", { name: /Approval/i }))[0]);
-
-    expect(await screen.findByText("APPROVAL_WINDOW_FAILED")).toBeInTheDocument();
-  });
-
   it("places connection failures beside the selected navigator row with explicit recovery actions", async () => {
     sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
     sshApi.inspectHostKey.mockResolvedValue(failedInspection("AUTH_FAILED"));
@@ -1090,9 +1069,11 @@ describe("App connection orchestration", () => {
       rows: 24,
       state: "OPEN",
     });
-    sshApi.writePty.mockRejectedValue({
-      code: "PTY_WRITE_FAILED",
-      message: "write failed",
+    sshApi.writePty.mockImplementationOnce(() => {
+      throw {
+        code: "PTY_WRITE_FAILED",
+        message: "write failed",
+      };
     });
     render(<App />);
     await openSavedProfile();
@@ -1107,45 +1088,6 @@ describe("App connection orchestration", () => {
       errorCode.closest('[data-testid="terminal-region"]'),
     ).not.toBeNull();
     expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
-  });
-
-  it("blocks runtime interactions while preserving rendered terminal UI", async () => {
-    sshApi.listConnections.mockReset().mockResolvedValue([savedProfile]);
-    sshApi.inspectHostKey.mockResolvedValue(trustedInspection);
-    sshApi.connectSsh.mockResolvedValue(
-      status({ state: "READY", session_id: "ssh-session-test" }),
-    );
-    sshApi.openPty.mockResolvedValue({
-      pty_session_id: "pty-session-test",
-      ssh_session_id: "ssh-session-test",
-      connection_id: savedProfile.connection_id,
-      cols: 80,
-      rows: 24,
-      state: "OPEN",
-    });
-    runtimeApi.openApprovalWindow.mockRejectedValue({
-      code: "APPROVAL_WINDOW_FAILED",
-      message: "window failed",
-      details: { correlation_id: "corr-approval" },
-    });
-    render(<App />);
-    await openSavedProfile();
-    await screen.findByTestId("terminal-tab");
-
-    fireEvent.click(
-      (await screen.findAllByRole("button", { name: /Approval/i }))[0],
-    );
-
-    const runtimeTitle = await screen.findByText("Runtime unavailable");
-    const runtimeAlert = runtimeTitle.closest('[role="alert"]');
-    expect(runtimeAlert).not.toBeNull();
-    expect(runtimeAlert).toHaveTextContent("Runtime unavailable");
-    expect(runtimeAlert).toHaveTextContent("APPROVAL_WINDOW_FAILED");
-    expect(runtimeAlert).toHaveTextContent("corr-approval");
-    expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "New connection" }),
-    ).toBeDisabled();
   });
 
   it("re-inspects and refreshes a stale Host Key replacement prompt", async () => {

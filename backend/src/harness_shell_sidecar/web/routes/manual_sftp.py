@@ -67,7 +67,7 @@ class SftpPathRequest(SftpSessionRequest):
 class SftpUploadBeginRequest(SftpPathRequest):
     """Freeze the local source and remote target identity for an upload."""
 
-    #: Rust-selected fresh operation identity.
+    #: React-selected fresh operation identity.
     operation_id: UUID
     #: Complete local source SHA-256.
     source_sha256: Sha256Hex
@@ -80,14 +80,14 @@ class SftpUploadBeginRequest(SftpPathRequest):
 class SftpDownloadBeginRequest(SftpPathRequest):
     """Begin a download under one fresh durable operation identity."""
 
-    #: Rust-selected fresh operation identity.
+    #: React-selected fresh operation identity.
     operation_id: UUID
 
 
 class SftpMkdirRequest(SftpSessionRequest):
     """Create one basename under a previously validated parent."""
 
-    #: Rust-selected fresh operation identity.
+    #: React-selected fresh operation identity.
     operation_id: UUID
     #: Absolute parent directory path.
     parent_path: str
@@ -98,7 +98,7 @@ class SftpMkdirRequest(SftpSessionRequest):
 class SftpRenameRequest(SftpSessionRequest):
     """Rename one unchanged source to one validated target."""
 
-    #: Rust-selected fresh operation identity.
+    #: React-selected fresh operation identity.
     operation_id: UUID
     #: Absolute source path.
     source_path: str
@@ -115,7 +115,7 @@ class SftpRenameRequest(SftpSessionRequest):
 class SftpRemoveRequest(SftpPathRequest):
     """Remove one entry only when its complete snapshot still matches."""
 
-    #: Rust-selected fresh operation identity.
+    #: React-selected fresh operation identity.
     operation_id: UUID
     #: Snapshot that authorizes the mutation.
     expected_snapshot: TransferSnapshot
@@ -124,14 +124,14 @@ class SftpRemoveRequest(SftpPathRequest):
 class SftpDeletePreflightRequest(SftpPathRequest):
     """Build a complete recursive-delete plan without deleting anything."""
 
-    #: Rust-selected fresh operation identity.
+    #: React-selected fresh operation identity.
     operation_id: UUID
 
 
 class SftpRecoveryActionRequest(StrictHttpModel):
     """Execute one allowlisted recovery action under a fresh identity."""
 
-    #: Rust-selected fresh recovery mutation identity.
+    #: React-selected fresh recovery mutation identity.
     operation_id: UUID
     #: Explicit user-confirmed recovery action.
     action: Literal[
@@ -139,7 +139,6 @@ class SftpRecoveryActionRequest(StrictHttpModel):
         "delete_temp",
         "continue_delete",
         "restore_tombstone",
-        "open_local_folder",
         "keep",
     ]
 
@@ -256,6 +255,13 @@ class SftpRecoveryResponse(StrictHttpModel):
     request_id: UUID
     #: Safe recovery summary.
     recovery: RecoverySummary
+
+
+class SftpRecoveryListResponse(StrictHttpModel):
+    """Return all remote-only recovery summaries in stable creation order."""
+
+    request_id: UUID
+    recoveries: list[RecoverySummary]
 
 
 router = APIRouter(route_class=ResponseLimitRoute)
@@ -528,13 +534,6 @@ async def readlink(payload: dict[str, object], response: Response, request_id: C
     return await _entry_operation("manual_sftp.readlink", payload, response, request_id, owner)
 
 
-@router.post("/v1/sftp/metadata/realpath", response_model=SftpEntryResponse)
-async def realpath(payload: dict[str, object], response: Response, request_id: CorrelationId, owner: Owner) -> SftpEntryResponse:
-    """Return the server-canonical remote path projection."""
-
-    return await _entry_operation("manual_sftp.realpath", payload, response, request_id, owner)
-
-
 @router.post("/v1/sftp/hashes/sha256", response_model=SftpHashResponse)
 async def sha256(payload: dict[str, object], response: Response, request_id: CorrelationId, owner: Owner) -> SftpHashResponse:
     """Hash one unchanged remote regular file completely."""
@@ -697,9 +696,21 @@ async def delete_execute(operation_id: UUID, response: Response, request_id: Cor
     return SftpTerminalResponse(request_id=request_id, terminal=model_from_result(result["terminal"], OperationTerminalProjection))
 
 
-@router.get("/v1/sftp/recoveries", response_model=SftpRecoveryResponse)
+@router.get("/v1/sftp/recoveries", response_model=SftpRecoveryListResponse)
+async def list_recoveries(response: Response, request_id: CorrelationId, owner: Owner) -> SftpRecoveryListResponse:
+    """List every remote-only recovery through the dispatcher owner."""
+
+    result = await dispatch_application(owner, request_id, "manual_sftp.recovery.list", {})
+    set_correlation(response, request_id)
+    return SftpRecoveryListResponse(
+        request_id=request_id,
+        recoveries=[model_from_result(value, RecoverySummary) for value in result["recoveries"]],
+    )
+
+
+@router.get("/v1/sftp/recoveries/{recovery_id}", response_model=SftpRecoveryResponse)
 async def inspect_recovery(recovery_id: UUID, response: Response, request_id: CorrelationId, owner: Owner) -> SftpRecoveryResponse:
-    """Inspect one encrypted recovery record without mutating it."""
+    """Inspect one remote recovery record without mutating it."""
 
     result = await dispatch_application(owner, request_id, "manual_sftp.recovery.inspect", {"recovery_id": str(recovery_id)})
     set_correlation(response, request_id)

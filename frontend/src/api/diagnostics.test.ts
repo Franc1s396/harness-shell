@@ -1,47 +1,25 @@
-// @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 
-const invoke = vi.hoisted(() => vi.fn());
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+const request = vi.hoisted(() => vi.fn());
+vi.mock("./bootstrap", () => ({
+  getBackendClient: () => ({ http: { request } }),
+}));
 
-import {
-  diagnosticsApi,
-  normalizeDiagnosticsCommandError,
-} from "./diagnostics";
+import { diagnosticsApi } from "./diagnostics";
 
-describe("diagnosticsApi", () => {
-  beforeEach(() => invoke.mockReset());
+beforeEach(() => request.mockReset());
 
-  it("uses only the fixed diagnostics commands without path arguments", async () => {
-    invoke
-      .mockResolvedValueOnce(
-        "C:\\Users\\test\\AppData\\Local\\com.harnessshell.app\\logs",
-      )
-      .mockResolvedValueOnce(undefined);
+it("returns availability without exposing a local path", async () => {
+  request.mockResolvedValue({ request_id: "r", available: true });
 
-    await expect(diagnosticsApi.getLogDirectory()).resolves.toContain("logs");
-    await expect(diagnosticsApi.openLogDirectory()).resolves.toBeUndefined();
+  await expect(diagnosticsApi.getLogDirectory()).resolves.toEqual({ available: true });
+  expect(request).toHaveBeenCalledWith("GET", "/v1/diagnostics/log-directory");
+});
 
-    expect(invoke).toHaveBeenNthCalledWith(1, "get_log_directory");
-    expect(invoke).toHaveBeenNthCalledWith(2, "open_log_directory");
-  });
+it("opens the fixed Python-owned directory without a path argument", async () => {
+  request.mockResolvedValue(undefined);
 
-  it("normalizes structured errors and hides unknown rejection details", () => {
-    expect(
-      normalizeDiagnosticsCommandError({
-        code: "LOG_DIRECTORY_UNAVAILABLE",
-        message: "The application log directory is not available.",
-        secret: "must-not-leak",
-      }),
-    ).toEqual({
-      code: "LOG_DIRECTORY_UNAVAILABLE",
-      message: "The application log directory is not available.",
-    });
-    expect(
-      normalizeDiagnosticsCommandError(new Error("sensitive detail")),
-    ).toEqual({
-      code: "DIAGNOSTICS_COMMAND_FAILED",
-      message: "Diagnostics operation failed.",
-    });
-  });
+  await diagnosticsApi.openLogDirectory();
+
+  expect(request).toHaveBeenCalledWith("POST", "/v1/diagnostics/log-directory/open");
 });

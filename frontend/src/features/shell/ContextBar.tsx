@@ -15,7 +15,6 @@ export type ContextBarProps = {
   onCreateConnection: () => void;
   onEditConnection: () => void;
   onFocusTerminal: () => void;
-  onOpenApproval: () => void;
 };
 
 export function ContextBar({
@@ -29,7 +28,6 @@ export function ContextBar({
   onCreateConnection,
   onEditConnection,
   onFocusTerminal,
-  onOpenApproval,
 }: ContextBarProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -113,9 +111,6 @@ export function ContextBar({
             </button>
             <button type="button" role="menuitem" disabled={actionsDisabled || !activeTerminalAvailable} className="rounded px-3 py-2 text-left text-sm hover:bg-accent-soft disabled:opacity-40" onClick={() => run(onFocusTerminal)}>
               {t("topbar.focusTerminal")}
-            </button>
-            <button type="button" role="menuitem" className="rounded px-3 py-2 text-left text-sm hover:bg-accent-soft" onClick={() => run(onOpenApproval)}>
-              {t("topbar.openApproval")}
             </button>
           </div>
         ) : null}

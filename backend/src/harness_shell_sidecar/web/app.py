@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from harness_shell_sidecar.runtime.settings import RuntimeSettings
 
 from .errors import register_exception_handlers
-from .lifespan import (
-    ResourceFactory,
-    default_resource_factory,
-    runtime_lifespan,
-)
+from .lifespan import ResourceFactory, default_resource_factory, runtime_lifespan
 from .limits import BodyLimitMiddleware
 from .websocket import runtime_websocket_endpoint
 from .routes import (
     agent_router,
     connections_router,
+    diagnostics_router,
     host_keys_router,
     manual_sftp_router,
     runtime_router,
@@ -27,8 +28,9 @@ from .routes import (
 
 def create_app(
     *,
+    settings: RuntimeSettings,
     resource_factory: ResourceFactory | None = None,
-    shutdown_callback: Callable[[], None] | None = None,
+    log_directory_opener: Callable[[Path], object] | None = None,
 ) -> FastAPI:
     """Build the private ASGI app without opening DBs or starting background work."""
 
@@ -36,7 +38,7 @@ def create_app(
         title="Harness Shell Private Python Runtime API",
         version="1.0.0",
         description=(
-            "Loopback-only API owned by the Rust-managed packaged child. "
+            "Loopback-only API owned by the Python process. "
             "The Runtime WebSocket is specified separately."
         ),
         servers=[
@@ -51,7 +53,12 @@ def create_app(
         lifespan=runtime_lifespan,
     )
     app.state.resource_factory = resource_factory or default_resource_factory
-    app.state.shutdown_callback = shutdown_callback or (lambda: None)
+    app.state.settings = settings
+    from .routes.diagnostics import open_log_directory_with_explorer
+
+    app.state.log_directory_opener = (
+        log_directory_opener or open_log_directory_with_explorer
+    )
     register_exception_handlers(app)
     app.include_router(runtime_router)
     app.include_router(connections_router)
@@ -60,7 +67,22 @@ def create_app(
     app.include_router(terminal_router)
     app.include_router(agent_router)
     app.include_router(manual_sftp_router)
+    app.include_router(diagnostics_router)
     app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://tauri.localhost", "http://localhost:1420"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "PUT"],
+        allow_headers=["Content-Type", "X-Request-ID", "X-Chunk-Offset"],
+        expose_headers=[
+            "X-Request-ID",
+            "X-Chunk-Sequence",
+            "X-Chunk-Offset",
+            "X-Chunk-Byte-Count",
+            "X-Chunk-EOF",
+        ],
+    )
     app.add_api_websocket_route(
         "/v1/runtime/events",
         runtime_websocket_endpoint,

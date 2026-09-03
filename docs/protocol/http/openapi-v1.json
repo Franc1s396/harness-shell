@@ -101,20 +101,11 @@
       },
       "AgentTurnRequest": {
         "additionalProperties": false,
-        "description": "Validate the only secret Protocol payload accepted for an Agent turn.",
+        "description": "Validate the identity-only public payload accepted for an Agent turn.",
         "properties": {
           "api_config_id": {
             "format": "uuid",
             "title": "Api Config Id",
-            "type": "string"
-          },
-          "api_key_b64": {
-            "title": "Api Key B64",
-            "type": "string"
-          },
-          "api_key_credential_id": {
-            "format": "uuid",
-            "title": "Api Key Credential Id",
             "type": "string"
           },
           "conversation_id": {
@@ -145,8 +136,6 @@
         "required": [
           "ssh_session_id",
           "api_config_id",
-          "api_key_credential_id",
-          "api_key_b64",
           "user_message"
         ],
         "title": "AgentTurnRequest",
@@ -229,6 +218,102 @@
         ],
         "title": "ApiType",
         "type": "string"
+      },
+      "ConnectionCreateRequest": {
+        "additionalProperties": false,
+        "description": "携带新连接字段及由当前 Runtime 公钥加密的认证秘密。",
+        "properties": {
+          "auth_kind": {
+            "enum": [
+              "password",
+              "private_key"
+            ],
+            "title": "Auth Kind",
+            "type": "string"
+          },
+          "credential_envelope": {
+            "$ref": "#/components/schemas/CredentialEnvelope",
+            "description": "Authentication secret encrypted for the current Runtime."
+          },
+          "display_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "favorite": {
+            "default": false,
+            "title": "Favorite",
+            "type": "boolean"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group Name"
+          },
+          "host": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "passphrase_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CredentialEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional private-key passphrase encrypted for this Runtime."
+          },
+          "port": {
+            "default": 22,
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "proxy_jump_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proxy Jump Id"
+          },
+          "username": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "host",
+          "username",
+          "auth_kind",
+          "credential_envelope"
+        ],
+        "title": "ConnectionCreateRequest",
+        "type": "object"
       },
       "ConnectionListResponse": {
         "additionalProperties": false,
@@ -374,104 +459,6 @@
         "title": "ConnectionProfile",
         "type": "object"
       },
-      "ConnectionProfileInput": {
-        "additionalProperties": false,
-        "description": "创建或更新 SSH 连接配置时由调用方提供的字段。",
-        "properties": {
-          "auth_kind": {
-            "enum": [
-              "password",
-              "private_key"
-            ],
-            "title": "Auth Kind",
-            "type": "string"
-          },
-          "credential_id": {
-            "format": "uuid",
-            "title": "Credential Id",
-            "type": "string"
-          },
-          "display_name": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Display Name",
-            "type": "string"
-          },
-          "favorite": {
-            "default": false,
-            "title": "Favorite",
-            "type": "boolean"
-          },
-          "group_name": {
-            "anyOf": [
-              {
-                "maxLength": 80,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Group Name"
-          },
-          "host": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Host",
-            "type": "string"
-          },
-          "passphrase_credential_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Passphrase Credential Id"
-          },
-          "port": {
-            "default": 22,
-            "maximum": 65535,
-            "minimum": 1,
-            "title": "Port",
-            "type": "integer"
-          },
-          "proxy_jump_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Proxy Jump Id"
-          },
-          "username": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Username",
-            "type": "string"
-          }
-        },
-        "required": [
-          "display_name",
-          "host",
-          "username",
-          "auth_kind",
-          "credential_id"
-        ],
-        "title": "ConnectionProfileInput",
-        "type": "object"
-      },
       "ConnectionResponse": {
         "additionalProperties": false,
         "description": "Return one persisted connection profile.",
@@ -579,6 +566,194 @@
         "title": "ConnectionStatus",
         "type": "object"
       },
+      "ConnectionUpdateRequest": {
+        "additionalProperties": false,
+        "description": "携带完整连接字段以及可选的替换认证秘密。",
+        "properties": {
+          "auth_kind": {
+            "enum": [
+              "password",
+              "private_key"
+            ],
+            "title": "Auth Kind",
+            "type": "string"
+          },
+          "credential_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CredentialEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional replacement authentication secret."
+          },
+          "display_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "favorite": {
+            "default": false,
+            "title": "Favorite",
+            "type": "boolean"
+          },
+          "group_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group Name"
+          },
+          "host": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "passphrase_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CredentialEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional replacement private-key passphrase."
+          },
+          "port": {
+            "default": 22,
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "proxy_jump_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Proxy Jump Id"
+          },
+          "username": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "host",
+          "username",
+          "auth_kind"
+        ],
+        "title": "ConnectionUpdateRequest",
+        "type": "object"
+      },
+      "CredentialEnvelope": {
+        "additionalProperties": false,
+        "description": "Carry one RSA-wrapped AES-GCM credential mutation payload.",
+        "properties": {
+          "ciphertext_b64": {
+            "description": "Canonical Base64 AES-GCM ciphertext and authentication tag.",
+            "title": "Ciphertext B64",
+            "type": "string"
+          },
+          "iv_b64": {
+            "description": "Canonical Base64 96-bit AES-GCM IV.",
+            "title": "Iv B64",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "Ephemeral Runtime RSA key identity.",
+            "format": "uuid",
+            "title": "Key Id",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "description": "Credential envelope protocol version.",
+            "title": "Version",
+            "type": "integer"
+          },
+          "wrapped_key_b64": {
+            "description": "Canonical Base64 RSA-OAEP ciphertext.",
+            "title": "Wrapped Key B64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "key_id",
+          "wrapped_key_b64",
+          "iv_b64",
+          "ciphertext_b64"
+        ],
+        "title": "CredentialEnvelope",
+        "type": "object"
+      },
+      "CredentialPublicKeyResponse": {
+        "additionalProperties": false,
+        "description": "Return current ephemeral public key with HTTP correlation.",
+        "properties": {
+          "key_id": {
+            "description": "Ephemeral Runtime RSA key identity.",
+            "format": "uuid",
+            "title": "Key Id",
+            "type": "string"
+          },
+          "public_key_spki_b64": {
+            "description": "Canonical Base64 DER SubjectPublicKeyInfo bytes.",
+            "title": "Public Key Spki B64",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scheme": {
+            "const": "RSA-OAEP-256+A256GCM",
+            "description": "Required hybrid credential encryption scheme.",
+            "title": "Scheme",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "description": "Credential envelope protocol version.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "scheme",
+          "key_id",
+          "public_key_spki_b64",
+          "request_id"
+        ],
+        "title": "CredentialPublicKeyResponse",
+        "type": "object"
+      },
       "DeletePlanSummary": {
         "additionalProperties": false,
         "description": "Expose only complete no-follow recursive-delete plan metadata.",
@@ -669,6 +844,29 @@
           "deleted"
         ],
         "title": "DeleteResponse",
+        "type": "object"
+      },
+      "DiagnosticsAvailabilityResponse": {
+        "additionalProperties": false,
+        "description": "Report only whether the fixed Python-owned log directory is available.",
+        "properties": {
+          "available": {
+            "description": "Whether the fixed Runtime log directory currently exists.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identity.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "available"
+        ],
+        "title": "DiagnosticsAvailabilityResponse",
         "type": "object"
       },
       "DownloadReady": {
@@ -819,23 +1017,12 @@
       },
       "HostKeyInspectionRequest": {
         "additionalProperties": false,
-        "description": "Describe one direct or single-hop Host Key inspection.",
+        "description": "Locate one profile whose direct or single-hop Host Key is inspected.",
         "properties": {
           "connection_id": {
             "format": "uuid",
             "title": "Connection Id",
             "type": "string"
-          },
-          "jump": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SshJumpRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
           }
         },
         "required": [
@@ -1092,10 +1279,10 @@
             "title": "Api Config Id",
             "type": "string"
           },
-          "api_key_secret_ref": {
-            "description": "Opaque Rust Vault reference; never the API key plaintext.",
+          "api_key_credential_id": {
+            "description": "Opaque Python credential reference; never API key plaintext.",
             "format": "uuid",
-            "title": "Api Key Secret Ref",
+            "title": "Api Key Credential Id",
             "type": "string"
           },
           "api_type": {
@@ -1147,7 +1334,7 @@
           "api_type",
           "base_url",
           "model",
-          "api_key_secret_ref",
+          "api_key_credential_id",
           "api_config_id",
           "created_at",
           "updated_at"
@@ -1155,15 +1342,13 @@
         "title": "ModelApiConfig",
         "type": "object"
       },
-      "ModelApiConfigInput": {
+      "ModelApiConfigCreateRequest": {
         "additionalProperties": false,
-        "description": "Validate non-secret model configuration supplied by a trusted Core caller.",
+        "description": "Carry Provider fields and one current-key encrypted API key.",
         "properties": {
-          "api_key_secret_ref": {
-            "description": "Opaque Rust Vault reference; never the API key plaintext.",
-            "format": "uuid",
-            "title": "Api Key Secret Ref",
-            "type": "string"
+          "api_key_envelope": {
+            "$ref": "#/components/schemas/CredentialEnvelope",
+            "description": "API key encrypted for the current Runtime."
           },
           "api_type": {
             "$ref": "#/components/schemas/ApiType",
@@ -1202,9 +1387,66 @@
           "api_type",
           "base_url",
           "model",
-          "api_key_secret_ref"
+          "api_key_envelope"
         ],
-        "title": "ModelApiConfigInput",
+        "title": "ModelApiConfigCreateRequest",
+        "type": "object"
+      },
+      "ModelApiConfigUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Carry Provider fields and an optional replacement API key.",
+        "properties": {
+          "api_key_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CredentialEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional replacement API key encrypted for this Runtime."
+          },
+          "api_type": {
+            "$ref": "#/components/schemas/ApiType",
+            "description": "Explicit API selection; automatic probing is forbidden."
+          },
+          "base_url": {
+            "description": "Normalized HTTP(S) base URL supplied to ChatOpenAI.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "User-facing label for this provider configuration.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether new Agent runs may use this configuration.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "Provider model identifier passed without inference.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "api_type",
+          "base_url",
+          "model"
+        ],
+        "title": "ModelApiConfigUpdateRequest",
         "type": "object"
       },
       "OperationTerminalProjection": {
@@ -1469,7 +1711,7 @@
       },
       "RecoverySummary": {
         "additionalProperties": false,
-        "description": "Expose a safe summary of one encrypted recovery record.",
+        "description": "Expose a safe summary of one remote-only recovery record.",
         "properties": {
           "available_actions": {
             "items": {
@@ -1478,7 +1720,6 @@
                 "delete_temp",
                 "continue_delete",
                 "restore_tombstone",
-                "open_local_folder",
                 "keep"
               ],
               "type": "string"
@@ -1501,7 +1742,6 @@
           "kind": {
             "enum": [
               "upload_temp",
-              "download_part",
               "delete_tombstone",
               "mutation_unknown"
             ],
@@ -1668,78 +1908,9 @@
         "title": "RemoteFileHash",
         "type": "object"
       },
-      "RequestCancelResponse": {
-        "additionalProperties": false,
-        "description": "Acknowledge an explicit cooperative cancellation request.",
-        "properties": {
-          "cancellation_requested": {
-            "title": "Cancellation Requested",
-            "type": "boolean"
-          },
-          "request_id": {
-            "format": "uuid",
-            "title": "Request Id",
-            "type": "string"
-          },
-          "target_request_id": {
-            "format": "uuid",
-            "title": "Target Request Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "request_id",
-          "target_request_id",
-          "cancellation_requested"
-        ],
-        "title": "RequestCancelResponse",
-        "type": "object"
-      },
-      "RuntimeInitializeRequest": {
-        "additionalProperties": false,
-        "description": "Strict shared input for constructing the one runtime resource graph.",
-        "properties": {
-          "app_version": {
-            "title": "App Version",
-            "type": "string"
-          },
-          "audit_hmac_key_b64": {
-            "title": "Audit Hmac Key B64",
-            "type": "string"
-          },
-          "heartbeat_interval_ms": {
-            "title": "Heartbeat Interval Ms",
-            "type": "integer"
-          },
-          "heartbeat_timeout_ms": {
-            "title": "Heartbeat Timeout Ms",
-            "type": "integer"
-          },
-          "runtime_data_key_b64": {
-            "title": "Runtime Data Key B64",
-            "type": "string"
-          },
-          "runtime_db_path": {
-            "format": "path",
-            "title": "Runtime Db Path",
-            "type": "string"
-          }
-        },
-        "required": [
-          "app_version",
-          "runtime_db_path",
-          "runtime_data_key_b64",
-          "audit_hmac_key_b64",
-          "heartbeat_interval_ms",
-          "heartbeat_timeout_ms"
-        ],
-        "title": "RuntimeInitializeRequest",
-        "type": "object"
-      },
       "RuntimePhase": {
         "description": "Describe the single runtime owner from live startup through cleanup.",
         "enum": [
-          "LIVE_NOT_INITIALIZED",
           "INITIALIZING",
           "READY",
           "DRAINING",
@@ -2029,7 +2200,6 @@
               "delete_temp",
               "continue_delete",
               "restore_tombstone",
-              "open_local_folder",
               "keep"
             ],
             "title": "Action",
@@ -2046,6 +2216,30 @@
           "action"
         ],
         "title": "SftpRecoveryActionRequest",
+        "type": "object"
+      },
+      "SftpRecoveryListResponse": {
+        "additionalProperties": false,
+        "description": "Return all remote-only recovery summaries in stable creation order.",
+        "properties": {
+          "recoveries": {
+            "items": {
+              "$ref": "#/components/schemas/RecoverySummary"
+            },
+            "title": "Recoveries",
+            "type": "array"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "recoveries"
+        ],
+        "title": "SftpRecoveryListResponse",
         "type": "object"
       },
       "SftpRecoveryResponse": {
@@ -2323,233 +2517,18 @@
       },
       "SshConnectRequest": {
         "additionalProperties": false,
-        "description": "Freeze target and optional jump profiles with transient credentials.",
+        "description": "Locate one profile whose credentials Python resolves internally.",
         "properties": {
           "connection_id": {
             "format": "uuid",
             "title": "Connection Id",
             "type": "string"
-          },
-          "jump": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SshJumpRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "passphrase_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Passphrase B64"
-          },
-          "password_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Password B64"
-          },
-          "private_key_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Private Key B64"
-          },
-          "profile_version": {
-            "maximum": 9007199254740991,
-            "minimum": 1,
-            "title": "Profile Version",
-            "type": "integer"
           }
         },
         "required": [
-          "connection_id",
-          "profile_version"
+          "connection_id"
         ],
         "title": "SshConnectRequest",
-        "type": "object"
-      },
-      "SshJumpRequest": {
-        "additionalProperties": false,
-        "description": "Freeze one ProxyJump profile version with its transient credential.",
-        "properties": {
-          "connection_id": {
-            "format": "uuid",
-            "title": "Connection Id",
-            "type": "string"
-          },
-          "passphrase_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Passphrase B64"
-          },
-          "password_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Password B64"
-          },
-          "private_key_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Private Key B64"
-          },
-          "profile_version": {
-            "maximum": 9007199254740991,
-            "minimum": 1,
-            "title": "Profile Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "connection_id",
-          "profile_version"
-        ],
-        "title": "SshJumpRequest",
-        "type": "object"
-      },
-      "SshSessionListResponse": {
-        "additionalProperties": false,
-        "description": "Return only safe metadata for active SSH sessions.",
-        "properties": {
-          "request_id": {
-            "format": "uuid",
-            "title": "Request Id",
-            "type": "string"
-          },
-          "sessions": {
-            "items": {
-              "$ref": "#/components/schemas/SshSessionSnapshot"
-            },
-            "title": "Sessions",
-            "type": "array"
-          }
-        },
-        "required": [
-          "request_id",
-          "sessions"
-        ],
-        "title": "SshSessionListResponse",
-        "type": "object"
-      },
-      "SshSessionSnapshot": {
-        "additionalProperties": false,
-        "description": "Expose only stable non-secret metadata for one connected SSH session.",
-        "properties": {
-          "connection_id": {
-            "format": "uuid",
-            "title": "Connection Id",
-            "type": "string"
-          },
-          "connection_profile_version": {
-            "maximum": 9007199254740991.0,
-            "minimum": 1.0,
-            "title": "Connection Profile Version",
-            "type": "integer"
-          },
-          "host_label": {
-            "title": "Host Label",
-            "type": "string"
-          },
-          "jump_connection_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Jump Connection Id"
-          },
-          "jump_host_key_fingerprint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Jump Host Key Fingerprint"
-          },
-          "jump_profile_version": {
-            "anyOf": [
-              {
-                "maximum": 9007199254740991.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Jump Profile Version"
-          },
-          "ssh_session_id": {
-            "format": "uuid",
-            "title": "Ssh Session Id",
-            "type": "string"
-          },
-          "target_host_key_fingerprint": {
-            "title": "Target Host Key Fingerprint",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ssh_session_id",
-          "connection_id",
-          "connection_profile_version",
-          "host_label",
-          "target_host_key_fingerprint",
-          "jump_connection_id",
-          "jump_profile_version",
-          "jump_host_key_fingerprint"
-        ],
-        "title": "SshSessionSnapshot",
         "type": "object"
       },
       "SshStatusResponse": {
@@ -2688,7 +2667,7 @@
     }
   },
   "info": {
-    "description": "Loopback-only API owned by the Rust-managed packaged child. The Runtime WebSocket is specified separately.",
+    "description": "Loopback-only API owned by the Python process. The Runtime WebSocket is specified separately.",
     "title": "Harness Shell Private Python Runtime API",
     "version": "1.0.0"
   },
@@ -2730,7 +2709,7 @@
         "summary": "List Api Configs"
       },
       "post": {
-        "description": "Persist one Provider configuration containing only a Vault reference.",
+        "description": "Persist one Provider configuration with its encrypted API key.",
         "operationId": "create_api_config_v1_agent_api_configs_post",
         "parameters": [
           {
@@ -2741,7 +2720,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ModelApiConfigInput"
+                "$ref": "#/components/schemas/ModelApiConfigCreateRequest"
               }
             }
           },
@@ -2776,7 +2755,7 @@
     },
     "/v1/agent/api-configs/{api_config_id}": {
       "delete": {
-        "description": "Delete Sidecar metadata without changing Rust Vault ownership.",
+        "description": "Delete Provider metadata and its owned credential atomically.",
         "operationId": "delete_api_config_v1_agent_api_configs__api_config_id__delete",
         "parameters": [
           {
@@ -2819,50 +2798,6 @@
         },
         "summary": "Delete Api Config"
       },
-      "get": {
-        "description": "Return one non-secret Provider configuration.",
-        "operationId": "get_api_config_v1_agent_api_configs__api_config_id__get",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/RequestId"
-          },
-          {
-            "in": "path",
-            "name": "api_config_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Api Config Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentApiConfigResponse"
-                }
-              }
-            },
-            "description": "Successful Response",
-            "headers": {
-              "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
-                "schema": {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "summary": "Get Api Config"
-      },
       "patch": {
         "description": "Replace one complete non-secret Provider configuration.",
         "operationId": "update_api_config_v1_agent_api_configs__api_config_id__patch",
@@ -2885,7 +2820,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ModelApiConfigInput"
+                "$ref": "#/components/schemas/ModelApiConfigUpdateRequest"
               }
             }
           },
@@ -3011,7 +2946,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConnectionProfileInput"
+                "$ref": "#/components/schemas/ConnectionCreateRequest"
               }
             }
           },
@@ -3089,50 +3024,6 @@
         },
         "summary": "Delete Connection"
       },
-      "get": {
-        "description": "Return one profile by opaque identity.",
-        "operationId": "get_connection_v1_connections__connection_id__get",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/RequestId"
-          },
-          {
-            "in": "path",
-            "name": "connection_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Connection Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectionResponse"
-                }
-              }
-            },
-            "description": "Successful Response",
-            "headers": {
-              "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
-                "schema": {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "summary": "Get Connection"
-      },
       "patch": {
         "description": "Replace one complete connection profile while preserving its identity.",
         "operationId": "update_connection_v1_connections__connection_id__patch",
@@ -3155,7 +3046,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConnectionProfileInput"
+                "$ref": "#/components/schemas/ConnectionUpdateRequest"
               }
             }
           },
@@ -3186,6 +3077,71 @@
           }
         },
         "summary": "Update Connection"
+      }
+    },
+    "/v1/diagnostics/log-directory": {
+      "get": {
+        "description": "Return availability without serializing the local absolute path.",
+        "operationId": "get_log_directory_availability_v1_diagnostics_log_directory_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Get Log Directory Availability"
+      }
+    },
+    "/v1/diagnostics/log-directory/open": {
+      "post": {
+        "description": "Open only the existing settings-derived directory through Explorer.",
+        "operationId": "open_log_directory_v1_diagnostics_log_directory_open_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request and JSON body request_id.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Open Log Directory"
       }
     },
     "/v1/health/live": {
@@ -3546,23 +3502,13 @@
         "summary": "Resize Pty Session"
       }
     },
-    "/v1/requests/{request_id}/cancel": {
-      "post": {
-        "description": "Explicitly request cooperative cancellation of one active dispatcher call.",
-        "operationId": "cancel_request_v1_requests__request_id__cancel_post",
+    "/v1/runtime/credential-encryption-key": {
+      "get": {
+        "description": "Expose only the current process-ephemeral credential public key.",
+        "operationId": "credential_encryption_key_v1_runtime_credential_encryption_key_get",
         "parameters": [
           {
             "$ref": "#/components/parameters/RequestId"
-          },
-          {
-            "in": "path",
-            "name": "request_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Request Id",
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -3570,7 +3516,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RequestCancelResponse"
+                  "$ref": "#/components/schemas/CredentialPublicKeyResponse"
                 }
               }
             },
@@ -3589,89 +3535,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Cancel Request"
-      }
-    },
-    "/v1/runtime/initialize": {
-      "post": {
-        "description": "Atomically initialize the unique RuntimeResources graph exactly once.",
-        "operationId": "initialize_runtime_v1_runtime_initialize_post",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/RequestId"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RuntimeInitializeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RuntimeStateResponse"
-                }
-              }
-            },
-            "description": "Successful Response",
-            "headers": {
-              "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
-                "schema": {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "summary": "Initialize Runtime"
-      }
-    },
-    "/v1/runtime/shutdown": {
-      "post": {
-        "description": "Converge the ready runtime without bypassing its owner order.",
-        "operationId": "shutdown_runtime_v1_runtime_shutdown_post",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/RequestId"
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RuntimeStateResponse"
-                }
-              }
-            },
-            "description": "Successful Response",
-            "headers": {
-              "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
-                "schema": {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "summary": "Shutdown Runtime"
+        "summary": "Credential Encryption Key"
       }
     },
     "/v1/runtime/state": {
@@ -4413,31 +4277,21 @@
         "summary": "Readlink"
       }
     },
-    "/v1/sftp/metadata/realpath": {
-      "post": {
-        "description": "Return the server-canonical remote path projection.",
-        "operationId": "realpath_v1_sftp_metadata_realpath_post",
+    "/v1/sftp/recoveries": {
+      "get": {
+        "description": "List every remote-only recovery through the dispatcher owner.",
+        "operationId": "list_recoveries_v1_sftp_recoveries_get",
         "parameters": [
           {
             "$ref": "#/components/parameters/RequestId"
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SftpPathRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SftpEntryResponse"
+                  "$ref": "#/components/schemas/SftpRecoveryListResponse"
                 }
               }
             },
@@ -4456,19 +4310,19 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Realpath"
+        "summary": "List Recoveries"
       }
     },
-    "/v1/sftp/recoveries": {
+    "/v1/sftp/recoveries/{recovery_id}": {
       "get": {
-        "description": "Inspect one encrypted recovery record without mutating it.",
-        "operationId": "inspect_recovery_v1_sftp_recoveries_get",
+        "description": "Inspect one remote recovery record without mutating it.",
+        "operationId": "inspect_recovery_v1_sftp_recoveries__recovery_id__get",
         "parameters": [
           {
             "$ref": "#/components/parameters/RequestId"
           },
           {
-            "in": "query",
+            "in": "path",
             "name": "recovery_id",
             "required": true,
             "schema": {
@@ -4911,40 +4765,6 @@
       }
     },
     "/v1/ssh/sessions": {
-      "get": {
-        "description": "Return safe metadata snapshots without AsyncSSH transport objects.",
-        "operationId": "list_ssh_sessions_v1_ssh_sessions_get",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/RequestId"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SshSessionListResponse"
-                }
-              }
-            },
-            "description": "Successful Response",
-            "headers": {
-              "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
-                "schema": {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "summary": "List Ssh Sessions"
-      },
       "post": {
         "description": "Use transient credentials to establish one verified SSH session.",
         "operationId": "connect_ssh_session_v1_ssh_sessions_post",

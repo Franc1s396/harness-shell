@@ -3,6 +3,7 @@
   "productName": "Harness Shell",
   "version": "0.1.0",
   "identifier": "com.harnessshell.app",
+  "mainBinaryName": "harness-shell-ui",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -21,17 +22,17 @@
       }
     ],
     "security": {
-      "capabilities": ["main", "approval"],
+      "capabilities": ["main"],
       "csp": {
         "default-src": "'self'",
-        "connect-src": "ipc: http://ipc.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*",
         "img-src": "'self' asset: http://asset.localhost data:",
         "style-src": "'self' 'unsafe-inline'",
         "script-src": "'self'"
       },
       "devCsp": {
         "default-src": "'self'",
-        "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
+        "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* http://localhost:1420 ws://localhost:1420",
         "img-src": "'self' asset: http://asset.localhost data:",
         "style-src": "'self' 'unsafe-inline'",
         "script-src": "'self' http://localhost:1420"
@@ -40,14 +41,22 @@
   },
   "bundle": {
     "active": true,
-    "externalBin": ["binaries/harness-shell-sidecar"],
-    "targets": "all",
+    "externalBin": [
+      "binaries/harness-shell-sidecar",
+      "binaries/harness-shell-launcher"
+    ],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "template": "./windows/installer.nsi"
+      }
+    }
   }
 }

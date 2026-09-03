@@ -6,13 +6,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  importPrivateKey,
-  storePrivateKeyPassphrase,
-  storeSshPassword,
-  type ConnectionProfile,
-  type ConnectionProfileInput,
-  type CredentialReference,
+import type {
+  ConnectionProfile,
+  ConnectionProfileInput,
 } from "../../api/ssh";
 import { Button } from "../../components/ui/controls";
 import { Dialog } from "../../components/ui/Dialog";
@@ -26,6 +22,7 @@ import {
   type ConnectionFormValues,
   type ConnectionSubmitIntent,
 } from "./connection-form";
+import { selectPrivateKeyText } from "./private-key-file";
 
 export type ConnectionDialogProps = {
   open: boolean;
@@ -71,12 +68,13 @@ export function ConnectionDialog({
   const [values, setValues] = useState(() => valuesFromConnection(connection));
   const [activeTab, setActiveTab] = useState<ConnectionFormTab>("basic");
   const [errors, setErrors] = useState<ConnectionFormErrors["fields"]>({});
-  const [importedKey, setImportedKey] = useState<CredentialReference | null>(null);
+  const [hasImportedKey, setHasImportedKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
   const passphraseRef = useRef<HTMLInputElement>(null);
+  const importedKeyRef = useRef<string | null>(null);
   const dialogGenerationRef = useRef(0);
   const fieldRefs = useRef<Partial<Record<ConnectionFormField, HTMLElement>>>({});
   const tabRefs = useRef<Partial<Record<ConnectionFormTab, HTMLButtonElement>>>({});
@@ -97,7 +95,8 @@ export function ConnectionDialog({
       setDeleteConfirmOpen(false);
     }
     clearSecrets();
-    setImportedKey(null);
+    importedKeyRef.current = null;
+    setHasImportedKey(false);
   }, [open, connection]);
 
   const updateValue = <K extends keyof ConnectionFormValues>(
@@ -133,7 +132,7 @@ export function ConnectionDialog({
   const submit = async (intent: ConnectionSubmitIntent) => {
     const validation = validateConnectionForm(values, {
       existingAuthKind: connection?.auth_kind ?? null,
-      hasImportedKey: importedKey !== null,
+      hasImportedKey,
       passwordPresent: Boolean(passwordRef.current?.value),
     });
     setErrors(validation.fields);
@@ -146,36 +145,12 @@ export function ConnectionDialog({
     setOperationError(null);
     const generation = dialogGenerationRef.current;
     try {
-      let credentialId: string;
-      let passphraseCredentialId: string | null = null;
-
-      if (values.authKind === "password") {
-        const secret = passwordRef.current?.value ?? "";
-        if (secret) {
-          credentialId = (await storeSshPassword(secret)).credential_id;
-        } else if (connection?.auth_kind === "password") {
-          credentialId = connection.credential_id;
-        } else {
-          throw new Error("Password credential is required.");
-        }
-      } else {
-        if (importedKey) {
-          credentialId = importedKey.credential_id;
-        } else if (connection?.auth_kind === "private_key") {
-          credentialId = connection.credential_id;
-        } else {
-          throw new Error("Private key credential is required.");
-        }
-
-        const passphrase = passphraseRef.current?.value ?? "";
-        if (passphrase) {
-          passphraseCredentialId = (
-            await storePrivateKeyPassphrase(passphrase)
-          ).credential_id;
-        } else if (connection?.auth_kind === "private_key") {
-          passphraseCredentialId = connection.passphrase_credential_id;
-        }
-      }
+      const credentialSecret = values.authKind === "password"
+        ? passwordRef.current?.value || null
+        : importedKeyRef.current;
+      const passphraseSecret = values.authKind === "private_key"
+        ? passphraseRef.current?.value || null
+        : null;
 
       await onSubmit(
         {
@@ -185,8 +160,8 @@ export function ConnectionDialog({
           port: Number(values.port),
           username: values.username.trim(),
           auth_kind: values.authKind,
-          credential_id: credentialId,
-          passphrase_credential_id: passphraseCredentialId,
+          credential_secret: credentialSecret,
+          passphrase_secret: passphraseSecret,
           proxy_jump_id: values.proxyJumpId || null,
           favorite: values.favorite,
         },
@@ -201,7 +176,8 @@ export function ConnectionDialog({
     } finally {
       if (dialogGenerationRef.current === generation) {
         clearSecrets();
-        setImportedKey(null);
+        importedKeyRef.current = null;
+        setHasImportedKey(false);
         setBusy(false);
       }
     }
@@ -209,7 +185,8 @@ export function ConnectionDialog({
 
   const close = () => {
     clearSecrets();
-    setImportedKey(null);
+    importedKeyRef.current = null;
+    setHasImportedKey(false);
     setOperationError(null);
     onClose();
   };
@@ -371,7 +348,7 @@ export function ConnectionDialog({
                     label={t("connections.privateKey")}
                     error={errorText("privateKey")}
                     hint={
-                      importedKey
+                      hasImportedKey
                         ? t("connections.keySelected")
                         : connection?.auth_kind === "private_key"
                           ? t("connections.keepCurrent")
@@ -386,8 +363,19 @@ export function ConnectionDialog({
                       className={`${inputClass} text-left`}
                       disabled={busy}
                       onClick={async () => {
-                        const reference = await importPrivateKey();
-                        if (reference) setImportedKey(reference);
+                        try {
+                          const privateKey = await selectPrivateKeyText();
+                          if (privateKey !== null) {
+                            importedKeyRef.current = privateKey;
+                            setHasImportedKey(true);
+                          }
+                        } catch (error) {
+                          setOperationError(
+                            error instanceof Error
+                              ? error.message
+                              : "Private key selection failed.",
+                          );
+                        }
                       }}
                     >
                       {t("connections.importKey")}

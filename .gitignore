@@ -16,6 +16,8 @@ docs/superpowers/
 .superpowers/
 
 # Integration test runtime data and credentials
+.runtime/
+.runtime/
 tests/ssh_lab/.runtime/
 
 # Python

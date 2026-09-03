@@ -53,7 +53,6 @@ export type WorkspaceFrameProps = {
   onCreateConnection: () => void;
   onEditConnection: () => void;
   onFocusTerminal: () => void;
-  onOpenApproval: () => void;
   onSettingsOpening: () => void;
 };
 
@@ -81,7 +80,6 @@ export function WorkspaceFrame({
   onCreateConnection,
   onEditConnection,
   onFocusTerminal,
-  onOpenApproval,
   onSettingsOpening,
 }: WorkspaceFrameProps) {
   const { t } = useTranslation();
@@ -217,13 +215,11 @@ export function WorkspaceFrame({
         onCreateConnection={onCreateConnection}
         onEditConnection={onEditConnection}
         onFocusTerminal={onFocusTerminal}
-        onOpenApproval={onOpenApproval}
       />
 
       <div className="grid min-h-0 min-w-0 grid-cols-[44px_minmax(0,1fr)]">
         <ActivityBar
           onToggleConnections={toggleConnections}
-          onOpenApproval={onOpenApproval}
           onOpenSettings={() => {
             onSettingsOpening();
             setSettingsInitialCategory("general");

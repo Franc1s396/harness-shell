@@ -216,8 +216,6 @@ def test_manual_sftp_real_openssh_round_trip_and_safety_contracts(
             link = await service.readlink(session_id, link_path)
             assert link.entry_type == "symlink"
             assert link.link_target == utf8_path
-            resolved = await service.realpath(session_id, link_path)
-            assert resolved.path == utf8_path
             removed_link = await service.remove(
                 operation_id=uuid4(),
                 ssh_session_id=session_id,

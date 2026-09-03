@@ -1,44 +1,43 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 from uuid import UUID, uuid4
 
 import pytest
 
+from harness_shell_sidecar.credentials import ResolvedSshConnect
 from harness_shell_sidecar.runtime import DispatchError, RequestDispatcher
 from harness_shell_sidecar.ssh.errors import ConnectionStatus, SshRuntimeError
 from harness_shell_sidecar.ssh.handlers import register_ssh_handlers
-from harness_shell_sidecar.ssh.models import SshConnectRequest
 
 
 class FakeRuntime:
-    """捕获 Handler 解码后秘密并返回固定 SSH 状态的运行时替身。"""
+    """捕获 Handler 传入的瞬时秘密并返回固定 SSH 状态。"""
 
     def __init__(self) -> None:
         """初始化空的瞬时秘密引用列表。"""
 
-        self.captured_secrets: list[bytearray] = []  # 用于断言 finally 已原地清零。
-        self.captured_arguments: dict[str, object] = {}  # Handler 传入的安全元数据。
+        self.captured_secrets: list[bytearray] = []
+        self.captured_arguments: dict[str, object] = {}
 
     async def inspect_host_key(
-        self, connection_id: UUID, **secrets
+        self,
+        connection_id: UUID,
+        **secrets: object,
     ) -> ConnectionStatus:
         """捕获跳板秘密并返回需要确认 Host Key 的状态。"""
 
-        self.captured_secrets = [
-            value for value in secrets.values() if isinstance(value, bytearray)
-        ]
-        self.captured_arguments = secrets
+        self._capture(secrets)
         return status(connection_id, "HOST_KEY_REQUIRED")
 
-    async def connect(self, connection_id: UUID, **secrets) -> ConnectionStatus:
+    async def connect(
+        self,
+        connection_id: UUID,
+        **secrets: object,
+    ) -> ConnectionStatus:
         """捕获目标与跳板秘密并返回 READY 状态。"""
 
-        self.captured_secrets = [
-            value for value in secrets.values() if isinstance(value, bytearray)
-        ]
-        self.captured_arguments = secrets
+        self._capture(secrets)
         return status(connection_id, "READY", session_id=uuid4())
 
     async def disconnect(self, session_id: UUID) -> ConnectionStatus:
@@ -46,10 +45,38 @@ class FakeRuntime:
 
         return status(uuid4(), "DISCONNECTED")
 
+    def _capture(self, secrets: dict[str, object]) -> None:
+        """保留参数与可清零 buffer 的别名供 finally 断言。"""
+
+        self.captured_arguments = secrets
+        self.captured_secrets = [
+            value for value in secrets.values() if isinstance(value, bytearray)
+        ]
+
+
+class FakeCredentialService:
+    """为单个连接返回测试拥有的已解析凭据。"""
+
+    def __init__(self, resolved: ResolvedSshConnect) -> None:
+        """保存下一次构建返回的唯一快照。"""
+
+        self.resolved = resolved
+
+    def build_ssh_connect(self, connection_id: UUID) -> ResolvedSshConnect:
+        """返回字段完整的版本冻结快照。"""
+
+        assert connection_id == self.resolved.connection_id
+        return self.resolved
+
 
 def status(
-    connection_id: UUID, state: str, *, session_id: UUID | None = None
+    connection_id: UUID,
+    state: str,
+    *,
+    session_id: UUID | None = None,
 ) -> ConnectionStatus:
+    """Build one safe deterministic SSH status."""
+
     return ConnectionStatus(
         connection_id=connection_id,
         state=state,
@@ -61,72 +88,99 @@ def status(
     )
 
 
-def test_connect_decodes_and_zeroizes_secret() -> None:
+def test_connect_resolves_and_zeroizes_secret() -> None:
     async def scenario() -> None:
         runtime = FakeRuntime()
         dispatcher = RequestDispatcher()
-        register_ssh_handlers(dispatcher, runtime)
         connection_id = uuid4()
+        password = bytearray(b"secret")
+        resolved = ResolvedSshConnect(
+            connection_id=connection_id,
+            profile_version=7,
+            password=password,
+            _allocated=[password],
+        )
+        register_ssh_handlers(
+            dispatcher,
+            runtime,
+            FakeCredentialService(resolved),
+        )
 
         result = await dispatcher.dispatch(
             uuid4(),
             "ssh.connect",
-            {
-                "connection_id": str(connection_id),
-                "profile_version": 7,
-                "password_b64": base64.b64encode(b"secret").decode("ascii"),
-            },
+            {"connection_id": str(connection_id)},
         )
-        assert result.payload["status"]["state"] == "READY"
+
+        assert result["status"]["state"] == "READY"
         assert runtime.captured_arguments["expected_profile_version"] == 7
         assert runtime.captured_secrets
-        assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
+        assert all(not any(secret) for secret in runtime.captured_secrets)
 
     asyncio.run(scenario())
 
 
-def test_secret_fields_are_excluded_from_model_repr() -> None:
-    """Prevent transient credentials from appearing in diagnostic repr output."""
+def test_connect_rejects_every_public_secret_or_version_field() -> None:
+    async def scenario() -> None:
+        connection_id = uuid4()
+        for forbidden in (
+            {"password_b64": "c2VjcmV0"},
+            {"profile_version": 1},
+            {"jump": None},
+        ):
+            dispatcher = RequestDispatcher()
+            resolved = ResolvedSshConnect(
+                connection_id=connection_id,
+                profile_version=1,
+            )
+            register_ssh_handlers(
+                dispatcher,
+                FakeRuntime(),
+                FakeCredentialService(resolved),
+            )
+            with pytest.raises(DispatchError) as raised:
+                await dispatcher.dispatch(
+                    uuid4(),
+                    "ssh.connect",
+                    {"connection_id": str(connection_id), **forbidden},
+                )
+            assert raised.value.error_code == "INVALID_REQUEST_PAYLOAD"
 
-    request = SshConnectRequest.model_validate_json(
-        """{
-          "connection_id": "a4b32448-eafe-4973-b1f1-df5ecefae2a0",
-          "profile_version": 1,
-          "password_b64": "c2VjcmV0"
-        }"""
-    )
-
-    assert "c2VjcmV0" not in repr(request)
+    asyncio.run(scenario())
 
 
-def test_proxy_jump_connect_decodes_and_zeroizes_both_credentials() -> None:
+def test_proxy_jump_connect_zeroizes_both_credentials() -> None:
     async def scenario() -> None:
         runtime = FakeRuntime()
         dispatcher = RequestDispatcher()
-        register_ssh_handlers(dispatcher, runtime)
         connection_id = uuid4()
-        jump_id = uuid4()
+        target = bytearray(b"target-secret")
+        jump = bytearray(b"jump-secret")
+        resolved = ResolvedSshConnect(
+            connection_id=connection_id,
+            profile_version=7,
+            password=target,
+            jump_connection_id=uuid4(),
+            jump_profile_version=3,
+            jump_password=jump,
+            _allocated=[target, jump],
+        )
+        register_ssh_handlers(
+            dispatcher,
+            runtime,
+            FakeCredentialService(resolved),
+        )
 
         result = await dispatcher.dispatch(
             uuid4(),
             "ssh.connect",
-            {
-                "connection_id": str(connection_id),
-                "profile_version": 7,
-                "password_b64": base64.b64encode(b"target-secret").decode("ascii"),
-                "jump": {
-                    "connection_id": str(jump_id),
-                    "profile_version": 3,
-                    "password_b64": base64.b64encode(b"jump-secret").decode("ascii"),
-                },
-            },
+            {"connection_id": str(connection_id)},
         )
 
-        assert result.payload["status"]["state"] == "READY"
-        assert runtime.captured_arguments["expected_profile_version"] == 7
+        assert result["status"]["state"] == "READY"
         assert runtime.captured_arguments["expected_jump_profile_version"] == 3
         assert len(runtime.captured_secrets) == 2
-        assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
+        assert all(not any(secret) for secret in runtime.captured_secrets)
 
     asyncio.run(scenario())
 
@@ -135,55 +189,31 @@ def test_proxy_jump_host_key_inspection_zeroizes_credential() -> None:
     async def scenario() -> None:
         runtime = FakeRuntime()
         dispatcher = RequestDispatcher()
-        register_ssh_handlers(dispatcher, runtime)
-        params = {
-            "connection_id": str(uuid4()),
-            "jump": {
-                "connection_id": str(uuid4()),
-                "profile_version": 3,
-                "password_b64": base64.b64encode(b"jump-secret").decode("ascii"),
-            },
-        }
+        connection_id = uuid4()
+        jump = bytearray(b"jump-secret")
+        resolved = ResolvedSshConnect(
+            connection_id=connection_id,
+            profile_version=1,
+            jump_connection_id=uuid4(),
+            jump_profile_version=3,
+            jump_password=jump,
+            _allocated=[jump],
+        )
+        register_ssh_handlers(
+            dispatcher,
+            runtime,
+            FakeCredentialService(resolved),
+        )
 
-        result = await dispatcher.dispatch(uuid4(), "host_key.inspect", params)
-        assert result.payload["status"]["state"] == "HOST_KEY_REQUIRED"
+        result = await dispatcher.dispatch(
+            uuid4(),
+            "host_key.inspect",
+            {"connection_id": str(connection_id)},
+        )
+
+        assert result["status"]["state"] == "HOST_KEY_REQUIRED"
         assert runtime.captured_secrets
-        assert all(set(secret) <= {0} for secret in runtime.captured_secrets)
-
-    asyncio.run(scenario())
-
-
-def test_connect_requires_safe_integer_version_and_rejects_old_timestamp() -> None:
-    async def scenario() -> None:
-        runtime = FakeRuntime()
-        dispatcher = RequestDispatcher()
-        register_ssh_handlers(dispatcher, runtime)
-        password = base64.b64encode(b"secret").decode("ascii")
-
-        for invalid in (0, -1, 2**53, 1.0, "1"):
-            with pytest.raises(DispatchError) as raised:
-                await dispatcher.dispatch(
-                    uuid4(),
-                    "ssh.connect",
-                    {
-                        "connection_id": str(uuid4()),
-                        "profile_version": invalid,
-                        "password_b64": password,
-                    },
-                )
-            assert raised.value.error_code == "INVALID_REQUEST_PAYLOAD"
-
-        with pytest.raises(DispatchError) as removed:
-            await dispatcher.dispatch(
-                uuid4(),
-                "ssh.connect",
-                {
-                    "connection_id": str(uuid4()),
-                    "profile_updated_at": "2026-08-29T00:00:00Z",
-                    "password_b64": password,
-                },
-            )
-        assert removed.value.error_code == "INVALID_REQUEST_PAYLOAD"
+        assert all(not any(secret) for secret in runtime.captured_secrets)
 
     asyncio.run(scenario())
 
@@ -193,7 +223,9 @@ def test_ssh_errors_keep_only_structured_safe_details() -> None:
         """Host Key 检查总是抛出结构化错误的运行时替身。"""
 
         async def inspect_host_key(
-            self, connection_id: UUID, **secrets
+            self,
+            connection_id: UUID,
+            **secrets: object,
         ) -> ConnectionStatus:
             """注入不包含底层秘密的 HOST_KEY_CHANGED 失败。"""
 
@@ -206,12 +238,21 @@ def test_ssh_errors_keep_only_structured_safe_details() -> None:
 
     async def scenario() -> None:
         dispatcher = RequestDispatcher()
-        register_ssh_handlers(dispatcher, FailingRuntime())
+        connection_id = uuid4()
+        resolved = ResolvedSshConnect(
+            connection_id=connection_id,
+            profile_version=1,
+        )
+        register_ssh_handlers(
+            dispatcher,
+            FailingRuntime(),
+            FakeCredentialService(resolved),
+        )
         with pytest.raises(DispatchError) as raised:
             await dispatcher.dispatch(
                 uuid4(),
                 "host_key.inspect",
-                {"connection_id": str(uuid4())},
+                {"connection_id": str(connection_id)},
             )
         assert raised.value.error_code == "HOST_KEY_CHANGED"
         assert raised.value.details["node"] == "host_key"

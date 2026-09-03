@@ -1,5 +1,12 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getBackendClient } from "./bootstrap";
+import { BrowserFileGateway } from "../features/sftp/browser-file-gateway";
+import {
+  BrowserTransferCoordinator,
+  type ManualSftpTransport,
+  type TransferPreparationSummary as BrowserTransferPreparation,
+} from "../features/sftp/browser-transfer-coordinator";
+
+type UnlistenFn = () => void;
 
 export type EntryType = "file" | "directory" | "symlink" | "other";
 export type TransferDirection = "upload" | "download";
@@ -28,7 +35,6 @@ export type OperationTerminalState =
   | "outcome_unknown";
 export type RecoveryKind =
   | "upload_temp"
-  | "download_part"
   | "delete_tombstone"
   | "mutation_unknown";
 export type RecoveryState =
@@ -40,7 +46,6 @@ export type RecoveryAction =
   | "delete_temp"
   | "continue_delete"
   | "restore_tombstone"
-  | "open_local_folder"
   | "keep";
 
 export type ManualSftpContext = {
@@ -87,19 +92,7 @@ export type RemoteFileHash = {
   byte_count: number;
 };
 
-export type TransferPreparationSummary = {
-  preparation_id: string;
-  operation_id: string;
-  direction: TransferDirection;
-  display_name: string;
-  remote_path: string;
-  host_label: string;
-  source_sha256: string;
-  source_byte_count: number;
-  target_snapshot: TransferSnapshot;
-  overwrite_required: boolean;
-  expires_at: string;
-};
+export type TransferPreparationSummary = BrowserTransferPreparation;
 
 export type TransferProgressProjection = {
   operation_id: string;
@@ -160,8 +153,6 @@ export type RecoverySummary = {
   available_actions: RecoveryAction[];
 };
 
-export type RecoveryResponse = RecoverySummary | OperationTerminalProjection;
-
 export type ManualSftpCommandError = {
   code: string;
   message: string;
@@ -179,169 +170,296 @@ export class ManualSftpProtocolError extends Error {
 }
 
 export const getManualSftpContext = (sshSessionId: string | null) =>
-  invoke<ManualSftpContext>("get_manual_sftp_context", { sshSessionId });
+  getBackendClient().http.request<{ request_id: string; context: ManualSftpContext }>(
+    "POST", "/v1/sftp/contexts", { body: { ssh_session_id: sshSessionId } },
+  ).then((value) => value.context);
 
 export const listManualSftpDirectory = (
   sshSessionId: string,
   remotePath: string,
-) =>
-  invoke<ListingBatch>("list_manual_sftp_directory", {
-    sshSessionId,
-    remotePath,
-  });
+) => getBackendClient().http.request<{ request_id: string; batch: ListingBatch }>(
+  "POST", "/v1/sftp/listings", {
+    body: { ssh_session_id: sshSessionId, path: remotePath },
+  },
+).then((value) => value.batch);
 
 export const nextManualSftpDirectoryBatch = (
   listingId: string,
   sequence: number,
-) =>
-  invoke<ListingBatch>("next_manual_sftp_directory_batch", {
-    listingId,
-    sequence,
-  });
+) => getBackendClient().http.request<{ request_id: string; batch: ListingBatch }>(
+  "GET", `/v1/sftp/listings/${listingId}/batches/${sequence}`,
+).then((value) => value.batch);
 
 export const closeManualSftpListing = (listingId: string) =>
-  invoke<boolean>("close_manual_sftp_listing", { listingId });
+  getBackendClient().http.request<{ request_id: string; closed: boolean }>(
+    "DELETE", `/v1/sftp/listings/${listingId}`,
+  ).then((value) => value.closed);
 
 export const inspectManualSftpEntry = (
   sshSessionId: string,
   remotePath: string,
-) =>
-  invoke<RemoteEntry>("inspect_manual_sftp_entry", {
-    sshSessionId,
-    remotePath,
-  });
+) => remoteEntry("/v1/sftp/metadata/lstat", sshSessionId, remotePath);
 
 export const hashManualSftpFile = (
   sshSessionId: string,
   remotePath: string,
-) =>
-  invoke<RemoteFileHash>("hash_manual_sftp_file", {
-    sshSessionId,
-    remotePath,
-  });
+) => getBackendClient().http.request<{ request_id: string; hash: RemoteFileHash }>(
+  "POST", "/v1/sftp/hashes/sha256", {
+    body: { ssh_session_id: sshSessionId, path: remotePath },
+  },
+).then((value) => value.hash);
 
 export const openManualSftpLink = (
   sshSessionId: string,
   remotePath: string,
-) =>
-  invoke<RemoteEntry>("open_manual_sftp_link", {
-    sshSessionId,
-    remotePath,
-  });
+) => remoteEntry("/v1/sftp/metadata/readlink", sshSessionId, remotePath);
 
 export const prepareManualSftpUpload = (
   sshSessionId: string,
   remoteDirectory: string,
   targetName: string,
-) =>
-  invoke<TransferPreparationSummary | null>("prepare_manual_sftp_upload", {
-    sshSessionId,
-    remoteDirectory,
-    targetName,
-  });
+) => transferCoordinator.prepareUpload(sshSessionId, remoteDirectory, targetName);
 
 export const executeManualSftpUpload = (
   preparationId: string,
   confirmed: boolean,
-) =>
-  invoke<OperationTerminalProjection>("execute_manual_sftp_upload", {
-    preparationId,
-    confirmed,
-  });
+) => transferCoordinator.executeUpload(preparationId, confirmed);
 
 export const prepareManualSftpDownload = (
   sshSessionId: string,
   remotePath: string,
   displayName: string,
-) =>
-  invoke<TransferPreparationSummary | null>("prepare_manual_sftp_download", {
-    sshSessionId,
-    remotePath,
-    displayName,
-  });
+) => transferCoordinator.prepareDownloadFromUserGesture(
+  sshSessionId, remotePath, displayName,
+);
 
 export const executeManualSftpDownload = (
   preparationId: string,
   confirmed: boolean,
-) =>
-  invoke<OperationTerminalProjection>("execute_manual_sftp_download", {
-    preparationId,
-    confirmed,
-  });
+) => transferCoordinator.executeDownload(preparationId, confirmed);
 
-export const discardManualSftpPreparation = (preparationId: string) =>
-  invoke<void>("discard_manual_sftp_preparation", { preparationId });
+export const discardManualSftpPreparation = async (preparationId: string) => {
+  transferCoordinator.discardPreparation(preparationId);
+};
+
+export const putManualSftpUploadChunk = (
+  operationId: string,
+  sequence: number,
+  offset: number,
+  chunk: Uint8Array,
+  signal?: AbortSignal,
+) => getBackendClient().http.putBinary<{
+  request_id: string;
+  operation_id: string;
+  sequence: number;
+  offset: number;
+  accepted_bytes: number;
+}>(`/v1/sftp/uploads/${operationId}/chunks/${sequence}`, chunk, offset, signal);
+
+export const getManualSftpDownloadChunk = async (
+  operationId: string,
+  sequence: number,
+  offset: number,
+  signal?: AbortSignal,
+) => {
+  const chunk = await getBackendClient().http.getBinary(
+    `/v1/sftp/downloads/${operationId}/chunks/${sequence}`,
+    offset,
+    signal,
+  );
+  return {
+    operation_id: operationId,
+    sequence: chunk.sequence,
+    offset: chunk.offset,
+    data: chunk.body,
+    eof: chunk.eof,
+  };
+};
 
 export const createManualSftpDirectory = (
   sshSessionId: string,
   parentPath: string,
   name: string,
-) =>
-  invoke<OperationTerminalProjection>("create_manual_sftp_directory", {
-    sshSessionId,
-    parentPath,
-    name,
-  });
+) => mutation("/v1/sftp/directories", {
+  operation_id: crypto.randomUUID(),
+  ssh_session_id: sshSessionId,
+  parent_path: parentPath,
+  name,
+});
 
 export const renameManualSftpEntry = (
   sshSessionId: string,
   sourcePath: string,
   targetPath: string,
   overwrite: boolean,
-) =>
-  invoke<OperationTerminalProjection>("rename_manual_sftp_entry", {
-    sshSessionId,
-    sourcePath,
-    targetPath,
-    overwrite,
-  });
+) => mutation("/v1/sftp/renames", {
+  operation_id: crypto.randomUUID(),
+  ssh_session_id: sshSessionId,
+  source_path: sourcePath,
+  target_path: targetPath,
+  overwrite,
+  source_snapshot: null,
+  target_snapshot: null,
+});
 
 export const removeManualSftpEntry = (
   sshSessionId: string,
   remotePath: string,
-) =>
-  invoke<OperationTerminalProjection>("remove_manual_sftp_entry", {
-    sshSessionId,
-    remotePath,
-  });
+) => removeWithSnapshot(sshSessionId, remotePath);
 
 export const preflightManualSftpDelete = (
   sshSessionId: string,
   remotePath: string,
-) =>
-  invoke<DeletePlanSummary>("preflight_manual_sftp_delete", {
-    sshSessionId,
-    remotePath,
-  });
+) => getBackendClient().http.request<{ request_id: string; delete_plan: DeletePlanSummary }>(
+  "POST", "/v1/sftp/deletions/preflight", { body: {
+    operation_id: crypto.randomUUID(),
+    ssh_session_id: sshSessionId,
+    path: remotePath,
+  } },
+).then((value) => value.delete_plan);
 
 export const executeManualSftpDelete = (
   deletePlanId: string,
   confirmed: boolean,
-) =>
-  invoke<OperationTerminalProjection>("execute_manual_sftp_delete", {
-    deletePlanId,
-    confirmed,
-  });
+) => {
+  if (!confirmed) return Promise.reject(new Error("SFTP_CONFIRMATION_REQUIRED"));
+  return getBackendClient().http.request<{
+    request_id: string;
+    terminal: OperationTerminalProjection;
+  }>("POST", `/v1/sftp/deletions/${deletePlanId}/execute`)
+    .then((value) => value.terminal);
+};
 
-export const cancelManualSftpOperation = (operationId: string) =>
-  invoke<void>("cancel_manual_sftp_operation", { operationId });
+export const cancelManualSftpOperation = (_operationId: string) =>
+  transferCoordinator.cancelActive();
 
 export const listManualSftpRecoveries = () =>
-  invoke<RecoverySummary[]>("list_manual_sftp_recoveries");
+  getBackendClient().http.request<{ request_id: string; recoveries: RecoverySummary[] }>(
+    "GET", "/v1/sftp/recoveries",
+  ).then((value) => value.recoveries);
 
 export const inspectManualSftpRecovery = (recoveryId: string) =>
-  invoke<RecoveryResponse>("inspect_manual_sftp_recovery", { recoveryId });
+  getBackendClient().http.request<{ request_id: string; recovery: RecoverySummary }>(
+    "GET", `/v1/sftp/recoveries/${recoveryId}`,
+  ).then((value) => value.recovery);
 
 export const executeManualSftpRecovery = (
   recoveryId: string,
   action: RecoveryAction,
   confirmed: boolean,
-) =>
-  invoke<RecoveryResponse>("execute_manual_sftp_recovery", {
-    recoveryId,
-    action,
-    confirmed,
+) => {
+  if (!confirmed) return Promise.reject(new Error("SFTP_CONFIRMATION_REQUIRED"));
+  return getBackendClient().http.request<{ request_id: string; recovery: RecoverySummary }>(
+    "POST", `/v1/sftp/recoveries/${recoveryId}/actions`, { body: {
+      operation_id: crypto.randomUUID(),
+      action,
+    } },
+  ).then((value) => value.recovery);
+};
+
+const remoteEntry = (
+  path: string,
+  sshSessionId: string,
+  remotePath: string,
+): Promise<RemoteEntry> => getBackendClient().http.request<{
+  request_id: string;
+  entry: RemoteEntry;
+}>("POST", path, {
+  body: { ssh_session_id: sshSessionId, path: remotePath },
+}).then((value) => value.entry);
+
+const mutation = (
+  path: string,
+  body: Readonly<Record<string, unknown>>,
+): Promise<OperationTerminalProjection> => getBackendClient().http.request<{
+  request_id: string;
+  terminal: OperationTerminalProjection;
+}>("POST", path, { body }).then((value) => value.terminal);
+
+const removeWithSnapshot = async (
+  sshSessionId: string,
+  remotePath: string,
+): Promise<OperationTerminalProjection> => {
+  const entry = await inspectManualSftpEntry(sshSessionId, remotePath);
+  const expectedSnapshot = entry.entry_type === "file"
+    ? (await hashManualSftpFile(sshSessionId, remotePath)).snapshot
+    : {
+        path: entry.path,
+        exists: true,
+        entry_type: entry.entry_type,
+        size: entry.size,
+        mtime_ns: entry.mtime_ns,
+        sha256: null,
+      };
+  return mutation("/v1/sftp/removals", {
+    operation_id: crypto.randomUUID(),
+    ssh_session_id: sshSessionId,
+    path: remotePath,
+    expected_snapshot: expectedSnapshot,
   });
+};
+
+const manualSftpTransport: ManualSftpTransport = {
+  preflightUpload: (sshSessionId, remotePath, signal) =>
+    getBackendClient().http.request<{ request_id: string; snapshot: TransferSnapshot }>(
+      "POST", "/v1/sftp/uploads/preflight", {
+        body: { ssh_session_id: sshSessionId, path: remotePath },
+        signal,
+      },
+    ).then((value) => value.snapshot),
+  beginUpload: (body, signal) =>
+    getBackendClient().http.request<{ request_id: string; upload: {
+      operation_id: string;
+      temp_path: string;
+      next_sequence: number;
+      next_offset: number;
+    } }>("POST", "/v1/sftp/uploads", { body, signal }).then((value) => value.upload),
+  putUploadChunk: putManualSftpUploadChunk,
+  finishUpload: (operationId, signal) => transferTerminal(
+    `/v1/sftp/uploads/${operationId}/finish`, signal,
+  ),
+  abortUpload: (operationId) => transferTerminal(
+    `/v1/sftp/uploads/${operationId}/abort`,
+  ),
+  preflightDownload: (sshSessionId, remotePath, signal) =>
+    getBackendClient().http.request<{ request_id: string; hash: RemoteFileHash }>(
+      "POST", "/v1/sftp/hashes/sha256", {
+        body: { ssh_session_id: sshSessionId, path: remotePath },
+        signal,
+      },
+    ).then((value) => value.hash),
+  beginDownload: (body, signal) =>
+    getBackendClient().http.request<{ request_id: string; download: {
+      operation_id: string;
+      path: string;
+      snapshot: TransferSnapshot;
+      sha256: string;
+      byte_count: number;
+      next_sequence: number;
+      next_offset: number;
+    } }>("POST", "/v1/sftp/downloads", { body, signal })
+      .then((value) => value.download),
+  getDownloadChunk: getManualSftpDownloadChunk,
+  finishDownload: (operationId, signal) => transferTerminal(
+    `/v1/sftp/downloads/${operationId}/finish`, signal,
+  ),
+  abortDownload: (operationId) => transferTerminal(
+    `/v1/sftp/downloads/${operationId}/abort`,
+  ),
+};
+
+const transferTerminal = (
+  path: string,
+  signal?: AbortSignal,
+): Promise<OperationTerminalProjection> => getBackendClient().http.request<{
+  request_id: string;
+  terminal: OperationTerminalProjection;
+}>("POST", path, { signal }).then((value) => value.terminal);
+
+const transferCoordinator = new BrowserTransferCoordinator({
+  gateway: new BrowserFileGateway(),
+  transport: manualSftpTransport,
+});
 
 export const normalizeManualSftpError = (
   error: unknown,
@@ -453,26 +571,18 @@ export const subscribeManualSftpEvents = async (
   onTransfer: (progress: TransferProgressProjection) => void,
   onOperation: (progress: MutationProgressProjection) => void,
   onProtocolError: (error: ManualSftpProtocolError) => void,
-): Promise<UnlistenFn> => {
-  const transferUnlisten = await listen<unknown>(
-    "manual-sftp://transfer-state",
-    ({ payload }) => parseEvent(payload, parseTransferProgress, onTransfer, onProtocolError),
-  );
-  try {
-    const operationUnlisten = await listen<unknown>(
-      "manual-sftp://operation-state",
-      ({ payload }) =>
-        parseEvent(payload, parseMutationProgress, onOperation, onProtocolError),
-    );
-    return () => {
-      transferUnlisten();
-      operationUnlisten();
-    };
-  } catch (error) {
-    transferUnlisten();
-    throw error;
-  }
-};
+): Promise<UnlistenFn> => Promise.resolve(
+  getBackendClient().runtimeWebSocket.subscribe((message) => {
+    if (message.type === "sftp.operation_progress") {
+      parseEvent(message.payload, parseMutationProgress, onOperation, onProtocolError);
+    } else if (message.type === "runtime.disconnected") {
+      onProtocolError(new ManualSftpProtocolError(message.errorCode));
+    }
+    // Transfer byte progress is now owned by the browser coordinator. It does
+    // not invent remote acknowledgements from a WebSocket observation channel.
+    void onTransfer;
+  }),
+);
 
 const parseEvent = <T>(
   payload: unknown,
