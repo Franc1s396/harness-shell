@@ -24,6 +24,7 @@ Backend 只监听 `127.0.0.1`，没有远程监听、TLS 或用户认证。loopb
 - Runtime WebSocket 是 single owner，首轮 heartbeat causation、message union、queue capacity、close code 均严格验证；不自动 reconnect、drop、merge 或 replay。
 - Manual SFTP bytes 只经 raw chunk endpoints，以 `application/octet-stream` 和 `X-Chunk-Offset` 关联；禁止 Base64 transport、path-embedded local path 和 high-level aggregate route。
 - PTY input 只走 Runtime WebSocket；不得增加 generic RPC 或任意 command route。
+- HTTP access log 只允许 method、route template、实际返回 status、duration 和 request ID；不得记录 raw path/query/header/body。Uvicorn native access log 关闭，避免生成另一份包含 client/raw URL 的访问日志。
 
 ## 凭据与存储风险
 

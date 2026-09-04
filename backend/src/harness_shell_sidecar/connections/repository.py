@@ -25,6 +25,7 @@ class ConnectionRepositoryError(RuntimeError):
 
         super().__init__(message)
         self.error_code = error_code  # 可安全映射到 IPC 错误响应的稳定代码。
+        self.safe_message = message  # 不包含连接凭据的具体失败原因。
 
 
 class ConnectionRepository:

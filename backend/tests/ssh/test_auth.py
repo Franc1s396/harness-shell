@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import asyncssh
 import pytest
 
@@ -34,7 +36,7 @@ def test_private_key_auth_imports_unencrypted_and_encrypted_openssh_keys() -> No
 
 
 @pytest.mark.parametrize(
-    ("private_key", "passphrase", "error_code"),
+    ("private_key", "passphrase", "error_code", "expected_reason"),
     [
         (
             asyncssh.generate_private_key("ssh-ed25519").export_private_key(
@@ -42,6 +44,7 @@ def test_private_key_auth_imports_unencrypted_and_encrypted_openssh_keys() -> No
             ),
             None,
             "PRIVATE_KEY_PASSPHRASE_REQUIRED",
+            "encrypted private key requires a passphrase",
         ),
         (
             asyncssh.generate_private_key("ssh-ed25519").export_private_key(
@@ -49,12 +52,21 @@ def test_private_key_auth_imports_unencrypted_and_encrypted_openssh_keys() -> No
             ),
             b"wrong",
             "PRIVATE_KEY_PASSPHRASE_INVALID",
+            "private key passphrase could not decrypt the imported key",
         ),
-        (b"not-a-private-key", None, "PRIVATE_KEY_UNSUPPORTED"),
+        (
+            b"not-a-private-key",
+            None,
+            "PRIVATE_KEY_UNSUPPORTED",
+            "imported private key format is unsupported or invalid",
+        ),
     ],
 )
 def test_private_key_failures_have_distinct_safe_codes(
-    private_key: bytes, passphrase: bytes | None, error_code: str
+    private_key: bytes,
+    passphrase: bytes | None,
+    error_code: str,
+    expected_reason: str,
 ) -> None:
     with pytest.raises(SshRuntimeError) as raised:
         build_auth_options(
@@ -64,5 +76,52 @@ def test_private_key_failures_have_distinct_safe_codes(
         )
 
     assert raised.value.error_code == error_code
+    assert raised.value.safe_message == expected_reason
+    assert expected_reason in str(raised.value)
     assert "correct" not in str(raised.value)
     assert "wrong" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("auth_kind", "password", "private_key", "error_code", "expected_reason"),
+    [
+        (
+            "password",
+            None,
+            None,
+            "SSH_PASSWORD_REQUIRED",
+            "password authentication requires a password",
+        ),
+        (
+            "password",
+            b"\xff",
+            None,
+            "SSH_PASSWORD_ENCODING_INVALID",
+            "SSH password is not valid UTF-8",
+        ),
+        (
+            "private_key",
+            None,
+            None,
+            "PRIVATE_KEY_REQUIRED",
+            "private-key authentication requires imported key data",
+        ),
+    ],
+)
+def test_missing_or_invalid_auth_material_has_a_specific_safe_reason(
+    auth_kind: Literal["password", "private_key"],
+    password: bytes | None,
+    private_key: bytes | None,
+    error_code: str,
+    expected_reason: str,
+) -> None:
+    with pytest.raises(SshRuntimeError) as raised:
+        build_auth_options(
+            auth_kind=auth_kind,
+            password=password,
+            private_key=private_key,
+        )
+
+    assert raised.value.error_code == error_code
+    assert raised.value.safe_message == expected_reason
+    assert expected_reason in str(raised.value)

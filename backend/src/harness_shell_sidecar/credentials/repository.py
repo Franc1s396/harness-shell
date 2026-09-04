@@ -28,11 +28,12 @@ class CredentialRepositoryError(ValueError):
 
     error_code: str
 
-    def __init__(self, error_code: str) -> None:
-        """Store only the stable code and never include credential contents."""
+    def __init__(self, error_code: str, message: str) -> None:
+        """Store a stable code and reviewed detail without credential contents."""
 
         self.error_code = error_code
-        super().__init__(error_code)
+        self.safe_message = message
+        super().__init__(f"{error_code}: {message}")
 
 
 class CredentialRepository:
@@ -51,7 +52,10 @@ class CredentialRepository:
         _require_kind(kind)
         encoded_secret = secret.encode("utf-8")
         if not encoded_secret or len(encoded_secret) > MAX_CREDENTIAL_PLAINTEXT_BYTES:
-            raise CredentialRepositoryError("CREDENTIAL_SECRET_INVALID")
+            raise CredentialRepositoryError(
+                "CREDENTIAL_SECRET_INVALID",
+                "the credential secret is empty or exceeds the storage limit",
+            )
         credential_id = uuid4()
         payload = json.dumps(
             {
@@ -84,10 +88,16 @@ class CredentialRepository:
         _require_kind(expected_kind)
         record = self._store.get(_CREDENTIAL_RECORD_TYPE, str(credential_id))
         if record is None:
-            raise CredentialRepositoryError("CREDENTIAL_NOT_FOUND")
+            raise CredentialRepositoryError(
+                "CREDENTIAL_NOT_FOUND",
+                "the requested credential record does not exist",
+            )
         payload = _decode_record(record, credential_id)
         if payload["kind"] != expected_kind:
-            raise CredentialRepositoryError("CREDENTIAL_KIND_MISMATCH")
+            raise CredentialRepositoryError(
+                "CREDENTIAL_KIND_MISMATCH",
+                "the credential record belongs to a different purpose",
+            )
         return bytearray(payload["secret"].encode("utf-8"))
 
     def delete(self, credential_id: UUID) -> bool:
@@ -100,25 +110,43 @@ def _decode_record(record: PlaintextRecord, credential_id: UUID) -> dict[str, st
     """Validate complete record identity, version, JSON shape, and field types."""
 
     if record.schema_version != _CREDENTIAL_SCHEMA_VERSION:
-        raise CredentialRepositoryError("CREDENTIAL_RECORD_INVALID")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_RECORD_INVALID",
+            "the credential record schema version is unsupported",
+        )
     try:
         decoded = record.payload.decode("utf-8", errors="strict")
         payload = json.loads(decoded, object_pairs_hook=_unique_object)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise CredentialRepositoryError("CREDENTIAL_RECORD_INVALID") from exc
+        raise CredentialRepositoryError(
+            "CREDENTIAL_RECORD_INVALID",
+            "the credential record is not canonical UTF-8 JSON",
+        ) from exc
     if not isinstance(payload, dict) or set(payload) != {
         "credential_id",
         "kind",
         "secret",
     }:
-        raise CredentialRepositoryError("CREDENTIAL_RECORD_INVALID")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_RECORD_INVALID",
+            "the credential record fields do not match the schema",
+        )
     if not all(isinstance(value, str) for value in payload.values()):
-        raise CredentialRepositoryError("CREDENTIAL_RECORD_INVALID")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_RECORD_INVALID",
+            "the credential record contains non-string field values",
+        )
     if payload["credential_id"] != str(credential_id):
-        raise CredentialRepositoryError("CREDENTIAL_RECORD_INVALID")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_RECORD_INVALID",
+            "the credential record identity does not match its storage key",
+        )
     _require_kind(payload["kind"])
     if not payload["secret"]:
-        raise CredentialRepositoryError("CREDENTIAL_RECORD_INVALID")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_RECORD_INVALID",
+            "the credential record contains an empty secret",
+        )
     return payload
 
 
@@ -137,4 +165,7 @@ def _require_kind(kind: str) -> None:
     """Reject any credential purpose outside the closed supported set."""
 
     if kind not in _CREDENTIAL_KINDS:
-        raise CredentialRepositoryError("CREDENTIAL_KIND_INVALID")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_KIND_INVALID",
+            "the credential kind is outside the supported allowlist",
+        )

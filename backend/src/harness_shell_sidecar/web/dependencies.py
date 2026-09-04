@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, TypeVar
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import Header, Request
 from pydantic import BaseModel, ValidationError
 
 from harness_shell_sidecar.runtime.dispatcher import DispatchError
 
-from .errors import HttpProblem, build_problem
+from .errors import HttpProblem, build_problem, request_correlation_id
 from .lifespan import RuntimeOwner, RuntimeOwnerError
 
 
@@ -138,8 +138,7 @@ async def require_request_id(
     except (ValueError, AttributeError):
         request_id = None
     if request_id is None:
-        generated = uuid4()
-        request.state.request_id = generated
+        generated = request_correlation_id(request)
         raise HttpProblem(
             build_problem(
                 request_id=generated,

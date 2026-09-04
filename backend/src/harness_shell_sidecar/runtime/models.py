@@ -22,6 +22,7 @@ class RuntimeInitializationFailure(RuntimeError):
         super().__init__(public_message)
         self.error_code = error_code  # Stable HTTP-facing identifier.
         self.public_message = public_message  # Safe bounded failure text.
+        self.safe_message = public_message  # Internal diagnostic alias.
 
 
 class RuntimePhase(StrEnum):

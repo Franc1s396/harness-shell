@@ -24,4 +24,6 @@ class RequestContext:
         """Raise the stable dispatch cancellation error once cancellation wins."""
 
         if self.cancelled.is_set():
-            raise RequestCancelledError()
+            raise RequestCancelledError(
+                "request was cancelled before application execution"
+            )

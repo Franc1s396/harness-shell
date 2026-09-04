@@ -23,7 +23,7 @@ from harness_shell_sidecar.agent.graph import AgentGraphDependencies, build_agen
 from harness_shell_sidecar.agent.model_gateway import ModelGateway
 from harness_shell_sidecar.agent.service import AgentService
 from harness_shell_sidecar.agent.tools import CommandSafetyReviewer
-from harness_shell_sidecar.telemetry import JsonLogFormatter
+from harness_shell_sidecar.telemetry import ConsoleLogFormatter
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
@@ -167,7 +167,7 @@ def test_model_only_turn_logs_exact_node_pairs_and_route(
     async def scenario() -> None:
         model = FakeModelSequence([AIMessage(content="done")])
         service, turn = _service(agent_storage, model, RecordingExecutor())
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.DEBUG, logger="harness_shell_sidecar.agent.graph")
 
         await _run_turn(agent_storage, service, turn)
 
@@ -229,7 +229,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
         executor = RecordingExecutor(stdout=tool_output_marker)
         service, turn = _service(agent_storage, model, executor)
         turn = turn.model_copy(update={"user_message": user_marker})
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.DEBUG, logger="harness_shell_sidecar.agent.graph")
 
         await _run_turn(
             agent_storage,
@@ -245,7 +245,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
         ]
         assert graph_records
         encoded = "\n".join(
-            JsonLogFormatter().format(record) for record in graph_records
+            ConsoleLogFormatter().format(record) for record in graph_records
         )
         for marker in (
             user_marker,
@@ -290,9 +290,9 @@ def test_execute_tool_failure_logs_only_safe_metadata_and_preserves_result(
         ]
         assert len(failed) == 1
         assert failed[0].harness_fields["node"] == "execute_tool"
-        encoded = JsonLogFormatter().format(failed[0])
+        encoded = ConsoleLogFormatter().format(failed[0])
         assert marker not in encoded
-        assert '"error_code":"SIDECAR_RUNTIME_FAILED"' in encoded
+        assert "error_code=SIDECAR_RUNTIME_FAILED" in encoded
 
     asyncio.run(scenario())
 
@@ -341,7 +341,7 @@ def test_provider_failure_body_is_absent_from_full_graph_logs(
         assert result.status is AgentRunStatus.FAILED
         assert result.error_code == "MODEL_REQUEST_FAILED"
         encoded = "\n".join(
-            JsonLogFormatter().format(record) for record in caplog.records
+            ConsoleLogFormatter().format(record) for record in caplog.records
         )
         for marker in (
             api_key_marker,
@@ -529,7 +529,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
         )
         executor = RecordingExecutor()
         service, turn = _service(agent_storage, model, executor)
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.DEBUG, logger="harness_shell_sidecar.agent.graph")
 
         result = await _run_turn(agent_storage, service, turn)
 

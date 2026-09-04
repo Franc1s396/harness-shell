@@ -52,6 +52,7 @@ class SshRuntimeError(RuntimeError):
     def __init__(
         self,
         error_code: str,
+        message: str,
         *,
         node: str,
         recoverable: bool,
@@ -62,8 +63,9 @@ class SshRuntimeError(RuntimeError):
     ) -> None:
         """保存失败节点、远端副作用状态和可恢复性等诊断上下文。"""
 
-        super().__init__("SSH operation failed")
+        super().__init__(f"{error_code}: {message}")
         self.error_code = error_code  # 面向调用方的稳定失败类别。
+        self.safe_message = message  # 不包含底层 SSH 异常或凭据的具体原因。
         self.node = node  # 失败发生的连接流程节点。
         self.recoverable = recoverable  # 是否允许修正输入后显式重试。
         self.remote_state = remote_state  # 失败时可确认的远端副作用阶段。

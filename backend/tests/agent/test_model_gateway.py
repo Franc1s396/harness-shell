@@ -26,7 +26,7 @@ from harness_shell_sidecar.agent.model_gateway import (
     ModelGateway,
     ModelGatewayError,
 )
-from harness_shell_sidecar.telemetry import JsonLogFormatter
+from harness_shell_sidecar.telemetry import ConsoleLogFormatter
 
 from .fakes import (
     CancellationAwareModel,
@@ -274,6 +274,10 @@ def test_text_then_tool_call_fails_without_retrying_partial_output() -> None:
             )
 
         assert error.value.error_code == "MODEL_RESPONSE_INVALID"
+        assert str(error.value) == (
+            "MODEL_RESPONSE_INVALID: provider stream switched from visible text "
+            "to a tool call"
+        )
         assert sink.deltas == ["partial"]
         assert model.calls == 1
 
@@ -314,6 +318,10 @@ def test_tool_call_then_text_fails_without_exposing_text() -> None:
             )
 
         assert error.value.error_code == "MODEL_RESPONSE_INVALID"
+        assert str(error.value) == (
+            "MODEL_RESPONSE_INVALID: provider stream switched from a tool call "
+            "to visible text"
+        )
         assert sink.deltas == []
         assert model.calls == 1
 
@@ -530,14 +538,14 @@ def test_provider_failure_logs_safe_metadata_without_response_body(
         )
         assert raised.value.error_code == "MODEL_REQUEST_FAILED"
         assert raised.value.__cause__ is failure
-        encoded = JsonLogFormatter().format(record)
-        payload = json.loads(encoded)
-        assert payload["http_status"] == 401
-        assert payload["provider_error_code"] == "invalid_api_key"
-        assert payload["provider_request_id"] == "req-provider-123"
-        assert payload["exception_type"] == "openai.AuthenticationError"
-        assert "exception_text" not in payload
-        assert "http_response_body" not in payload
+        fields = record.harness_fields
+        encoded = ConsoleLogFormatter().format(record)
+        assert fields["http_status"] == 401
+        assert fields["provider_error_code"] == "invalid_api_key"
+        assert fields["provider_request_id"] == "req-provider-123"
+        assert fields["exception_type"] == "openai.AuthenticationError"
+        assert "exception_text" not in fields
+        assert "http_response_body" not in fields
         assert "provider-body-marker" not in encoded
 
     asyncio.run(scenario())

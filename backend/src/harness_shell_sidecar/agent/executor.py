@@ -21,11 +21,16 @@ COMMAND_TIMEOUT_SECONDS = 30
 class AgentCancelled(RuntimeError):
     """Interrupt graph execution after the active local channel is cleaned up."""
 
-    def __init__(self, error_code: str = "AGENT_CANCELLED") -> None:
-        """Store the stable cancellation code used by AgentService."""
+    def __init__(
+        self,
+        error_code: str = "AGENT_CANCELLED",
+        message: str = "the Agent operation was cancelled",
+    ) -> None:
+        """Store the stable cancellation code and reviewed lifecycle reason."""
 
-        super().__init__(error_code)
+        super().__init__(f"{error_code}: {message}")
         self.error_code = error_code  # Stable run-level cancellation code.
+        self.safe_message = message  # Cancellation point without command content.
 
 
 class SshCommandExecutor:
@@ -57,7 +62,9 @@ class SshCommandExecutor:
                 "The bound SSH session is unavailable.",
             )
         if cancelled.is_set():
-            raise AgentCancelled()
+            raise AgentCancelled(
+                message="the command was cancelled before SSH process creation"
+            )
 
         started_at = self._monotonic()
         process: Any | None = None
@@ -83,7 +90,9 @@ class SshCommandExecutor:
                 raise
             owner.child_channels.add(process)
             if cancelled.is_set():
-                raise AgentCancelled()
+                raise AgentCancelled(
+                    message="the command was cancelled after SSH process creation"
+                )
             wait_task = asyncio.create_task(
                 process.wait(check=False, timeout=COMMAND_TIMEOUT_SECONDS)
             )
@@ -93,7 +102,9 @@ class SshCommandExecutor:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if cancel_task in done and cancelled.is_set():
-                raise AgentCancelled()
+                raise AgentCancelled(
+                    message="the command was cancelled while waiting for SSH completion"
+                )
 
             completed = await wait_task
             outcome_determined = True

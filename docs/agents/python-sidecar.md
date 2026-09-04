@@ -40,6 +40,14 @@ schema v6 的 `runtime_records.payload` 与 credential records 是 plaintext。�
 - Connection 与 Provider handler 必须在同一 `RuntimeDatabase` 事务中维护业务记录及其拥有的 credential；更新省略 envelope 时保留现有引用，删除业务记录时同步删除 credential。
 - 未知字段、stale profile/session、duplicate owner、取消和 cleanup failure 都显式失败，不重放远程 mutation。
 
+## 日志与异常诊断
+
+- stderr console 格式固定为 `yyyy-MM-dd HH:mm:ss.SSS | LEVEL | reqId | thread | logger | message`，stdout 保持为空；请求外日志的 `reqId` 列为空。源码 `serve` 模式使用 ANSI 为 timestamp、level、thread 与 logger 分级着色，Launcher 使用的 `desktop` 模式保持无 ANSI 的纯文本。
+- HTTP access middleware 在 response 完成后直接调用标准 Logger；除 `GET /v1/runtime/state` 轮询接口不打印 access log 外，每个请求只记录 method、route template、实际返回 status 和 duration。它不记录 raw path、query、headers 或 payload；无法匹配 route 时使用 `<unmatched>`。
+- HTTP `2xx/3xx` 使用 INFO，`4xx` 使用 WARNING，`5xx` 使用 ERROR。Uvicorn native access log 关闭，原生启动细节在 WARNING threshold，避免和应用日志重复。
+- Agent Run start/terminal lifecycle 保留 INFO 或 ERROR；node start/completion 与 route decision 属于 DEBUG。Provider、node 和 unexpected HTTP failure 使用 ERROR。
+- 具有稳定 error code 的领域异常必须同时携带每个 raise point 的具体、经过安全审查的 message，不得只用 error code 作为异常文本；外部 Problem/SSE 仍由边界映射为固定安全内容。
+
 ## 验证
 
 ```powershell

@@ -26,6 +26,7 @@ class RuntimeOwnerError(RuntimeError):
         super().__init__(message)
         self.error_code = error_code  # HTTP mapping uses this stable identifier.
         self.public_message = message  # Safe bounded text without resource details.
+        self.safe_message = message  # Internal diagnostic alias.
 
 
 class RuntimeOwner:

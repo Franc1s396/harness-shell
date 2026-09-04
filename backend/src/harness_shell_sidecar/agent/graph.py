@@ -18,8 +18,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from pydantic import SecretStr, ValidationError
 
-from harness_shell_sidecar.telemetry import log_event
-
 from .context import ContextService
 from .contracts import (
     AgentRunStatus,
@@ -138,7 +136,11 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
             "react_iteration": state["react_iteration"],
         }
         started = time.monotonic_ns()
-        log_event(LOGGER, logging.INFO, "agent_node_started", **fields)
+        LOGGER.debug(
+            "agent_node_started fields=%s",
+            fields,
+            extra={"harness_event": "agent_node_started", "harness_fields": fields},
+        )
         try:
             result = handler(state, runtime)
             patch = await result if inspect.isawaitable(result) else result
@@ -148,20 +150,39 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
             error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
             if not isinstance(error_code, str):
                 error_code = "SIDECAR_RUNTIME_FAILED"
-            log_event(
-                LOGGER,
-                logging.ERROR,
-                "agent_node_failed",
-                error_code=error_code,
-                **fields,
+            safe_message = getattr(error, "safe_message", None)
+            reason = (
+                safe_message
+                if isinstance(safe_message, str)
+                else f"unexpected {type(error).__module__}.{type(error).__qualname__}"
+            )
+            LOGGER.error(
+                "agent_node_failed error_code=%s reason=%s fields=%s",
+                error_code,
+                reason,
+                fields,
+                extra={
+                    "harness_event": "agent_node_failed",
+                    "harness_fields": {
+                        **fields,
+                        "error_code": error_code,
+                        "reason": reason,
+                    },
+                },
             )
             raise
-        log_event(
-            LOGGER,
-            logging.INFO,
-            "agent_node_completed",
-            duration_ms=(time.monotonic_ns() - started) // 1_000_000,
-            **fields,
+        duration_ms = (time.monotonic_ns() - started) // 1_000_000
+        LOGGER.debug(
+            "agent_node_completed duration_ms=%s fields=%s",
+            duration_ms,
+            fields,
+            extra={
+                "harness_event": "agent_node_completed",
+                "harness_fields": {
+                    **fields,
+                    "duration_ms": duration_ms,
+                },
+            },
         )
         return patch
 
@@ -223,16 +244,26 @@ def build_agent_graph(
 
         message = _last_ai_message(state)
         target = "check_react_limit" if message.tool_calls else "return_response"
-        log_event(
-            LOGGER,
-            logging.INFO,
-            "agent_route_selected",
-            agent_run_id=str(state["agent_run_id"]),
-            conversation_id=str(state["conversation_id"]),
-            api_config_id=str(state["api_config_id"]),
-            react_iteration=state["react_iteration"],
-            route_source="call_model",
-            route_target=target,
+        LOGGER.debug(
+            "agent_route_selected agent_run_id=%s conversation_id=%s "
+            "api_config_id=%s react_iteration=%s route_source=%s route_target=%s",
+            state["agent_run_id"],
+            state["conversation_id"],
+            state["api_config_id"],
+            state["react_iteration"],
+            "call_model",
+            target,
+            extra={
+                "harness_event": "agent_route_selected",
+                "harness_fields": {
+                    "agent_run_id": str(state["agent_run_id"]),
+                    "conversation_id": str(state["conversation_id"]),
+                    "api_config_id": str(state["api_config_id"]),
+                    "react_iteration": state["react_iteration"],
+                    "route_source": "call_model",
+                    "route_target": target,
+                },
+            },
         )
         return target
 
@@ -260,16 +291,26 @@ def build_agent_graph(
             if state["last_error_code"] == "REACT_LIMIT_REACHED"
             else "execute_tool"
         )
-        log_event(
-            LOGGER,
-            logging.INFO,
-            "agent_route_selected",
-            agent_run_id=str(state["agent_run_id"]),
-            conversation_id=str(state["conversation_id"]),
-            api_config_id=str(state["api_config_id"]),
-            react_iteration=state["react_iteration"],
-            route_source="check_react_limit",
-            route_target=target,
+        LOGGER.debug(
+            "agent_route_selected agent_run_id=%s conversation_id=%s "
+            "api_config_id=%s react_iteration=%s route_source=%s route_target=%s",
+            state["agent_run_id"],
+            state["conversation_id"],
+            state["api_config_id"],
+            state["react_iteration"],
+            "check_react_limit",
+            target,
+            extra={
+                "harness_event": "agent_route_selected",
+                "harness_fields": {
+                    "agent_run_id": str(state["agent_run_id"]),
+                    "conversation_id": str(state["conversation_id"]),
+                    "api_config_id": str(state["api_config_id"]),
+                    "react_iteration": state["react_iteration"],
+                    "route_source": "check_react_limit",
+                    "route_target": target,
+                },
+            },
         )
         return target
 

@@ -30,6 +30,7 @@ def test_server_config_is_fixed_to_private_loopback_contract() -> None:
     assert config.proxy_headers is False
     assert config.forwarded_allow_ips == ""
     assert config.access_log is False
+    assert config.log_level == "warning"
     assert config.server_header is False
     assert config.date_header is False
     assert config.ws_max_size == 65_536
@@ -85,7 +86,7 @@ def test_serve_port_conflict_exits_nonzero_without_selecting_another_port(
 
     assert return_code != 0
     assert not any(
-        '"event":"http_server_listening"' in line
+        "http_server_listening" in line
         for line in process.stderr_lines
     )
 

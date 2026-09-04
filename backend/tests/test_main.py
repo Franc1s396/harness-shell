@@ -16,12 +16,12 @@ def test_main_parses_only_explicit_serve_port_and_orders_process_setup(
     monkeypatch.setattr(
         __main__,
         "configure_stderr_logging",
-        lambda: calls.append("configure"),
+        lambda *, colorize: calls.append(("configure", colorize)),
     )
     monkeypatch.setattr(
-        __main__,
-        "log_event",
-        lambda _logger, level, event: calls.append((level, event)),
+        __main__.LOGGER,
+        "info",
+        lambda event: calls.append((20, event)),
     )
     monkeypatch.setattr(
         __main__,
@@ -33,7 +33,7 @@ def test_main_parses_only_explicit_serve_port_and_orders_process_setup(
         ["serve", "--port", "43123", "--data-dir", str(tmp_path)]
     ) == 23
     assert calls == [
-        "configure",
+        ("configure", True),
         (20, "sidecar_process_started"),
         ("serve", 43123, tmp_path),
     ]
@@ -68,9 +68,9 @@ def test_main_passes_desktop_control_handles_to_server(
     monkeypatch.setattr(
         __main__,
         "configure_stderr_logging",
-        lambda: calls.append("configure"),
+        lambda *, colorize: calls.append(("configure", colorize)),
     )
-    monkeypatch.setattr(__main__, "log_event", lambda *_args: None)
+    monkeypatch.setattr(__main__.LOGGER, "info", lambda *_args: None)
     monkeypatch.setattr(
         __main__,
         "desktop",
@@ -91,7 +91,7 @@ def test_main_passes_desktop_control_handles_to_server(
         ]
     ) == 0
     assert calls == [
-        "configure",
+        ("configure", False),
         {
             "port": 0,
             "data_dir": tmp_path,

@@ -33,7 +33,7 @@ npm.cmd --prefix frontend run tauri:dev -- -- --backend-url http://127.0.0.1:876
 | Launcher | packaged child、Job、动态端口协商、ready/control pipe、退出顺序 | 业务 API、凭据解析、状态机、端口扫描 |
 | Tauri UI shell | `get_backend_bootstrap`、主窗口关闭/销毁权限 | HTTP/WebSocket 代理、Backend 生命周期、业务状态、文件传输、approval UI |
 | React | UI 状态、typed loopback client、Agent SSE framing/语义验证/临时文本、Runtime WebSocket、连接私钥 picker/读取、Manual SFTP 本地 picker/handle/SHA-256/256 KiB chunk loop | SSH/PTY 远端状态、任意本地路径 API、后台恢复 |
-| Python Backend | FastAPI lifespan、dispatcher、Agent SSE worker/startup barrier/queue、SQLite、凭据、SSH/PTY、remote SFTP、Agent、结构化日志 | 本地 file picker/handle、Desktop child/Job、自动重连/重放 |
+| Python Backend | FastAPI lifespan、dispatcher、Agent SSE worker/startup barrier/queue、SQLite、凭据、SSH/PTY、remote SFTP、Agent、stderr console 与 HTTP access 日志 | 本地 file picker/handle、Desktop child/Job、自动重连/重放 |
 
 React 在启动时只通过 Tauri bootstrap command 取得固定 loopback base URL；之后业务调用直达 Python。当前没有独立 approval window、approval HTTP route 或审批状态，Agent 首轮风险确认仍由 React 在发送前显式执行。不得重新引入 Rust 业务代理或 generic RPC。
 

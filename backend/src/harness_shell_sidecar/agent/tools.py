@@ -26,11 +26,12 @@ DANGEROUS_COMMAND_PATTERN = re.compile(
 class CommandRejected(RuntimeError):
     """Carry a stable code when the approved direct-danger regex matches."""
 
-    def __init__(self, error_code: str) -> None:
-        """Store the public error code without embedding the raw command."""
+    def __init__(self, error_code: str, message: str) -> None:
+        """Store the public code and reason without embedding the raw command."""
 
-        super().__init__(error_code)
+        super().__init__(f"{error_code}: {message}")
         self.error_code = error_code  # Stable code consumed by the graph tool node.
+        self.safe_message = message  # Reviewed reason without command text.
 
 
 class CommandSafetyReviewer:
@@ -40,7 +41,10 @@ class CommandSafetyReviewer:
         """Reject a direct match without trim, normalization, parsing, or expansion."""
 
         if DANGEROUS_COMMAND_PATTERN.search(command) is not None:
-            raise CommandRejected("COMMAND_REJECTED_DANGEROUS_PATTERN")
+            raise CommandRejected(
+                "COMMAND_REJECTED_DANGEROUS_PATTERN",
+                "the command matched the direct-danger safety policy",
+            )
 
 
 def _schema_only_execute_command(command: str) -> str:

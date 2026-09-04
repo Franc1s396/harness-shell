@@ -250,6 +250,7 @@ def test_profile_change_after_secret_resolution_blocks_network_io(
         asyncssh.PermissionDenied("denied"),
         SshRuntimeError(
             "HOST_KEY_CHANGED",
+            "the observed host key no longer matches the trusted record",
             node="host_key",
             recoverable=False,
             remote_state="pre_auth",

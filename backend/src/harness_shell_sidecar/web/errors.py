@@ -22,7 +22,7 @@ class HttpProblem(RuntimeError):
     def __init__(self, problem: ProblemDetails) -> None:
         """Retain the strict response model without the originating exception."""
 
-        super().__init__(problem.error_code)
+        super().__init__(f"{problem.error_code}: {problem.message}")
         self.problem = problem  # Already-safe public HTTP representation.
 
 
@@ -133,7 +133,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         # Exception text can originate from secret-bearing application inputs. Log
         # only its class and a stable event, never request bodies or raw messages.
         LOGGER.error(
-            "http_request_failed",
+            "http_request_failed error_code=%s exception_type=%s",
+            "SIDECAR_RUNTIME_FAILED",
+            type(error).__name__,
             extra={
                 "harness_event": "http_request_failed",
                 "harness_fields": {

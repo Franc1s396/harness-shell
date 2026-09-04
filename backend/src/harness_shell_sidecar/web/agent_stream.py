@@ -299,10 +299,16 @@ class _AgentEventPublisher:
 
         encoded_size = len(encode_sse_event(event))
         if encoded_size > MAX_AGENT_SSE_FRAME_BYTES:
-            raise AgentServiceError("AGENT_RESPONSE_TOO_LARGE")
+            raise AgentServiceError(
+                "AGENT_RESPONSE_TOO_LARGE",
+                "the encoded Agent SSE event exceeded the frame limit",
+            )
         reserve = 0 if terminal else AGENT_SSE_TERMINAL_RESERVE_BYTES
         if self._encoded_bytes + encoded_size + reserve > MAX_AGENT_SSE_BODY_BYTES:
-            raise AgentServiceError("AGENT_RESPONSE_TOO_LARGE")
+            raise AgentServiceError(
+                "AGENT_RESPONSE_TOO_LARGE",
+                "the encoded Agent SSE stream exceeded the body limit",
+            )
         return encoded_size
 
     def _require_open(self) -> None:

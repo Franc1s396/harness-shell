@@ -413,7 +413,9 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
         config = agent_storage.api_configs.create(valid_api_config_input())
         dispatcher, application = _registered(
             agent_storage,
-            FakeAgentService(AgentServiceError(error_code)),
+                FakeAgentService(
+                    AgentServiceError(error_code, "test-only safe failure")
+                ),
         )
 
         with pytest.raises(DispatchError) as error:

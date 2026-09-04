@@ -11,7 +11,6 @@ from uuid import uuid4
 
 import uvicorn
 
-from harness_shell_sidecar.telemetry import log_event
 from harness_shell_sidecar.runtime.desktop_control import DesktopControl
 from harness_shell_sidecar.runtime.settings import RuntimeSettings
 
@@ -44,12 +43,10 @@ class _LoopbackServer(uvicorn.Server):
 
         await super().startup(sockets=sockets)
         if self.started:
-            log_event(
-                LOGGER,
-                logging.INFO,
-                "http_server_listening",
-                host=LOOPBACK_HOST,
-                port=self._actual_port,
+            LOGGER.info(
+                "http_server_listening host=%s port=%s",
+                LOOPBACK_HOST,
+                self._actual_port,
             )
             if self._ready_callback is not None:
                 self._ready_callback(self._actual_port)
@@ -70,6 +67,7 @@ def build_config(*, port: int, app) -> uvicorn.Config:
         server_header=False,
         date_header=False,
         log_config=None,
+        log_level="warning",
         ws_max_size=MAX_WEBSOCKET_TEXT_BYTES,
         ws_max_queue=WEBSOCKET_QUEUE_CAPACITY,
         ws_ping_interval=None,

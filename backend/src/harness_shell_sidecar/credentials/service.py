@@ -32,11 +32,12 @@ class CredentialServiceError(RuntimeError):
 
     error_code: str
 
-    def __init__(self, error_code: str) -> None:
-        """Retain only a stable public error code."""
+    def __init__(self, error_code: str, message: str) -> None:
+        """Retain a stable public code and reviewed non-secret detail."""
 
         self.error_code = error_code
-        super().__init__(error_code)
+        self.safe_message = message
+        super().__init__(f"{error_code}: {message}")
 
 
 @dataclass(slots=True)
@@ -100,7 +101,10 @@ class CredentialService:
             else self._required_profile(direct.proxy_jump_id)
         )
         if jump is not None and jump.proxy_jump_id is not None:
-            raise CredentialServiceError("MULTI_HOP_PROXY_FORBIDDEN")
+            raise CredentialServiceError(
+                "MULTI_HOP_PROXY_FORBIDDEN",
+                "the selected ProxyJump profile references another jump",
+            )
 
         resolved = ResolvedSshConnect(
             connection_id=direct.connection_id,
@@ -129,7 +133,10 @@ class CredentialService:
             raise
         except CredentialRepositoryError as error:
             resolved.close()
-            raise CredentialServiceError(error.error_code) from None
+            raise CredentialServiceError(
+                error.error_code,
+                error.safe_message,
+            ) from None
         except BaseException:
             resolved.close()
             raise
@@ -139,7 +146,10 @@ class CredentialService:
 
         profile = self._connections.get(connection_id)
         if profile is None:
-            raise CredentialServiceError("CONNECTION_NOT_FOUND")
+            raise CredentialServiceError(
+                "CONNECTION_NOT_FOUND",
+                "the requested connection profile does not exist",
+            )
         return profile
 
     def _resolve_profile(
@@ -176,7 +186,10 @@ class CredentialService:
 
         current = self._connections.get(snapshot.connection_id)
         if current is None or current.version != snapshot.version:
-            raise CredentialServiceError("CONNECTION_PROFILE_CHANGED")
+            raise CredentialServiceError(
+                "CONNECTION_PROFILE_CHANGED",
+                "the connection profile changed while credentials were resolved",
+            )
 
 
 __all__ = [

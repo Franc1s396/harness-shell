@@ -387,7 +387,10 @@ def _create_api_key(
         try:
             text = secret.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
-            raise CredentialRepositoryError("CREDENTIAL_SECRET_INVALID") from None
+            raise CredentialRepositoryError(
+                "CREDENTIAL_SECRET_INVALID",
+                "the decrypted model API key is not valid UTF-8",
+            ) from None
         return repository.create("api_key", text)
     finally:
         text = ""
@@ -417,4 +420,7 @@ def _delete_owned_credential(
     """Delete an aggregate-owned credential or expose durable state divergence."""
 
     if not repository.delete(credential_id):
-        raise CredentialRepositoryError("CREDENTIAL_NOT_FOUND")
+        raise CredentialRepositoryError(
+            "CREDENTIAL_NOT_FOUND",
+            "the model API configuration credential could not be deleted",
+        )

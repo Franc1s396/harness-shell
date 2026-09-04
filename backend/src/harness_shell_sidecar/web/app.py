@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from harness_shell_sidecar.runtime.settings import RuntimeSettings
 
+from .access_logging import HttpAccessLogMiddleware
 from .errors import register_exception_handlers
 from .lifespan import ResourceFactory, default_resource_factory, runtime_lifespan
 from .limits import BodyLimitMiddleware
@@ -83,6 +84,8 @@ def create_app(
             "X-Chunk-EOF",
         ],
     )
+    # Register last so access logging owns the complete HTTP middleware chain.
+    app.add_middleware(HttpAccessLogMiddleware)
     app.add_api_websocket_route(
         "/v1/runtime/events",
         runtime_websocket_endpoint,

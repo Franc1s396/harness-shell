@@ -16,7 +16,6 @@ from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from harness_shell_sidecar.telemetry import log_event
 from .contracts import ApiType, ModelApiConfig
 from .executor import AgentCancelled
 from .streaming import AgentTextDeltaSink
@@ -50,11 +49,12 @@ class _InvocationState:
 class ModelGatewayError(RuntimeError):
     """Carry a stable non-sensitive code for a terminal model failure."""
 
-    def __init__(self, error_code: str) -> None:
-        """Store the public code without copying provider exception text."""
+    def __init__(self, error_code: str, message: str) -> None:
+        """Store the public code and one reviewed non-sensitive failure reason."""
 
-        super().__init__(error_code)
+        super().__init__(f"{error_code}: {message}")
         self.error_code = error_code  # Stable run failure code.
+        self.safe_message = message  # Reviewed detail without Provider content.
 
 
 class ChatModelFactory:
@@ -113,7 +113,9 @@ class ModelGateway:
         """Stream final visible text while returning one complete AIMessage."""
 
         if cancelled.is_set():
-            raise AgentCancelled()
+            raise AgentCancelled(
+                message="the model request was cancelled before Provider invocation"
+            )
         model = self._factory.create(config, api_key)
         for attempt in range(len(MODEL_RETRY_DELAYS_SECONDS) + 1):
             invocation = _InvocationState()
@@ -130,39 +132,70 @@ class ModelGateway:
                 if getattr(error, "error_code", None) == "AGENT_RESPONSE_TOO_LARGE":
                     raise
                 if not _is_network_timeout(error):
-                    log_event(
-                        LOGGER,
-                        logging.ERROR,
-                        "model_request_failed",
-                        error_code="MODEL_REQUEST_FAILED",
-                        api_config_id=str(config.api_config_id),
-                        api_type=config.api_type.value,
-                        model=config.model,
-                        **_safe_provider_error_fields(error),
+                    provider_fields = _safe_provider_error_fields(error)
+                    LOGGER.error(
+                        "model_request_failed error_code=%s api_config_id=%s "
+                        "api_type=%s model=%s provider=%s",
+                        "MODEL_REQUEST_FAILED",
+                        config.api_config_id,
+                        config.api_type.value,
+                        config.model,
+                        provider_fields,
+                        extra={
+                            "harness_event": "model_request_failed",
+                            "harness_fields": {
+                                "error_code": "MODEL_REQUEST_FAILED",
+                                "api_config_id": str(config.api_config_id),
+                                "api_type": config.api_type.value,
+                                "model": config.model,
+                                **provider_fields,
+                            },
+                        },
                     )
-                    raise ModelGatewayError("MODEL_REQUEST_FAILED") from error
+                    raise ModelGatewayError(
+                        "MODEL_REQUEST_FAILED",
+                        "provider request failed before producing a valid response",
+                    ) from error
                 if (
                     invocation.mode is _InvocationMode.FINAL_TEXT
                     or attempt == len(MODEL_RETRY_DELAYS_SECONDS)
                 ):
-                    log_event(
-                        LOGGER,
-                        logging.ERROR,
-                        "model_network_timeout",
-                        error_code="MODEL_NETWORK_TIMEOUT",
-                        api_config_id=str(config.api_config_id),
-                        api_type=config.api_type.value,
-                        model=config.model,
-                        **_safe_provider_error_fields(error),
+                    provider_fields = _safe_provider_error_fields(error)
+                    LOGGER.error(
+                        "model_network_timeout error_code=%s api_config_id=%s "
+                        "api_type=%s model=%s attempt=%s provider=%s",
+                        "MODEL_NETWORK_TIMEOUT",
+                        config.api_config_id,
+                        config.api_type.value,
+                        config.model,
+                        attempt + 1,
+                        provider_fields,
+                        extra={
+                            "harness_event": "model_network_timeout",
+                            "harness_fields": {
+                                "error_code": "MODEL_NETWORK_TIMEOUT",
+                                "api_config_id": str(config.api_config_id),
+                                "api_type": config.api_type.value,
+                                "model": config.model,
+                                "attempt": attempt + 1,
+                                **provider_fields,
+                            },
+                        },
                     )
-                    raise ModelGatewayError("MODEL_NETWORK_TIMEOUT") from error
+                    raise ModelGatewayError(
+                        "MODEL_NETWORK_TIMEOUT",
+                        "provider request exceeded the configured timeout",
+                    ) from error
                 await _await_with_cancellation(
                     self._sleep(MODEL_RETRY_DELAYS_SECONDS[attempt]),
                     cancelled,
                 )
                 continue
             if not isinstance(value, AIMessage):
-                raise ModelGatewayError("MODEL_RESPONSE_INVALID")
+                raise ModelGatewayError(
+                    "MODEL_RESPONSE_INVALID",
+                    "provider stream did not produce a complete AI message",
+                )
             return value
         raise AssertionError("model retry loop exhausted without a terminal result")
 
@@ -172,25 +205,37 @@ class ModelGateway:
             messages: Sequence[AnyMessage],
             text_sink: AgentTextDeltaSink,
             invocation: _InvocationState,
-    ) -> AIMessage | None:
+    ) -> AIMessage:
         """Aggregate one stream and emit only unambiguous final chunk_text text."""
 
         full_message: AIMessageChunk | None = None
 
         async for chunk in model.astream(messages):
             if not isinstance(chunk, AIMessageChunk):
-                return None
+                raise ModelGatewayError(
+                    "MODEL_RESPONSE_INVALID",
+                    "provider stream yielded a non-AI message chunk",
+                )
             chunk_text = str(chunk.text)
             has_tool_delta = bool(chunk.tool_call_chunks or chunk.tool_calls)
             if chunk_text and has_tool_delta:
-                raise ModelGatewayError("MODEL_RESPONSE_INVALID")
+                raise ModelGatewayError(
+                    "MODEL_RESPONSE_INVALID",
+                    "provider chunk contained both visible text and a tool call",
+                )
             if has_tool_delta:
                 if invocation.mode is _InvocationMode.FINAL_TEXT:
-                    raise ModelGatewayError("MODEL_RESPONSE_INVALID")
+                    raise ModelGatewayError(
+                        "MODEL_RESPONSE_INVALID",
+                        "provider stream switched from visible text to a tool call",
+                    )
                 invocation.mode = _InvocationMode.TOOL_CALL
             if chunk_text:
                 if invocation.mode is _InvocationMode.TOOL_CALL:
-                    raise ModelGatewayError("MODEL_RESPONSE_INVALID")
+                    raise ModelGatewayError(
+                        "MODEL_RESPONSE_INVALID",
+                        "provider stream switched from a tool call to visible text",
+                    )
                 invocation.mode = _InvocationMode.FINAL_TEXT
                 invocation.visible_parts.append(chunk_text)
                 await text_sink.text_delta(chunk_text)
@@ -201,15 +246,32 @@ class ModelGateway:
             )
 
         if full_message is None:
-            return None
+            raise ModelGatewayError(
+                "MODEL_RESPONSE_INVALID",
+                "provider stream completed without any message chunks",
+            )
         message = message_chunk_to_message(full_message)
         if not isinstance(message, AIMessage):
-            return None
+            raise ModelGatewayError(
+                "MODEL_RESPONSE_INVALID",
+                "aggregated provider response was not an AI message",
+            )
         if invocation.mode is _InvocationMode.FINAL_TEXT:
-            if message.tool_calls or "".join(invocation.visible_parts) != str(message.text):
-                raise ModelGatewayError("MODEL_RESPONSE_INVALID")
+            if message.tool_calls:
+                raise ModelGatewayError(
+                    "MODEL_RESPONSE_INVALID",
+                    "final visible response also contained tool calls",
+                )
+            if "".join(invocation.visible_parts) != str(message.text):
+                raise ModelGatewayError(
+                    "MODEL_RESPONSE_INVALID",
+                    "aggregated final text did not match streamed visible text",
+                )
         if invocation.mode is _InvocationMode.TOOL_CALL and not message.tool_calls:
-            raise ModelGatewayError("MODEL_RESPONSE_INVALID")
+            raise ModelGatewayError(
+                "MODEL_RESPONSE_INVALID",
+                "tool-call stream completed without a valid tool call",
+            )
         return message
 
 
@@ -249,7 +311,9 @@ async def _await_with_cancellation(
     if cancelled.is_set():
         if asyncio.iscoroutine(operation):
             operation.close()
-        raise AgentCancelled()
+        raise AgentCancelled(
+            message="the async operation was cancelled before it started"
+        )
     operation_task = asyncio.ensure_future(operation)
     cancel_task = asyncio.create_task(cancelled.wait())
     try:
@@ -260,7 +324,9 @@ async def _await_with_cancellation(
         if cancel_task in done and cancelled.is_set():
             operation_task.cancel()
             await asyncio.gather(operation_task, return_exceptions=True)
-            raise AgentCancelled()
+            raise AgentCancelled(
+                message="the async operation was cancelled while it was running"
+            )
         return await operation_task
     except asyncio.CancelledError:
         # The dispatcher owns the outer Task; do not orphan provider or backoff work.

@@ -33,6 +33,7 @@ class DispatchError(RuntimeError):
 
         super().__init__(message)
         self.error_code = error_code  # 映射到传输错误负载的稳定标识符。
+        self.safe_message = message  # 已审查、可用于内部诊断的具体原因。
         self.details = details or {}  # 可选的非敏感机器可读错误上下文。
 
 

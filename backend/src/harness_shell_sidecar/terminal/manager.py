@@ -21,11 +21,12 @@ PtyEventListener = Callable[[dict], Awaitable[None]]
 class PtyManagerError(RuntimeError):
     """携带稳定错误码的 PTY 生命周期异常。"""
 
-    def __init__(self, error_code: str) -> None:
-        """保存可映射到 IPC 错误响应的失败类别。"""
+    def __init__(self, error_code: str, message: str) -> None:
+        """保存稳定错误码及不包含终端内容的具体失败原因。"""
 
-        super().__init__(error_code)
+        super().__init__(f"{error_code}: {message}")
         self.error_code = error_code  # 面向调用方的稳定错误码。
+        self.safe_message = message  # 不包含 PTY 输入或输出的安全诊断。
 
 
 @dataclass(slots=True)
@@ -76,7 +77,10 @@ class PtyManager:
 
         owner = self._ssh_sessions.get(ssh_session_id)
         if owner is None:
-            raise PtyManagerError("SSH_SESSION_NOT_FOUND")
+            raise PtyManagerError(
+                "SSH_SESSION_NOT_FOUND",
+                "the requested SSH session is not available for PTY creation",
+            )
         pty_session_id = uuid4()
         session = PtySession(
             pty_session_id=pty_session_id,
@@ -114,7 +118,10 @@ class PtyManager:
 
         state = self._require_open(pty_session_id)
         if not data or len(data) > MAX_PTY_CHUNK_BYTES:
-            raise PtyManagerError("PTY_INPUT_SIZE_INVALID")
+            raise PtyManagerError(
+                "PTY_INPUT_SIZE_INVALID",
+                "PTY input must contain between 1 and 32768 bytes",
+            )
         state.process.stdin.write(data)
 
     async def resize(
@@ -156,7 +163,10 @@ class PtyManager:
 
         state = self._sessions.get(pty_session_id)
         if state is None or state.session.state != "OPEN":
-            raise PtyManagerError("PTY_SESSION_NOT_FOUND")
+            raise PtyManagerError(
+                "PTY_SESSION_NOT_FOUND",
+                "the requested PTY session is absent or no longer open",
+            )
         return state
 
     async def _read_stream(self, state: _PtyState, stream) -> None:
@@ -167,7 +177,10 @@ class PtyManager:
             if not data:
                 return
             if not isinstance(data, bytes):
-                raise PtyManagerError("PTY_STREAM_NOT_BINARY")
+                raise PtyManagerError(
+                    "PTY_STREAM_NOT_BINARY",
+                    "the SSH PTY stream returned a non-binary chunk",
+                )
             for offset in range(0, len(data), MAX_PTY_CHUNK_BYTES):
                 chunk = data[offset : offset + MAX_PTY_CHUNK_BYTES]
                 sequence = state.next_sequence

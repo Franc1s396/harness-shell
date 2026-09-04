@@ -25,6 +25,19 @@ export type AgentWorkspaceProps = {
   onMarkRead: () => void;
 };
 
+function AgentErrorDetails({ error }: { error: AgentCommandError }) {
+  return (
+    <>
+      <div>
+        <strong>error_code:</strong> {error.code}
+      </div>
+      <div>
+        <strong>error_message:</strong> {error.message}
+      </div>
+    </>
+  );
+}
+
 export function AgentWorkspace({
   width,
   tabTitle,
@@ -41,17 +54,13 @@ export function AgentWorkspace({
   onResetConversation,
   onMarkRead,
 }: AgentWorkspaceProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [providerOpen, setProviderOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const lastMessageId = tab?.messages[tab.messages.length - 1]?.id ?? null;
   const streamedText = tab?.activeRun?.streamedText ?? "";
   const streamSequence = tab?.activeRun?.nextSequence ?? null;
-  const errorMessage = (error: AgentCommandError): string => {
-    const key = `agent.errors.${error.code}`;
-    return i18n.exists(key) ? t(key) : error.message;
-  };
   const openProviderSettings = () => {
     setProviderOpen(false);
     onOpenProviderSettings();
@@ -154,7 +163,7 @@ export function AgentWorkspace({
           if (message.kind === "error") {
             return (
               <article key={message.id} role="alert" className="w-fit max-w-[88%] break-words rounded-xl border border-danger/40 px-3 py-2 text-danger">
-                <strong>{message.error.code}</strong>: {errorMessage(message.error)}
+                <AgentErrorDetails error={message.error} />
               </article>
             );
           }
@@ -200,9 +209,9 @@ export function AgentWorkspace({
         ) : null}
         {tab.lastError &&
         tab.messages[tab.messages.length - 1]?.kind !== "error" ? (
-          <p role="alert" className="text-sm text-danger">
-            <strong>{tab.lastError.code}</strong>: {errorMessage(tab.lastError)}
-          </p>
+          <div role="alert" className="text-sm text-danger">
+            <AgentErrorDetails error={tab.lastError} />
+          </div>
         ) : null}
       </div>
 

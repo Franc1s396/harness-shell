@@ -247,6 +247,34 @@ describe("AgentWorkspace", () => {
     expect(userBubble).toHaveClass("ml-auto");
   });
 
+  it("shows the received Agent error code and message without i18n replacement", () => {
+    renderWorkspace({
+      tab: {
+        ...idleTab,
+        messages: [
+          {
+            id: "error-1",
+            kind: "error",
+            error: {
+              code: "BACKEND_AGENT_STREAM_INVALID",
+              message: "Backend rejected Agent frame sequence 7.",
+            },
+            run: null,
+          },
+        ],
+      },
+    });
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "error_code: BACKEND_AGENT_STREAM_INVALID",
+    );
+    expect(alert).toHaveTextContent(
+      "error_message: Backend rejected Agent frame sequence 7.",
+    );
+    expect(alert).not.toHaveTextContent("Agent stream used an invalid protocol.");
+  });
+
   it("uses Enter to send, Shift+Enter for newline, and ignores composing Enter", () => {
     const onRequestSend = vi.fn();
     renderWorkspace({ onRequestSend });
@@ -384,7 +412,7 @@ describe("AgentWorkspace", () => {
     expect(screen.getByText("service --status").closest("code")).not.toBeNull();
   });
 
-  it("renders the fixed local Agent stream error description", () => {
+  it("renders a local Agent stream error without i18n replacement", () => {
     renderWorkspace({
       tab: {
         ...idleTab,
@@ -402,7 +430,14 @@ describe("AgentWorkspace", () => {
       },
     });
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "error_code: BACKEND_AGENT_STREAM_INVALID",
+    );
+    expect(alert).toHaveTextContent(
+      "error_message: BACKEND_AGENT_STREAM_INVALID",
+    );
+    expect(alert).not.toHaveTextContent(
       "The Agent stream used an invalid protocol.",
     );
   });

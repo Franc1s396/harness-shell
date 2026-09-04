@@ -1,210 +1,104 @@
-import hashlib
 import io
-import json
 import logging
+import re
 from contextlib import redirect_stdout
 
-import httpx
-import openai
-from harness_shell_sidecar.telemetry.logging import (
-    JsonLogFormatter,
-    configure_stderr_logging,
-    extract_exception_fields,
-    log_event,
-)
+import pytest
+
+from harness_shell_sidecar.telemetry import configure_stderr_logging
 
 
-def test_structured_logging_emits_complete_json_to_stderr_only() -> None:
+def _parts(line: str) -> list[str]:
+    """Split one console record into the six configured columns."""
+
+    return line.rstrip("\n").split(" | ", maxsplit=5)
+
+
+def test_logging_emits_slf4j_style_columns_to_stderr_only() -> None:
     stderr = io.StringIO()
     stdout = io.StringIO()
     configure_stderr_logging(stderr)
     logger = logging.getLogger("harness_shell_sidecar.test")
 
     with redirect_stdout(stdout):
-        log_event(
-            logger,
-            logging.INFO,
-            "agent_node_started",
-            agent_run_id="00000000-0000-0000-0000-000000000001",
-            node="call_model",
-            react_iteration=2,
-        )
+        logger.info("agent_run_started agent_run_id=%s", "run-123")
 
-    record = json.loads(stderr.getvalue())
-    assert record == {
-        "timestamp": record["timestamp"],
-        "level": "INFO",
-        "component": "python_sidecar",
-        "event": "agent_node_started",
-        "logger": "harness_shell_sidecar.test",
-        "message": "agent_node_started",
-        "agent_run_id": "00000000-0000-0000-0000-000000000001",
-        "node": "call_model",
-        "react_iteration": 2,
-    }
-    assert record["timestamp"].endswith("Z")
+    timestamp, level, request_id, thread, logger_name, message = _parts(
+        stderr.getvalue()
+    )
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}", timestamp)
+    assert level == "INFO "
+    assert request_id == ""
+    assert thread == "MainThread"
+    assert logger_name == "harness_shell_sidecar.test"
+    assert message == "agent_run_started agent_run_id=run-123"
     assert stdout.getvalue() == ""
 
 
-def test_unstructured_logging_preserves_the_arbitrary_message() -> None:
+def test_logging_preserves_direct_warning_message() -> None:
     marker = "ordinary-python-log-message"
     stderr = io.StringIO()
     configure_stderr_logging(stderr)
 
-    logging.getLogger("third_party").warning(marker)
+    logging.getLogger("third_party").warning("warning reason=%s", marker)
 
-    encoded = stderr.getvalue()
-    record = json.loads(encoded)
-    assert record["event"] == "python_log"
-    assert record["message"] == marker
-    assert marker in encoded
+    _timestamp, level, _request_id, _thread, logger_name, message = _parts(
+        stderr.getvalue()
+    )
+    assert level == "WARNING"
+    assert logger_name == "third_party"
+    assert message == f"warning reason={marker}"
 
 
-def test_structured_logging_preserves_arbitrary_fields() -> None:
+def test_debug_logging_is_hidden_at_the_default_info_level() -> None:
     stderr = io.StringIO()
     configure_stderr_logging(stderr)
 
-    log_event(
-        logging.getLogger("harness_shell_sidecar.test"),
-        logging.INFO,
-        "model_request_failed",
-        request_body={"prompt": "print-the-complete-business-payload"},
+    logging.getLogger("harness_shell_sidecar.test").debug("node detail")
+
+    assert stderr.getvalue() == ""
+
+
+def test_debug_logging_can_be_enabled_explicitly() -> None:
+    stderr = io.StringIO()
+    configure_stderr_logging(stderr, level=logging.DEBUG)
+
+    logging.getLogger("harness_shell_sidecar.test").debug(
+        "agent_node_completed node=%s", "call_model"
     )
 
-    record = json.loads(stderr.getvalue())
-    assert record["request_body"] == {
-        "prompt": "print-the-complete-business-payload"
-    }
-
-
-def test_formatter_preserves_structured_record_fields() -> None:
-    marker = "structured-business-field-marker"
-    record = logging.LogRecord(
-        name="third_party",
-        level=logging.ERROR,
-        pathname=__file__,
-        lineno=1,
-        msg="safe-looking-event",
-        args=(),
-        exc_info=None,
+    _timestamp, level, _request_id, _thread, _logger_name, message = _parts(
+        stderr.getvalue()
     )
-    record.harness_event = "safe-looking-event"
-    record.harness_fields = {"request_body": marker}
-
-    encoded = JsonLogFormatter().format(record)
-
-    parsed = json.loads(encoded)
-    assert parsed["event"] == "safe-looking-event"
-    assert parsed["request_body"] == marker
+    assert level == "DEBUG"
+    assert message == "agent_node_completed node=call_model"
 
 
-def test_exception_fields_include_complete_exception_text_and_http_body() -> None:
-    body = {
-        "error": {
-            "type": "authentication_error",
-            "code": "invalid_api_key",
-            "message": "response-body-secret-marker",
-        }
-    }
-    response = httpx.Response(
-        401,
-        headers={
-            "x-request-id": "req-safe-123",
-            "authorization": "Bearer secret-header-marker",
-        },
-        request=httpx.Request(
-            "POST",
-            "https://provider.example/v1/responses?token=query-secret-marker",
-        ),
-        json=body,
+@pytest.mark.parametrize(
+    ("level", "level_name", "level_color"),
+    [
+        (logging.DEBUG, "DEBUG", "\x1b[36m"),
+        (logging.INFO, "INFO ", "\x1b[32m"),
+        (logging.WARNING, "WARNING", "\x1b[33m"),
+        (logging.ERROR, "ERROR", "\x1b[31m"),
+    ],
+)
+def test_colorized_logging_uses_the_console_palette(
+    level: int,
+    level_name: str,
+    level_color: str,
+) -> None:
+    stderr = io.StringIO()
+    configure_stderr_logging(stderr, level=logging.DEBUG, colorize=True)
+
+    logging.getLogger("harness_shell_sidecar.test").log(level, "message")
+
+    rendered = stderr.getvalue()
+    assert rendered.startswith("\x1b[39m\x1b[2m")
+    assert f"{level_color}{level_name}\x1b[0m\x1b[39m" in rendered
+    assert "\x1b[36mMainThread\x1b[0m\x1b[39m" in rendered
+    assert (
+        "\x1b[33mharness_shell_sidecar.test\x1b[0m\x1b[39m"
+        in rendered
     )
-    error = openai.AuthenticationError(
-        "exception-message-secret-marker",
-        response=response,
-        body=response.json(),
-    )
-
-    fields = extract_exception_fields(error)
-    encoded = json.dumps(fields, sort_keys=True)
-    canonical_body = (
-        b'{"error":{"code":"invalid_api_key",'
-        b'"message":"response-body-secret-marker",'
-        b'"type":"authentication_error"}}'
-    )
-
-    assert fields["exception_type"] == "openai.AuthenticationError"
-    assert fields["http_status"] == 401
-    assert fields["provider_error_type"] == "authentication_error"
-    assert fields["provider_error_code"] == "invalid_api_key"
-    assert fields["provider_request_id"] == "req-safe-123"
-    assert "exception-message-secret-marker" in fields["exception_text"]
-    assert json.loads(fields["http_response_body"]) == body
-    assert fields["response_body_length"] == len(canonical_body)
-    assert fields["response_body_sha256"] == hashlib.sha256(
-        canonical_body
-    ).hexdigest()
-    assert "response-body-secret-marker" in encoded
-    assert "exception-message-secret-marker" in encoded
-
-
-def test_httpx_status_error_includes_status_url_and_raw_response_body() -> None:
-    response = httpx.Response(
-        502,
-        request=httpx.Request("GET", "https://provider.example/health"),
-        text="upstream-gateway-response-body",
-    )
-
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as error:
-        fields = extract_exception_fields(error)
-
-    assert fields["http_status"] == 502
-    assert fields["http_response_body"] == "upstream-gateway-response-body"
-    assert "https://provider.example/health" in fields["exception_text"]
-
-
-def test_exception_fields_include_stack_metadata_and_complete_cause_chain() -> None:
-    nested_message_marker = "nested-exception-message-marker"
-
-    try:
-        try:
-            raise ValueError(nested_message_marker)
-        except ValueError as cause:
-            raise RuntimeError("outer-exception-message-marker") from cause
-    except RuntimeError as error:
-        fields = extract_exception_fields(error)
-
-    frames = fields["stack_frames"]
-    assert isinstance(frames, list)
-    assert frames
-    assert all(set(frame) == {"file", "line", "function"} for frame in frames)
-    encoded = json.dumps(fields, sort_keys=True)
-    assert nested_message_marker in encoded
-    assert "outer-exception-message-marker" in encoded
-
-
-def test_unstructured_exception_logging_preserves_traceback_and_message() -> None:
-    marker = "unstructured-exception-marker"
-    record = logging.LogRecord(
-        name="third_party",
-        level=logging.ERROR,
-        pathname=__file__,
-        lineno=1,
-        msg="arbitrary-message-marker",
-        args=(),
-        exc_info=None,
-    )
-
-    try:
-        raise RuntimeError(marker)
-    except RuntimeError:
-        import sys
-
-        record.exc_info = sys.exc_info()
-
-    encoded = JsonLogFormatter().format(record)
-    parsed = json.loads(encoded)
-    assert parsed["message"] == "arbitrary-message-marker"
-    assert marker in parsed["exception_text"]
-    assert "Traceback (most recent call last)" in parsed["exception_text"]
+    assert rendered.endswith(" | message\x1b[0m\n")

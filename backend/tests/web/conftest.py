@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import signal
 import socket
 import subprocess
@@ -20,6 +21,9 @@ from fastapi.testclient import TestClient
 
 from harness_shell_sidecar.web import create_app
 from harness_shell_sidecar.runtime.settings import RuntimeSettings
+
+
+_ANSI_SGR_SEQUENCE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @pytest.fixture
@@ -100,7 +104,7 @@ class ProcessProbe:
         *,
         timeout: float = 10.0,
     ) -> dict[str, object]:
-        """Wait for one structured stderr event without arbitrary sleeping."""
+        """Wait for one named console event without arbitrary sleeping."""
 
         deadline = time.monotonic() + timeout
         while True:
@@ -115,12 +119,21 @@ class ProcessProbe:
                 raise AssertionError(
                     f"stderr event {event!r} was not observed: {self.stderr_lines!r}"
                 ) from error
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
+            plain_line = _ANSI_SGR_SEQUENCE.sub("", line)
+            columns = plain_line.split(" | ", maxsplit=5)
+            if len(columns) != 6:
                 continue
-            if record.get("event") == event:
-                return record
+            message = columns[-1]
+            tokens = message.split()
+            if not tokens or tokens[0] != event:
+                continue
+            record: dict[str, object] = {"event": event}
+            for token in tokens[1:]:
+                key, separator, value = token.partition("=")
+                if not separator:
+                    continue
+                record[key] = int(value) if value.isdecimal() else value
+            return record
 
     def wait_until_http_ready(self, port: int, *, timeout: float = 10.0) -> None:
         """Poll the exact loopback liveness route until it answers or child exits."""

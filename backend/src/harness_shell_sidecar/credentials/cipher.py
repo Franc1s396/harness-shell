@@ -25,11 +25,12 @@ class CredentialCipherError(ValueError):
 
     error_code: str
 
-    def __init__(self, error_code: str) -> None:
-        """Store only the stable code and omit cryptographic exception text."""
+    def __init__(self, error_code: str, message: str) -> None:
+        """Store a stable code and reviewed detail without cryptographic values."""
 
         self.error_code = error_code
-        super().__init__(error_code)
+        self.safe_message = message
+        super().__init__(f"{error_code}: {message}")
 
 
 class RuntimeCredentialCipher:
@@ -70,19 +71,31 @@ class RuntimeCredentialCipher:
         """Authenticate and decrypt one current-key bounded credential envelope."""
 
         if envelope.key_id != self._key_id:
-            raise CredentialCipherError("CREDENTIAL_KEY_STALE")
+            raise CredentialCipherError(
+                "CREDENTIAL_KEY_STALE",
+                "the credential envelope targets a different Runtime key",
+            )
         wrapped_key = _decode_canonical_base64(envelope.wrapped_key_b64)
         iv = _decode_canonical_base64(envelope.iv_b64)
         ciphertext = _decode_canonical_base64(envelope.ciphertext_b64)
         if len(wrapped_key) != self._private_key.key_size // 8:
-            raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID")
+            raise CredentialCipherError(
+                "CREDENTIAL_ENVELOPE_INVALID",
+                "the wrapped key length does not match the Runtime RSA key",
+            )
         if len(iv) != _AES_GCM_IV_BYTES:
-            raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID")
+            raise CredentialCipherError(
+                "CREDENTIAL_ENVELOPE_INVALID",
+                "the credential envelope IV length is invalid",
+            )
         if not (
             _AES_GCM_TAG_BYTES < len(ciphertext)
             <= MAX_CREDENTIAL_PLAINTEXT_BYTES + _AES_GCM_TAG_BYTES
         ):
-            raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID")
+            raise CredentialCipherError(
+                "CREDENTIAL_ENVELOPE_INVALID",
+                "the encrypted credential length is outside the allowed range",
+            )
         try:
             unwrapped = self._private_key.decrypt(
                 wrapped_key,
@@ -93,11 +106,17 @@ class RuntimeCredentialCipher:
                 ),
             )
         except ValueError as exc:
-            raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID") from exc
+            raise CredentialCipherError(
+                "CREDENTIAL_ENVELOPE_INVALID",
+                "the Runtime RSA key could not unwrap the credential key",
+            ) from exc
         aes_key = bytearray(unwrapped)
         try:
             if len(aes_key) != _AES_KEY_BYTES:
-                raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID")
+                raise CredentialCipherError(
+                    "CREDENTIAL_ENVELOPE_INVALID",
+                    "the unwrapped credential key length is invalid",
+                )
             try:
                 plaintext = AESGCM(bytes(aes_key)).decrypt(
                     iv,
@@ -105,9 +124,15 @@ class RuntimeCredentialCipher:
                     _associated_data(self._key_id),
                 )
             except (InvalidTag, ValueError) as exc:
-                raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID") from exc
+                raise CredentialCipherError(
+                    "CREDENTIAL_ENVELOPE_INVALID",
+                    "the encrypted credential failed authentication",
+                ) from exc
             if not plaintext or len(plaintext) > MAX_CREDENTIAL_PLAINTEXT_BYTES:
-                raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID")
+                raise CredentialCipherError(
+                    "CREDENTIAL_ENVELOPE_INVALID",
+                    "the decrypted credential length is outside the allowed range",
+                )
             return bytearray(plaintext)
         finally:
             zeroize(aes_key)
@@ -132,7 +157,13 @@ def _decode_canonical_base64(value: str) -> bytes:
     try:
         decoded = base64.b64decode(value, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID") from exc
+        raise CredentialCipherError(
+            "CREDENTIAL_ENVELOPE_INVALID",
+            "a credential envelope field is not valid Base64",
+        ) from exc
     if base64.b64encode(decoded).decode("ascii") != value:
-        raise CredentialCipherError("CREDENTIAL_ENVELOPE_INVALID")
+        raise CredentialCipherError(
+            "CREDENTIAL_ENVELOPE_INVALID",
+            "a credential envelope field is not canonical Base64",
+        )
     return decoded

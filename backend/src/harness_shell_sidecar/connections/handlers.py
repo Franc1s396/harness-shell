@@ -311,7 +311,10 @@ def _create_credential(
         try:
             text = secret.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
-            raise CredentialRepositoryError("CREDENTIAL_SECRET_INVALID") from None
+            raise CredentialRepositoryError(
+                "CREDENTIAL_SECRET_INVALID",
+                "the decrypted connection credential is not valid UTF-8",
+            ) from None
         return repository.create(kind, text)
     finally:
         text = ""
@@ -374,4 +377,7 @@ def _delete_replaced_credentials(
         value for value in previous_ids if value is not None and value not in retained
     }:
         if not repository.delete(credential_id):
-            raise CredentialRepositoryError("CREDENTIAL_NOT_FOUND")
+            raise CredentialRepositoryError(
+                "CREDENTIAL_NOT_FOUND",
+                "an obsolete connection credential could not be deleted",
+            )

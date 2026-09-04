@@ -7,7 +7,7 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
-from harness_shell_sidecar.telemetry import configure_stderr_logging, log_event
+from harness_shell_sidecar.telemetry import configure_stderr_logging
 from harness_shell_sidecar.web.server import desktop, serve
 
 
@@ -91,8 +91,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run one autonomous loopback backend in development or desktop mode."""
 
     args = build_parser().parse_args(argv)
-    configure_stderr_logging()
-    log_event(LOGGER, logging.INFO, "sidecar_process_started")
+    configure_stderr_logging(colorize=args.command == "serve")
+    LOGGER.info("sidecar_process_started")
     try:
         if args.command == "serve":
             return serve(port=args.port, data_dir=args.data_dir)

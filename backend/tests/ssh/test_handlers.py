@@ -231,6 +231,7 @@ def test_ssh_errors_keep_only_structured_safe_details() -> None:
 
             raise SshRuntimeError(
                 "HOST_KEY_CHANGED",
+                "the observed host key no longer matches the trusted record",
                 node="host_key",
                 recoverable=False,
                 remote_state="pre_auth",

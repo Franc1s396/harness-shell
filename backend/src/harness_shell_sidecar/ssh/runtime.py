@@ -131,6 +131,7 @@ class SshRuntime:
         except (OSError, asyncssh.DisconnectError) as exc:
             raise SshRuntimeError(
                 "HOST_KEY_INSPECTION_FAILED",
+                "host key inspection failed before authentication",
                 node="host_key",
                 recoverable=True,
                 remote_state="pre_auth",
@@ -141,6 +142,7 @@ class SshRuntime:
             await connection.wait_closed()
             raise SshRuntimeError(
                 "HOST_KEY_CALLBACK_NOT_INVOKED",
+                "host key inspection connected without observing a server key",
                 node="host_key",
                 recoverable=False,
                 remote_state="unknown",
@@ -171,6 +173,7 @@ class SshRuntime:
         ):
             raise SshRuntimeError(
                 "CONNECTION_PROFILE_CHANGED",
+                "target connection profile version changed before SSH contact",
                 node="profile",
                 recoverable=True,
                 remote_state="not_contacted",
@@ -225,6 +228,7 @@ class SshRuntime:
                     continue
                 error = SshRuntimeError(
                     "SSH_CONNECT_FAILED",
+                    "SSH connection failed after the bounded retry",
                     node="connect",
                     recoverable=True,
                     remote_state="pre_auth",
@@ -332,6 +336,7 @@ class SshRuntime:
                     continue
                 error = SshRuntimeError(
                     "SSH_CONNECT_FAILED",
+                    "ProxyJump or target SSH connection failed after the bounded retry",
                     node="connect",
                     recoverable=True,
                     remote_state="pre_auth",
@@ -369,6 +374,7 @@ class SshRuntime:
         if session is None:
             raise SshRuntimeError(
                 "SSH_SESSION_NOT_FOUND",
+                "the requested SSH session does not exist",
                 node="disconnect",
                 recoverable=False,
                 remote_state="not_contacted",
@@ -401,6 +407,7 @@ class SshRuntime:
         if profile is None:
             raise SshRuntimeError(
                 "CONNECTION_NOT_FOUND",
+                "the requested connection profile does not exist",
                 node="profile",
                 recoverable=False,
                 remote_state="not_contacted",
@@ -425,6 +432,7 @@ class SshRuntime:
         ):
             raise SshRuntimeError(
                 "PROXY_JUMP_PROFILE_MISMATCH",
+                "the resolved ProxyJump profile does not match the frozen connection",
                 node="proxy_jump.profile",
                 recoverable=False,
                 remote_state="not_contacted",
@@ -433,6 +441,7 @@ class SshRuntime:
         if jump.proxy_jump_id is not None:
             raise SshRuntimeError(
                 "MULTI_HOP_PROXY_FORBIDDEN",
+                "the ProxyJump profile references another jump",
                 node="proxy_jump",
                 recoverable=False,
                 remote_state="not_contacted",
@@ -441,6 +450,7 @@ class SshRuntime:
         if expected_version is not None and jump.version != expected_version:
             raise SshRuntimeError(
                 "CONNECTION_PROFILE_CHANGED",
+                "the ProxyJump profile version changed before SSH contact",
                 node="proxy_jump.profile",
                 recoverable=True,
                 remote_state="not_contacted",
@@ -479,6 +489,7 @@ class SshRuntime:
             error_node = "host_key" if node == "target" else f"{node}.host_key"
             raise SshRuntimeError(
                 "HOST_KEY_CHANGED",
+                "the observed host key no longer matches the trusted record",
                 node=error_node,
                 recoverable=False,
                 remote_state="pre_auth",
@@ -492,6 +503,7 @@ class SshRuntime:
             )
             raise SshRuntimeError(
                 "SSH_AUTHENTICATION_FAILED",
+                "the SSH server rejected the configured authentication material",
                 node=error_node,
                 recoverable=False,
                 remote_state="pre_auth",

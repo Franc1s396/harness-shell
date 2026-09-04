@@ -97,11 +97,11 @@ class SessionRegistry:
 
 ### 异常与失败传播
 
-- 预期领域失败使用具体 exception type 和稳定 error code；调用边界统一映射安全 message。
+- 预期领域失败使用具体 exception type 和稳定 error code；异常文本必须同时包含该 raise point 的具体、经过安全审查的 message，禁止只抛 error code。调用边界统一映射对外安全 message。
 - 禁止 `except Exception: pass`、空返回、默认成功对象或 broad catch 后继续执行。
-- 未知失败保留失败语义并在完整日志中留下 code、message 与 traceback；不得通过 fallback 数据掩盖根因。
+- 未知失败保留失败语义；安全边界默认只记录 stable code 与 exception type，只有明确确认不含 secret、Provider body、command 或远程输出时才允许记录异常 message 或 traceback。不得通过 fallback 数据掩盖根因。
 - Cleanup 失败不得覆盖更早的业务失败；需要汇总时明确保存并重新抛出首个失败。
-- 异常 message、`repr` 和 traceback 会被 Logger 完整记录；产生异常的调用点负责避免主动拼入 credential 或 raw secret frame。
+- 领域异常的 safe message 由产生异常的调用点负责，不得主动拼入 credential、Provider body、command、远程输出或 raw secret frame。
 
 ### Async、取消与资源
 
@@ -114,7 +114,8 @@ class SessionRegistry:
 ### 敏感数据、日志与持久化
 
 - password、private key、passphrase 和 secret frame 不得由调用点主动写入日志或异常；credential 当前只允许由 Python `CredentialRepository` 明确持久化，Logger 不提供自动过滤。
-- 日志写 stderr；调用点只提交经过审查的结构化元数据，禁止 credential、command、model response、stdout/stderr、SFTP bytes 和 HTTP body。stdout 不承担协议或业务输出。
+- 日志写 stderr；业务代码直接调用标准 `logger.debug()`、`logger.info()`、`logger.warning()` 或 `logger.error()`，使用 `%s` 参数化，不增加 `log_event()` 一类 helper wrapper。调用点只提交经过审查的稳定 message 与元数据，禁止 credential、command、model response、stdout/stderr、SFTP bytes 和 HTTP body。stdout 不承担协议或业务输出；ANSI 仅用于源码 `serve` 开发控制台，`desktop` 保持纯文本。
+- DEBUG 用于 node、route、iteration 等执行细节；INFO 仅保留进程/服务、Agent Run 生命周期与成功 HTTP 完成记录；可预期 HTTP 拒绝使用 WARNING，失败使用 ERROR。
 - 可变 secret buffer 用完后主动覆盖；避免不必要的 `bytes`/`str` 拷贝和长生命周期闭包捕获。
 - 新增持久化字段前明确分类、plaintext 风险、关联数据、schema、删除和自检策略；当前 schema v6 不提供旧版本 migration 或 at-rest encryption。没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
 

@@ -16,8 +16,6 @@ from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
 from harness_shell_sidecar.runtime.models import MAX_JSON_BODY_BYTES
-from harness_shell_sidecar.telemetry import log_event
-
 from .api_configs import ApiConfigRepository
 from .context import ContextService
 from .contracts import (
@@ -59,11 +57,12 @@ LOGGER = logging.getLogger("harness_shell_sidecar.agent.service")
 class AgentServiceError(RuntimeError):
     """Expose a stable failure which occurs before a durable Run can start."""
 
-    def __init__(self, error_code: str) -> None:
-        """Store the public code without including request or secret material."""
+    def __init__(self, error_code: str, message: str) -> None:
+        """Store the public code and one reviewed non-sensitive failure reason."""
 
-        super().__init__(error_code)
+        super().__init__(f"{error_code}: {message}")
         self.error_code = error_code  # Stable handler-facing failure code.
+        self.safe_message = message  # Reviewed detail without secret material.
 
 
 @dataclass(slots=True)
@@ -118,7 +117,10 @@ class AgentService:
         if conversation_id is None:
             conversation_id = self._conversations.create_conversation()
         elif not self._conversations.conversation_exists(conversation_id):
-            raise AgentServiceError("AGENT_CONVERSATION_NOT_FOUND")
+            raise AgentServiceError(
+                "AGENT_CONVERSATION_NOT_FOUND",
+                "the requested conversation does not exist",
+            )
 
         async with self._conversation_lock(conversation_id):
             config = self._validate_run_authorities(
@@ -132,17 +134,29 @@ class AgentService:
                 request.ssh_session_id,
                 request.api_config_id,
             )
-            log_event(
-                LOGGER,
-                logging.INFO,
-                "agent_run_started",
-                agent_run_id=str(run.agent_run_id),
-                conversation_id=str(conversation_id),
-                ssh_session_id=str(request.ssh_session_id),
-                api_config_id=str(config.api_config_id),
-                api_type=config.api_type.value,
-                model=config.model,
-                react_iteration=run.react_iteration,
+            LOGGER.info(
+                "agent_run_started agent_run_id=%s conversation_id=%s "
+                "ssh_session_id=%s api_config_id=%s api_type=%s model=%s "
+                "react_iteration=%s",
+                run.agent_run_id,
+                conversation_id,
+                request.ssh_session_id,
+                config.api_config_id,
+                config.api_type.value,
+                config.model,
+                run.react_iteration,
+                extra={
+                    "harness_event": "agent_run_started",
+                    "harness_fields": {
+                        "agent_run_id": str(run.agent_run_id),
+                        "conversation_id": str(conversation_id),
+                        "ssh_session_id": str(request.ssh_session_id),
+                        "api_config_id": str(config.api_config_id),
+                        "api_type": config.api_type.value,
+                        "model": config.model,
+                        "react_iteration": run.react_iteration,
+                    },
+                },
             )
             initial_state: AgentGraphState = {
                 "agent_run_id": run.agent_run_id,
@@ -172,7 +186,10 @@ class AgentService:
                 if state["run_status"] is AgentRunStatus.COMPLETED:
                     final_text = _final_text(state)
                     if event_sink.streamed_text != final_text:
-                        raise AgentServiceError("MODEL_RESPONSE_INVALID")
+                        raise AgentServiceError(
+                            "MODEL_RESPONSE_INVALID",
+                            "streamed visible text did not match the final model response",
+                        )
                     _require_agent_result_fits(
                         run,
                         final_text,
@@ -248,16 +265,31 @@ class AgentService:
         """Recheck cancellation, the full config snapshot, and live Session authority."""
 
         if cancelled.is_set():
-            raise AgentServiceError("AGENT_CANCELLED")
+            raise AgentServiceError(
+                "AGENT_CANCELLED",
+                "the turn was cancelled before its run authorities were validated",
+            )
         config = self._api_configs.get(request.api_config_id)
         if config is None:
-            raise AgentServiceError("MODEL_API_CONFIG_NOT_FOUND")
+            raise AgentServiceError(
+                "MODEL_API_CONFIG_NOT_FOUND",
+                "the selected model API configuration does not exist",
+            )
         if not config.enabled:
-            raise AgentServiceError("MODEL_API_CONFIG_DISABLED")
+            raise AgentServiceError(
+                "MODEL_API_CONFIG_DISABLED",
+                "the selected model API configuration is disabled",
+            )
         if expected_config is None or config != expected_config:
-            raise AgentServiceError("MODEL_API_CONFIG_CHANGED")
+            raise AgentServiceError(
+                "MODEL_API_CONFIG_CHANGED",
+                "the selected model API configuration changed before execution",
+            )
         if not self._session_is_available(request.ssh_session_id):
-            raise AgentServiceError("SSH_SESSION_UNAVAILABLE")
+            raise AgentServiceError(
+                "SSH_SESSION_UNAVAILABLE",
+                "the SSH session frozen for this turn is not available",
+            )
         return config
 
     @asynccontextmanager
@@ -319,10 +351,21 @@ def _log_terminal_run(
         AgentRunStatus.FAILED: "agent_run_failed",
         AgentRunStatus.LIMIT_REACHED: "agent_run_failed",
     }[run.status]
-    level = (
-        logging.ERROR
-        if run.status in {AgentRunStatus.FAILED, AgentRunStatus.LIMIT_REACHED}
-        else logging.INFO
+    message = (
+        "%s agent_run_id=%s conversation_id=%s ssh_session_id=%s "
+        "api_config_id=%s api_type=%s model=%s react_iteration=%s "
+        "duration_ms=%s"
+    )
+    arguments = (
+        event,
+        run.agent_run_id,
+        run.conversation_id,
+        run.ssh_session_id,
+        run.api_config_id,
+        config.api_type.value,
+        config.model,
+        run.react_iteration,
+        (time.monotonic_ns() - started_ns) // 1_000_000,
     )
     fields = {
         "agent_run_id": str(run.agent_run_id),
@@ -332,11 +375,37 @@ def _log_terminal_run(
         "api_type": config.api_type.value,
         "model": config.model,
         "react_iteration": run.react_iteration,
-        "duration_ms": (time.monotonic_ns() - started_ns) // 1_000_000,
+        "duration_ms": arguments[-1],
     }
-    if run.error_code is not None:
-        fields["error_code"] = run.error_code
-    log_event(LOGGER, level, event, **fields)
+    if run.status in {AgentRunStatus.FAILED, AgentRunStatus.LIMIT_REACHED}:
+        LOGGER.error(
+            f"{message} error_code=%s",
+            *arguments,
+            run.error_code,
+            extra={
+                "harness_event": event,
+                "harness_fields": {**fields, "error_code": run.error_code},
+            },
+        )
+    elif run.error_code is not None:
+        LOGGER.info(
+            f"{message} error_code=%s",
+            *arguments,
+            run.error_code,
+            extra={
+                "harness_event": event,
+                "harness_fields": {**fields, "error_code": run.error_code},
+            },
+        )
+    else:
+        LOGGER.info(
+            message,
+            *arguments,
+            extra={
+                "harness_event": event,
+                "harness_fields": fields,
+            },
+        )
 
 
 def _final_text(state: dict[str, Any]) -> str:
@@ -392,4 +461,7 @@ def _require_agent_result_fits(
         ).encode("utf-8")
     )
     if encoded_size > MAX_JSON_BODY_BYTES:
-        raise AgentServiceError("AGENT_RESPONSE_TOO_LARGE")
+        raise AgentServiceError(
+            "AGENT_RESPONSE_TOO_LARGE",
+            "the serialized Agent result exceeded the HTTP response limit",
+        )
