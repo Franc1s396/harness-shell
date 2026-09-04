@@ -311,6 +311,79 @@ describe("AgentWorkspace", () => {
     expect(screen.getByText("sent-model")).toBeVisible();
   });
 
+  it("renders completed assistant answers as safe GitHub-flavored Markdown", () => {
+    renderWorkspace({
+      tab: {
+        ...idleTab,
+        draft: "",
+        messages: [
+          {
+            id: "assistant-markdown",
+            kind: "assistant",
+            text: [
+              "## Result",
+              "",
+              "- **healthy**",
+              "- ~~deprecated~~",
+              "",
+              "| Service | Status |",
+              "| --- | --- |",
+              "| API | online |",
+              "",
+              "[Documentation](https://example.com/docs)",
+              "",
+              "![remote status](https://example.com/status.png)",
+              "",
+              '<img src="invalid" onerror="alert(1)">',
+            ].join("\n"),
+            run: {
+              agentRunId: "run-markdown",
+              status: "COMPLETED",
+              reactIteration: 1,
+              sshSessionId: "ssh-1",
+              provider: runningTab.activeRun!.provider,
+            },
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Result" }),
+    ).toBeVisible();
+    expect(screen.getByRole("table")).toBeVisible();
+    expect(screen.getByText("deprecated").closest("del")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Documentation" })).toHaveAttribute(
+      "rel",
+      "noreferrer noopener",
+    );
+    expect(screen.getByText("remote status")).toBeVisible();
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  it("renders a provisional assistant answer with Markdown semantics", () => {
+    renderWorkspace({
+      tab: {
+        ...runningTab,
+        activeRun: {
+          ...runningTab.activeRun!,
+          nextSequence: 2,
+          streamedText: "### Checking\n\n`service --status`",
+        },
+      },
+    });
+
+    const heading = screen.getByRole("heading", {
+      level: 3,
+      name: "Checking",
+    });
+    expect(heading.closest("article")).toHaveAttribute(
+      "data-provisional",
+      "true",
+    );
+    expect(screen.getByText("service --status").closest("code")).not.toBeNull();
+  });
+
   it("renders the fixed local Agent stream error description", () => {
     renderWorkspace({
       tab: {

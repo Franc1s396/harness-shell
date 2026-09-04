@@ -66,3 +66,50 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   background: var(--color-ink-muted);
   background-clip: content-box;
 }
+
+.agent-markdown > :first-child { margin-top: 0; }
+.agent-markdown > :last-child { margin-bottom: 0; }
+.agent-markdown p, .agent-markdown ul, .agent-markdown ol, .agent-markdown blockquote,
+.agent-markdown pre, .agent-markdown-table { margin: 0.5rem 0; }
+.agent-markdown h1, .agent-markdown h2, .agent-markdown h3,
+.agent-markdown h4, .agent-markdown h5, .agent-markdown h6 {
+  margin: 0.75rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.agent-markdown h1 { font-size: 1.25rem; }
+.agent-markdown h2 { font-size: 1.125rem; }
+.agent-markdown h3 { font-size: 1rem; }
+.agent-markdown ul, .agent-markdown ol { padding-left: 1.25rem; }
+.agent-markdown ul { list-style: disc; }
+.agent-markdown ol { list-style: decimal; }
+.agent-markdown blockquote {
+  border-left: 3px solid var(--color-line-strong);
+  padding-left: 0.75rem;
+  color: var(--color-ink-muted);
+}
+.agent-markdown a { color: var(--color-accent); text-decoration: underline; }
+.agent-markdown code {
+  border-radius: 0.25rem;
+  background: var(--color-app);
+  padding: 0.1rem 0.25rem;
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: 0.875em;
+}
+.agent-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 0.375rem;
+  background: var(--color-app);
+  padding: 0.75rem;
+}
+.agent-markdown pre code { background: transparent; padding: 0; }
+.agent-markdown-table { max-width: 100%; overflow-x: auto; }
+.agent-markdown table { border-collapse: collapse; }
+.agent-markdown th, .agent-markdown td {
+  border: 1px solid var(--color-line-strong);
+  padding: 0.375rem 0.5rem;
+  text-align: left;
+}
+.agent-markdown th { background: var(--color-raised); font-weight: 600; }

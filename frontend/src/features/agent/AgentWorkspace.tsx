@@ -5,6 +5,7 @@ import type { AgentCommandError, ModelApiConfig } from "../../api/agent";
 import { Button } from "../../components/ui/controls";
 import { Dialog } from "../../components/ui/Dialog";
 import { ShellIcon } from "../shell/icons";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import type { AgentTabState } from "./agent-state";
 
 export type AgentWorkspaceProps = {
@@ -159,7 +160,7 @@ export function AgentWorkspace({
           }
           return (
             <article key={message.id} className="w-fit max-w-[88%] space-y-2 rounded-xl border border-line px-3 py-2">
-              <p className="whitespace-pre-wrap break-words">{message.text}</p>
+              <AssistantMarkdown text={message.text} />
               <details>
                 <summary className="cursor-pointer text-xs text-ink-muted">
                   {t("agent.runDetails")} · {t("agent.sentSnapshot")}
@@ -194,7 +195,7 @@ export function AgentWorkspace({
             role="status"
             className="w-fit max-w-[88%] rounded-xl border border-line px-3 py-2"
           >
-            <p className="whitespace-pre-wrap break-words">{streamedText}</p>
+            <AssistantMarkdown text={streamedText} />
           </article>
         ) : null}
         {tab.lastError &&
