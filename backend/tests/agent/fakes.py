@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage
 
-from harness_shell_sidecar.agent.contracts import AgentTurnInput
+from harness_shell_sidecar.agent.contracts import AgentRun, AgentTurnInput
 
 
 class FakeBoundModel:
@@ -69,7 +69,48 @@ class FakeBoundModel:
         if isinstance(outcome, AIMessage):
             yield AIMessageChunk(content=outcome.content, tool_calls=outcome.tool_calls)
             return
+        if isinstance(outcome, list):
+            for chunk in outcome:
+                yield chunk
+            return
         yield outcome
+
+
+class RecordingTurnSink:
+    """Record lifecycle events and exact visible deltas for one test turn."""
+
+    def __init__(self) -> None:
+        """Create an empty event timeline and streamed-text buffer."""
+
+        self.events: list[tuple[str, AgentRun | str]] = []
+        self.parts: list[str] = []
+
+    @property
+    def streamed_text(self) -> str:
+        """Join the exact visible deltas in arrival order."""
+
+        return "".join(self.parts)
+
+    async def started(self, run: AgentRun) -> None:
+        """Record the durable RUNNING snapshot."""
+
+        self.events.append(("started", run))
+
+    async def text_delta(self, delta: str) -> None:
+        """Record one exact visible delta."""
+
+        self.parts.append(delta)
+        self.events.append(("delta", delta))
+
+    async def completed(self, run: AgentRun) -> None:
+        """Record the durable successful terminal snapshot."""
+
+        self.events.append(("completed", run))
+
+    async def failed(self, run: AgentRun) -> None:
+        """Record the durable unsuccessful terminal snapshot."""
+
+        self.events.append(("failed", run))
 
 
 class RecordingModelBuilder:

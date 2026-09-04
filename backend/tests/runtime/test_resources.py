@@ -49,9 +49,9 @@ def test_runtime_resources_initialize_all_handlers_and_shutdown_once(
             "pty.open",
             "manual_sftp.list.begin",
             "agent.api_configs.list",
-            "agent.turn.run",
         ):
             assert resources.dispatcher.handles(operation)
+        assert resources.agent_turn_application is not None
 
         await resources.shutdown()
         await resources.shutdown()

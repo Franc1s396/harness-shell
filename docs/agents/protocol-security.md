@@ -19,6 +19,8 @@ Backend 只监听 `127.0.0.1`，没有远程监听、TLS 或用户认证。loopb
 ## HTTP/WebSocket
 
 - HTTP 只允许固定 `/v1/...` typed routes、`X-Request-ID`、bounded body/response 与 Problem Details。
+- `POST /v1/agent/turns` 的 success 只允许 strict SSE。durable Run 之前的失败为 Problem Details；HTTP 200 后只允许 correlated `started -> text_delta* -> completed|failed -> EOF`，且只暴露最终 AI 可见文本。
+- Agent SSE 由创建本轮的 POST response 独占，不进入 Runtime WebSocket；不使用 EventSource、Socket.IO、reconnect、resume、replay 或 JSON success fallback。
 - Runtime WebSocket 是 single owner，首轮 heartbeat causation、message union、queue capacity、close code 均严格验证；不自动 reconnect、drop、merge 或 replay。
 - Manual SFTP bytes 只经 raw chunk endpoints，以 `application/octet-stream` 和 `X-Chunk-Offset` 关联；禁止 Base64 transport、path-embedded local path 和 high-level aggregate route。
 - PTY input 只走 Runtime WebSocket；不得增加 generic RPC 或任意 command route。
@@ -29,7 +31,7 @@ React 使用 Backend 公钥将用户输入包装为 RSA-OAEP-256 + AES-256-GCM r
 
 连接私钥选择与 strict UTF-8 读取由 React 拥有，HTTP 只携带加密 envelope，不携带文件路径。`GET /v1/runtime/credential-encryption-key` 仍是唯一公开的凭据辅助接口。
 
-Runtime SQLite schema v6 是 plaintext store：credential secret、Agent conversation/message/output、remote recovery 及其他业务 payload 可能明文落盘。当前没有 at-rest encryption 或 OS-bound protection。旧 schema 明确拒绝且没有 migration；SQLite 不再保存无读取闭环的 Audit/Trace。日志、Problem、WebSocket event 和 UI store 仍不得包含 secret 或文件 bytes。
+Runtime SQLite schema v6 是 plaintext store：credential secret、Agent conversation/message/output、remote recovery 及其他业务 payload 可能明文落盘。当前没有 at-rest encryption 或 OS-bound protection。旧 schema 明确拒绝且没有 migration；SQLite 不再保存无读取闭环的 Audit/Trace。日志、Problem、SSE terminal event、WebSocket event 和 UI store 均不得包含 secret、Provider body、tool/command、stdout/stderr 或文件 bytes；仅 provisional AI text 可在活动 tab 内存中短暂存在。
 
 ## Manual SFTP 权威
 

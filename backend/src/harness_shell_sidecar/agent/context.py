@@ -49,7 +49,8 @@ DEFAULT_SYSTEM_PROMPT = """
 """
 
 SYSTEM_MESSAGE = SystemMessage(
-    content=DEFAULT_SYSTEM_PROMPT
+    content=DEFAULT_SYSTEM_PROMPT,
+    additional_kwargs={"__openai_role__": "developer"},
 )
 
 

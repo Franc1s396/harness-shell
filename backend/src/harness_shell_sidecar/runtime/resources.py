@@ -7,6 +7,7 @@ from typing import Any
 
 from harness_shell_sidecar.agent import (
     AgentService,
+    AgentTurnApplication,
     ApiConfigRepository,
     ContextService,
     ConversationRepository,
@@ -55,6 +56,7 @@ class RuntimeResources:
         manual_sftp_application: ManualSftpApplication,
         agent_api_configs: ApiConfigRepository,
         agent_service: AgentService,
+        agent_turn_application: AgentTurnApplication,
         record_store: PlaintextRecordStore,
         credential_repository: CredentialRepository,
         credential_cipher: RuntimeCredentialCipher,
@@ -70,6 +72,7 @@ class RuntimeResources:
         self.manual_sftp_application = manual_sftp_application  # Raw-byte boundary.
         self.agent_api_configs = agent_api_configs  # Non-secret Provider config owner.
         self.agent_service = agent_service  # Per-turn experimental Agent orchestrator.
+        self.agent_turn_application = agent_turn_application  # Streaming app boundary.
         self.record_store = record_store  # Generic record owner for domain stores.
         self.credential_repository = credential_repository  # Plain secret owner.
         self.credential_cipher = credential_cipher  # Ephemeral wire RSA owner.
@@ -153,7 +156,7 @@ class RuntimeResources:
                 context,
                 ssh_runtime.sessions.is_connected,
             )
-            register_agent_handlers(
+            agent_turn_application = register_agent_handlers(
                 runtime_dispatcher,
                 api_configs,
                 agent_service,
@@ -183,6 +186,7 @@ class RuntimeResources:
             manual_sftp_application=manual_sftp_application,
             agent_api_configs=api_configs,
             agent_service=agent_service,
+            agent_turn_application=agent_turn_application,
             record_store=record_store,
             credential_repository=credential_repository,
             credential_cipher=credential_cipher,
@@ -210,6 +214,7 @@ class RuntimeResources:
         # Dispatcher convergence guarantees no Agent handler can still use these
         # references when the remote channel owners start closing.
         self.agent_service = None  # type: ignore[assignment]
+        self.agent_turn_application = None  # type: ignore[assignment]
         self.agent_api_configs = None  # type: ignore[assignment]
         self.state = RuntimePhase.CONVERGING
         for owner in (

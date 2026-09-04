@@ -128,12 +128,12 @@ class AgentTurnInput(BaseModel):
     user_message: Annotated[
         str,
         StringConstraints(min_length=1, max_length=65536),
-        Field(description="User text for this non-streaming Agent turn."),
+        Field(description="User text for this streamed Agent turn."),
     ]
 
 
 class AgentTurnResult(BaseModel):
-    """Return the bounded non-secret result of one completed Agent turn."""
+    """Represent the bounded internal terminal projection of one Agent turn."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 

@@ -22,7 +22,7 @@ from .graph import (
     AgentGraphState,
     build_agent_graph,
 )
-from .handlers import AgentTurnRequest, register_agent_handlers
+from .handlers import AgentTurnApplication, AgentTurnRequest, register_agent_handlers
 from .model_gateway import (
     MODEL_REQUEST_TIMEOUT_SECONDS,
     MODEL_RETRY_DELAYS_SECONDS,
@@ -42,6 +42,7 @@ __all__ = [
     "AgentRun",
     "AgentRunStatus",
     "AgentTurnInput",
+    "AgentTurnApplication",
     "AgentTurnRequest",
     "AgentTurnResult",
     "ApiConfigRepository",

@@ -14,7 +14,7 @@ NSIS shortcut / finish action
   -> harness-shell-sidecar.exe desktop --port 0 --data-dir <absolute> --control-read-handle ... --ready-write-handle ...
   -> Backend binds 127.0.0.1:<dynamic> and writes one bounded ready frame
   -> harness-shell-ui.exe --backend-url http://127.0.0.1:<dynamic>
-  -> React direct typed HTTP + one Runtime WebSocket
+  -> React direct typed HTTP (including Agent turn SSE) + one Runtime WebSocket
 ```
 
 Launcher 独占两个 child、Windows Job、ready/control pipe、启动顺序和退出清理。它不扫描端口、不 reconnect、不 respawn。Backend 提前退出时 UI 不被重新绑定；UI 退出时 Launcher 发送一次 graceful byte，3 秒后仍存活则终止 Job。
@@ -32,8 +32,8 @@ npm.cmd --prefix frontend run tauri:dev -- -- --backend-url http://127.0.0.1:876
 | --- | --- | --- |
 | Launcher | packaged child、Job、动态端口协商、ready/control pipe、退出顺序 | 业务 API、凭据解析、状态机、端口扫描 |
 | Tauri UI shell | `get_backend_bootstrap`、主窗口关闭/销毁权限 | HTTP/WebSocket 代理、Backend 生命周期、业务状态、文件传输、approval UI |
-| React | UI 状态、typed loopback client、Runtime WebSocket、连接私钥 picker/读取、Manual SFTP 本地 picker/handle/SHA-256/256 KiB chunk loop | SSH/PTY 远端状态、任意本地路径 API、后台恢复 |
-| Python Backend | FastAPI lifespan、dispatcher、SQLite、凭据、SSH/PTY、remote SFTP、Agent、结构化日志 | 本地 file picker/handle、Desktop child/Job、自动重连/重放 |
+| React | UI 状态、typed loopback client、Agent SSE framing/语义验证/临时文本、Runtime WebSocket、连接私钥 picker/读取、Manual SFTP 本地 picker/handle/SHA-256/256 KiB chunk loop | SSH/PTY 远端状态、任意本地路径 API、后台恢复 |
+| Python Backend | FastAPI lifespan、dispatcher、Agent SSE worker/startup barrier/queue、SQLite、凭据、SSH/PTY、remote SFTP、Agent、结构化日志 | 本地 file picker/handle、Desktop child/Job、自动重连/重放 |
 
 React 在启动时只通过 Tauri bootstrap command 取得固定 loopback base URL；之后业务调用直达 Python。当前没有独立 approval window、approval HTTP route 或审批状态，Agent 首轮风险确认仍由 React 在发送前显式执行。不得重新引入 Rust 业务代理或 generic RPC。
 
@@ -45,11 +45,17 @@ Runtime SQLite 只接受全新 schema v6。检测到旧 schema 必须在任何�
 
 Manual SFTP 只允许固定 typed JSON endpoints 加严格 raw chunk endpoints。React 负责本地选择、同步 save picker、handle 生命周期、hash 和 chunk iteration；页面 reload 会丢失本地 preparation。Python 负责远端 snapshot 复核、temporary path、commit、abort 和 recovery record。不得把本地绝对路径发送给 Backend，不提供可恢复的本地 download-part 状态。
 
+## Agent turn 流式调用链
+
+React `BackendHttpClient` 通过 `fetch()` 消费创建本轮的 POST response `ReadableStream` 并独占 SSE framing/UTF-8/byte budget；`api/agent.ts` 独占 event schema、sequence 和 correlation 状态机；per-tab reducer 只暂存 provisional text，收到合法 completed 后才提交 assistant message，任何 failed/interrupted 都丢弃 partial text。
+
+Python `AgentTurnStreamSession` 在 shared dispatcher 内拥有 worker、capacity 64 queue、HTTP-200 startup barrier 与断连收敛；terminal frame 被 consumer 发送前不会释放 dispatcher request ID/capacity。`AgentTurnApplication` 继续拥有 Provider snapshot、credential resolve/zeroize；`AgentService` 拥有 durable RUNNING/terminal 顺序；`ModelGateway` 只向 sink 发布最终回答调用的可见文本。该 POST stream 不使用或扩展 Runtime WebSocket。
+
 ## 失败语义
 
 - 未知字段、非法 enum/encoding、错误 correlation、越界 payload、重复 owner 和旧 schema 全部 fail closed。
 - 不得用 fallback、兼容路由、重试切换、响应猜测或后处理伪造成功。
-- HTTP 使用 Problem Details；Runtime WebSocket 单 owner，queue bounded，不 drop/merge。
+- HTTP pre-stream failure 使用 Problem Details；Agent POST 启动后使用 strict SSE terminal failure。Runtime WebSocket 仍为单 owner，queue bounded，不 drop/merge。
 - 自动测试、构建、package、SSH Lab、Desktop 人工验收和生产验收必须分别陈述。
 
 ## 文档同步

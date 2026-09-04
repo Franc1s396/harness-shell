@@ -17,7 +17,6 @@ from pydantic import (
 )
 
 from harness_shell_sidecar.agent.contracts import (
-    AgentTurnResult,
     ModelApiConfig,
 )
 from harness_shell_sidecar.connections.models import (
@@ -149,12 +148,6 @@ class AgentApiConfigResponse(StrictHttpModel):
 
     request_id: UUID
     config: ModelApiConfig
-
-
-class AgentTurnResponse(AgentTurnResult):
-    """Return the complete non-streaming Agent result with HTTP correlation."""
-
-    request_id: UUID
 
 
 class RuntimeMessageBase(StrictHttpModel):
@@ -395,7 +388,6 @@ __all__ = [
     "StrictHttpModel",
     "AgentApiConfigListResponse",
     "AgentApiConfigResponse",
-    "AgentTurnResponse",
     "ConnectionListResponse",
     "ConnectionResponse",
     "CredentialPublicKeyResponse",

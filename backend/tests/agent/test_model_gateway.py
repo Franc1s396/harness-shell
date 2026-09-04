@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -69,6 +69,7 @@ async def _invoke(
     gateway: ModelGateway,
     config: ModelApiConfig,
     cancelled: asyncio.Event | None = None,
+    sink: RecordingTextSink | None = None,
 ) -> AIMessage:
     """Invoke the gateway with one stable HumanMessage input."""
 
@@ -77,7 +78,22 @@ async def _invoke(
         SecretStr("key"),
         [HumanMessage(content="hi")],
         cancelled or asyncio.Event(),
+        sink or RecordingTextSink(),
     )
+
+
+class RecordingTextSink:
+    """Record exact visible deltas without adding transport behavior."""
+
+    def __init__(self) -> None:
+        """Create one empty per-invocation delta list."""
+
+        self.deltas: list[str] = []  # Exact visible chunks in Provider order.
+
+    async def text_delta(self, delta: str) -> None:
+        """Append one exact visible Provider delta."""
+
+        self.deltas.append(delta)
 
 
 def test_responses_config_selects_responses_without_previous_response_id() -> None:
@@ -156,6 +172,223 @@ def test_responses_streams_and_aggregates_one_complete_tool_call() -> None:
                 "type": "tool_call",
             }
         ]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("config_factory", [responses_config, chat_config])
+def test_final_text_chunks_are_emitted_exactly_and_aggregated(
+    config_factory: Callable[[], ModelApiConfig],
+) -> None:
+    """Preserve whitespace while exposing final text for either Provider API."""
+
+    async def scenario() -> None:
+        model = FakeBoundModel(
+            [[AIMessageChunk(content=" hello"), AIMessageChunk(content="\nworld ")]]
+        )
+        sink = RecordingTextSink()
+
+        result = await _invoke(
+            ModelGateway(
+                model_builder=RecordingModelBuilder(model),
+                sleep=instant_sleep,
+            ),
+            config_factory(),
+            sink=sink,
+        )
+
+        assert sink.deltas == [" hello", "\nworld "]
+        assert result.text == " hello\nworld "
+
+    asyncio.run(scenario())
+
+
+def test_tool_call_chunks_emit_no_visible_text() -> None:
+    """Keep command name and arguments inside the Backend tool loop."""
+
+    async def scenario() -> None:
+        model = FakeBoundModel(
+            [[
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "execute_command",
+                            "args": '{"command":"pwd"}',
+                            "id": "call-1",
+                            "index": 0,
+                            "type": "tool_call_chunk",
+                        }
+                    ],
+                )
+            ]]
+        )
+        sink = RecordingTextSink()
+
+        result = await _invoke(
+            ModelGateway(
+                model_builder=RecordingModelBuilder(model),
+                sleep=instant_sleep,
+            ),
+            responses_config(),
+            sink=sink,
+        )
+
+        assert result.tool_calls[0]["name"] == "execute_command"
+        assert sink.deltas == []
+
+    asyncio.run(scenario())
+
+
+def test_text_then_tool_call_fails_without_retrying_partial_output() -> None:
+    """Reject a mixed response instead of replaying already visible text."""
+
+    async def scenario() -> None:
+        model = FakeBoundModel(
+            [[
+                AIMessageChunk(content="partial"),
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "execute_command",
+                            "args": '{"command":"pwd"}',
+                            "id": "call-1",
+                            "index": 0,
+                            "type": "tool_call_chunk",
+                        }
+                    ],
+                ),
+            ]]
+        )
+        sink = RecordingTextSink()
+
+        with pytest.raises(ModelGatewayError) as error:
+            await _invoke(
+                ModelGateway(
+                    model_builder=RecordingModelBuilder(model),
+                    sleep=instant_sleep,
+                ),
+                chat_config(),
+                sink=sink,
+            )
+
+        assert error.value.error_code == "MODEL_RESPONSE_INVALID"
+        assert sink.deltas == ["partial"]
+        assert model.calls == 1
+
+    asyncio.run(scenario())
+
+
+def test_tool_call_then_text_fails_without_exposing_text() -> None:
+    """Suppress visible content after an invocation has selected tool mode."""
+
+    async def scenario() -> None:
+        model = FakeBoundModel(
+            [[
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "execute_command",
+                            "args": '{"command":"pwd"}',
+                            "id": "call-1",
+                            "index": 0,
+                            "type": "tool_call_chunk",
+                        }
+                    ],
+                ),
+                AIMessageChunk(content="must stay hidden"),
+            ]]
+        )
+        sink = RecordingTextSink()
+
+        with pytest.raises(ModelGatewayError) as error:
+            await _invoke(
+                ModelGateway(
+                    model_builder=RecordingModelBuilder(model),
+                    sleep=instant_sleep,
+                ),
+                responses_config(),
+                sink=sink,
+            )
+
+        assert error.value.error_code == "MODEL_RESPONSE_INVALID"
+        assert sink.deltas == []
+        assert model.calls == 1
+
+    asyncio.run(scenario())
+
+
+def test_timeout_after_visible_text_does_not_retry() -> None:
+    """Avoid duplicating provisional text after a partially visible timeout."""
+
+    class PartialThenTimeoutModel(FakeBoundModel):
+        """Emit one visible chunk before a deterministic network timeout."""
+
+        async def astream(
+            self,
+            messages: Sequence[AnyMessage],
+        ) -> AsyncIterator[AIMessageChunk]:
+            """Expose the exact failure ordering needed by the retry boundary."""
+
+            self.calls += 1
+            self.message_calls.append(list(messages))
+            yield AIMessageChunk(content="partial")
+            raise httpx.ReadTimeout("timeout")
+
+    async def scenario() -> None:
+        model = PartialThenTimeoutModel()
+        sink = RecordingTextSink()
+
+        with pytest.raises(ModelGatewayError) as error:
+            await _invoke(
+                ModelGateway(
+                    model_builder=RecordingModelBuilder(model),
+                    sleep=instant_sleep,
+                ),
+                chat_config(),
+                sink=sink,
+            )
+
+        assert error.value.error_code == "MODEL_NETWORK_TIMEOUT"
+        assert sink.deltas == ["partial"]
+        assert model.calls == 1
+
+    asyncio.run(scenario())
+
+
+def test_text_sink_limit_failure_propagates_without_model_error_mapping() -> None:
+    """Let the stream owner durably map its own response-size failure."""
+
+    class StreamLimitError(RuntimeError):
+        """Represent the later publisher's stable limit failure contract."""
+
+        error_code = "AGENT_RESPONSE_TOO_LARGE"
+
+    class FailingSink(RecordingTextSink):
+        """Fail when the first visible delta reaches the stream boundary."""
+
+        async def text_delta(self, delta: str) -> None:
+            """Reject the delta without changing its error identity."""
+
+            raise StreamLimitError(delta)
+
+    async def scenario() -> None:
+        model = FakeBoundModel([AIMessage(content="too large")])
+        failure_sink = FailingSink()
+
+        with pytest.raises(StreamLimitError):
+            await _invoke(
+                ModelGateway(
+                    model_builder=RecordingModelBuilder(model),
+                    sleep=instant_sleep,
+                ),
+                responses_config(),
+                sink=failure_sink,
+            )
+
+        assert model.calls == 1
 
     asyncio.run(scenario())
 
@@ -260,10 +493,10 @@ def _status_error(
     return error_type("provider rejected request", response=response, body=body)
 
 
-def test_provider_failure_logs_complete_exception_and_response_before_mapping(
+def test_provider_failure_logs_safe_metadata_without_response_body(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Preserve complete Provider failure details before stable code mapping."""
+    """Keep Provider response text out of stderr while retaining stable metadata."""
 
     async def scenario() -> None:
         failure = _status_error(
@@ -302,8 +535,10 @@ def test_provider_failure_logs_complete_exception_and_response_before_mapping(
         assert payload["http_status"] == 401
         assert payload["provider_error_code"] == "invalid_api_key"
         assert payload["provider_request_id"] == "req-provider-123"
-        assert "provider rejected request" in payload["exception_text"]
-        assert "provider-body-marker" in payload["http_response_body"]
+        assert payload["exception_type"] == "openai.AuthenticationError"
+        assert "exception_text" not in payload
+        assert "http_response_body" not in payload
+        assert "provider-body-marker" not in encoded
 
     asyncio.run(scenario())
 

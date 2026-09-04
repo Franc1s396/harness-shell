@@ -49,6 +49,11 @@ const runningTab: AgentTabState = {
       model: "gpt-5",
       updatedAt: "2026-08-31T00:00:00Z",
     },
+    conversationId: "conversation-1",
+    agentRunId: "run-1",
+    nextSequence: 1,
+    streamedText: "",
+    reactIteration: 0,
   },
   backgroundState: "RUNNING",
 };
@@ -112,7 +117,7 @@ describe("AgentWorkspace", () => {
     );
   });
 
-  it("does not invent streaming, stop, history, approval, or tool controls", () => {
+  it("does not invent stop, history, approval, or tool controls", () => {
     renderWorkspace({ tab: runningTab });
 
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
@@ -137,6 +142,65 @@ describe("AgentWorkspace", () => {
     );
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("replaces thinking with provisional text before terminal completion", () => {
+    const workspace = renderWorkspace({ tab: runningTab });
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
+
+    workspace.view.rerender(
+      <AgentWorkspace
+        {...workspace.props}
+        tab={{
+          ...runningTab,
+          activeRun: {
+            ...runningTab.activeRun!,
+            nextSequence: 2,
+            streamedText: "hello",
+          },
+        }}
+      />,
+    );
+
+    const provisional = screen.getByText("hello").closest("article");
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
+    expect(provisional).toHaveAttribute("data-provisional", "true");
+    expect(screen.queryByText(/Run details/)).not.toBeInTheDocument();
+  });
+
+  it("scrolls when the same provisional bubble receives another delta", () => {
+    const first = {
+      ...runningTab,
+      activeRun: {
+        ...runningTab.activeRun!,
+        nextSequence: 2,
+        streamedText: "hel",
+      },
+    };
+    const workspace = renderWorkspace({ tab: first });
+    const messageList = screen.getByText("hel").closest("article")?.parentElement;
+    expect(messageList).not.toBeNull();
+    Object.defineProperty(messageList!, "scrollHeight", {
+      configurable: true,
+      value: 640,
+    });
+    messageList!.scrollTop = 0;
+
+    workspace.view.rerender(
+      <AgentWorkspace
+        {...workspace.props}
+        tab={{
+          ...first,
+          activeRun: {
+            ...first.activeRun!,
+            nextSequence: 3,
+            streamedText: "hello",
+          },
+        }}
+      />,
+    );
+
+    expect(messageList!.scrollTop).toBe(640);
   });
 
   it("sizes user, assistant, error, and thinking bubbles to their content", () => {
@@ -245,6 +309,29 @@ describe("AgentWorkspace", () => {
     fireEvent.click(screen.getByText(/Run details/));
     expect(screen.getByText("Sent Provider")).toBeVisible();
     expect(screen.getByText("sent-model")).toBeVisible();
+  });
+
+  it("renders the fixed local Agent stream error description", () => {
+    renderWorkspace({
+      tab: {
+        ...idleTab,
+        messages: [
+          {
+            id: "error-1",
+            kind: "error",
+            error: {
+              code: "BACKEND_AGENT_STREAM_INVALID",
+              message: "BACKEND_AGENT_STREAM_INVALID",
+            },
+            run: null,
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The Agent stream used an invalid protocol.",
+    );
   });
 
   it("scrolls the conversation to the bottom when a message is appended", () => {

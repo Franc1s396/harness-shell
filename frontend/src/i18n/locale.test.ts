@@ -11,16 +11,25 @@ describe("locale resolution", () => {
       "topbar.localEnvironment": "Local",
       "activity.settings": "Settings",
       "activity.filesUnavailable": "Files are planned for M3",
+      "agent.errors.BACKEND_AGENT_STREAM_INVALID": "The Agent stream used an invalid protocol.",
+      "agent.errors.BACKEND_AGENT_STREAM_TOO_LARGE": "The Agent stream exceeded the allowed size.",
+      "agent.errors.AGENT_STREAM_INTERRUPTED": "The Agent stream ended before completion.",
     },
     "zh-CN": {
       "topbar.localEnvironment": "本地",
       "activity.settings": "设置",
       "activity.filesUnavailable": "文件功能计划在 M3 提供",
+      "agent.errors.BACKEND_AGENT_STREAM_INVALID": "Agent 流使用了无效协议。",
+      "agent.errors.BACKEND_AGENT_STREAM_TOO_LARGE": "Agent 流超过允许的大小。",
+      "agent.errors.AGENT_STREAM_INTERRUPTED": "Agent 流在完成前中断。",
     },
     "zh-TW": {
       "topbar.localEnvironment": "本機",
       "activity.settings": "設定",
       "activity.filesUnavailable": "檔案功能預計於 M3 提供",
+      "agent.errors.BACKEND_AGENT_STREAM_INVALID": "Agent 串流使用了無效協定。",
+      "agent.errors.BACKEND_AGENT_STREAM_TOO_LARGE": "Agent 串流超過允許的大小。",
+      "agent.errors.AGENT_STREAM_INTERRUPTED": "Agent 串流在完成前中斷。",
     },
   } as const;
 

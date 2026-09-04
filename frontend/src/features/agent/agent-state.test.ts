@@ -16,6 +16,39 @@ const provider = {
   updatedAt: "2026-08-31T00:00:00Z",
 };
 
+const conversationId = "conversation-1";
+const agentRunId = "run-1";
+const started = {
+  schema_version: 1,
+  type: "agent.turn.started",
+  request_id: "request-id-1",
+  sequence: 0,
+  conversation_id: conversationId,
+  agent_run_id: agentRunId,
+  status: "RUNNING",
+  react_iteration: 0,
+} as const;
+const delta = {
+  schema_version: 1,
+  type: "agent.turn.text_delta",
+  request_id: "request-id-1",
+  sequence: 1,
+  conversation_id: conversationId,
+  agent_run_id: agentRunId,
+  delta: "hello",
+} as const;
+const completed = {
+  schema_version: 1,
+  type: "agent.turn.completed",
+  request_id: "request-id-1",
+  sequence: 2,
+  conversation_id: conversationId,
+  agent_run_id: agentRunId,
+  status: "COMPLETED",
+  react_iteration: 1,
+  error_code: null,
+} as const;
+
 const startedState = (requestToken: string) => {
   let state = createAgentState();
   state = agentReducer(state, {
@@ -60,14 +93,7 @@ describe("agentReducer", () => {
       type: "run/complete",
       tabId: "tab-a",
       requestToken: "request-old",
-      result: {
-        conversation_id: "conversation-old",
-        agent_run_id: "run-old",
-        status: "COMPLETED",
-        final_text: "stale",
-        react_iteration: 0,
-        error_code: null,
-      },
+      event: completed,
       messageId: "assistant-old",
     });
 
@@ -101,56 +127,35 @@ describe("agentReducer", () => {
     });
   });
 
-  it.each([
-    ["COMPLETED", null, null, "UI_AGENT_FINAL_TEXT_MISSING"],
-    ["FAILED", null, "MODEL_REQUEST_FAILED", "MODEL_REQUEST_FAILED"],
-    ["LIMIT_REACHED", null, null, "REACT_LIMIT_REACHED"],
-    ["CANCELLED", null, null, "AGENT_CANCELLED"],
-  ] as const)(
-    "maps %s to an explicit error",
-    (status, finalText, backendCode, expectedCode) => {
-      const running = startedState("request-1");
-      const next = agentReducer(running, {
-        type: "run/complete",
-        tabId: "tab-a",
-        requestToken: "request-1",
-        result: {
-          conversation_id: "conversation-1",
-          agent_run_id: "run-1",
-          status,
-          final_text: finalText,
-          react_iteration: status === "LIMIT_REACHED" ? 128 : 0,
-          error_code: backendCode,
-        },
-        messageId: "result-1",
-      });
+  it("keeps streamed text provisional until a correlated completion", () => {
+    let state = startedState("request-1");
+    state = agentReducer(state, {
+      type: "run/stream-started",
+      tabId: "tab-a",
+      requestToken: "request-1",
+      event: started,
+    });
+    state = agentReducer(state, {
+      type: "run/text-delta",
+      tabId: "tab-a",
+      requestToken: "request-1",
+      event: { ...delta, delta: "hel" },
+    });
+    state = agentReducer(state, {
+      type: "run/text-delta",
+      tabId: "tab-a",
+      requestToken: "request-1",
+      event: { ...delta, sequence: 2, delta: "lo" },
+    });
 
-      expect(next.tabs["tab-a"].conversationId).toBe("conversation-1");
-      expect(
-        next.tabs["tab-a"].messages[
-          next.tabs["tab-a"].messages.length - 1
-        ],
-      ).toMatchObject({
-        kind: "error",
-        error: { code: expectedCode },
-      });
-      expect(next.tabs["tab-a"].backgroundState).toBe("FAILED_UNREAD");
-    },
-  );
+    expect(state.tabs["tab-a"].activeRun?.streamedText).toBe("hello");
+    expect(state.tabs["tab-a"].messages).toHaveLength(1);
 
-  it("projects a completed result from the frozen provider and session", () => {
-    const next = agentReducer(startedState("request-1"), {
+    const next = agentReducer(state, {
       type: "run/complete",
       tabId: "tab-a",
       requestToken: "request-1",
-      result: {
-        conversation_id: "conversation-1",
-        agent_run_id: "run-1",
-        status: "COMPLETED",
-        final_text: "healthy",
-        react_iteration: 1,
-        error_code: null,
-      },
+      event: { ...completed, sequence: 3 },
       messageId: "assistant-1",
     });
 
@@ -158,7 +163,7 @@ describe("agentReducer", () => {
       next.tabs["tab-a"].messages[next.tabs["tab-a"].messages.length - 1],
     ).toMatchObject({
       kind: "assistant",
-      text: "healthy",
+      text: "hello",
       run: {
         agentRunId: "run-1",
         sshSessionId: "ssh-a",
@@ -166,6 +171,47 @@ describe("agentReducer", () => {
       },
     });
     expect(next.tabs["tab-a"].backgroundState).toBe("COMPLETED_UNREAD");
+  });
+
+  it("discards partial text when the correlated stream fails", () => {
+    let state = startedState("request-1");
+    state = agentReducer(state, {
+      type: "run/stream-started",
+      tabId: "tab-a",
+      requestToken: "request-1",
+      event: started,
+    });
+    state = agentReducer(state, {
+      type: "run/text-delta",
+      tabId: "tab-a",
+      requestToken: "request-1",
+      event: delta,
+    });
+    const next = agentReducer(state, {
+      type: "run/fail",
+      tabId: "tab-a",
+      requestToken: "request-1",
+      event: {
+        ...completed,
+        type: "agent.turn.failed",
+        status: "FAILED",
+        error_code: "MODEL_RESPONSE_INVALID",
+        message: "Model response was invalid",
+      },
+      error: {
+        code: "MODEL_RESPONSE_INVALID",
+        message: "Model response was invalid",
+      },
+      messageId: "error-1",
+    });
+
+    expect(next.tabs["tab-a"].activeRun).toBeNull();
+    expect(next.tabs["tab-a"].messages).toHaveLength(2);
+    const messages = next.tabs["tab-a"].messages;
+    expect(messages[messages.length - 1]).toMatchObject({ kind: "error" });
+    expect(next.tabs["tab-a"].messages.some(
+      (message) => message.kind === "assistant" && message.text === "hello",
+    )).toBe(false);
   });
 
   it("does not invalidate an active Run when its Provider is disabled", () => {
@@ -221,6 +267,7 @@ describe("agentReducer", () => {
       type: "run/fail",
       tabId: "tab-a",
       requestToken: "request-1",
+      event: null,
       error: { code: "MODEL_NETWORK_TIMEOUT", message: "Timed out." },
       messageId: "error-1",
     });

@@ -13,6 +13,12 @@ from harness_shell_sidecar.agent.handlers import (
     ModelApiConfigCreateRequest,
     ModelApiConfigUpdateRequest,
 )
+from harness_shell_sidecar.agent.streaming import (
+    AgentTurnCompletedEvent,
+    AgentTurnFailedEvent,
+    AgentTurnStartedEvent,
+    AgentTurnTextDeltaEvent,
+)
 from harness_shell_sidecar.connections.handlers import (
     ConnectionCreateRequest,
     ConnectionUpdateRequest,
@@ -128,7 +134,7 @@ def _success_headers() -> dict[str, object]:
 
     return {
         "X-Request-ID": {
-            "description": "Matches the request and JSON body request_id.",
+            "description": "Matches the request correlation identifier.",
             "schema": {"type": "string", "format": "uuid"},
         }
     }
@@ -248,6 +254,53 @@ def build_openapi_document() -> dict[str, object]:
             "schema": {"type": "integer", "minimum": 0, "maximum": 262_144}
         },
         "X-Chunk-EOF": {"schema": {"type": "boolean"}},
+    }
+
+    event_names = [
+        _add_model_schema(schemas, model)
+        for model in (
+            AgentTurnStartedEvent,
+            AgentTurnTextDeltaEvent,
+            AgentTurnCompletedEvent,
+            AgentTurnFailedEvent,
+        )
+    ]
+    agent_turn = document["paths"]["/v1/agent/turns"]["post"]
+    accept_parameter = next(
+        parameter
+        for parameter in agent_turn["parameters"]
+        if parameter.get("name", "").lower() == "accept"
+    )
+    accept_parameter["required"] = True
+    accept_parameter["schema"] = {
+        "type": "string",
+        "const": "text/event-stream",
+    }
+    agent_turn["responses"]["200"] = {
+        "description": "Strict Agent turn SSE stream.",
+        "headers": {
+            "X-Request-ID": {
+                "description": (
+                    "Matches the request and every Agent SSE event request_id."
+                ),
+                "schema": {"type": "string", "format": "uuid"},
+            },
+            "Cache-Control": {
+                "description": "Disables storage of streamed Agent text.",
+                "schema": {"type": "string", "const": "no-store"},
+            },
+        },
+        "content": {
+            "text/event-stream": {
+                "schema": {"type": "string"},
+                "x-event-schema": {
+                    "oneOf": [
+                        {"$ref": f"#/components/schemas/{name}"}
+                        for name in event_names
+                    ]
+                },
+            }
+        },
     }
 
     document["paths"] = dict(sorted(document["paths"].items()))

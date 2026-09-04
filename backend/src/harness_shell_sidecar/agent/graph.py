@@ -18,7 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from pydantic import SecretStr, ValidationError
 
-from harness_shell_sidecar.telemetry import log_event, log_exception_event
+from harness_shell_sidecar.telemetry import log_event
 
 from .context import ContextService
 from .contracts import (
@@ -28,6 +28,7 @@ from .contracts import (
     ModelApiConfig,
 )
 from .conversations import ConversationRepository
+from .streaming import AgentTextDeltaSink
 from .tools import (
     CommandRejected,
     CommandSafetyReviewer,
@@ -64,6 +65,8 @@ class AgentGraphContext:
     cancelled: asyncio.Event
     #: Current user input persisted by load_context.
     user_message: str
+    #: Run-local visible-text sink; never enters graph state or persistence.
+    text_sink: AgentTextDeltaSink
 
 
 class ModelInvoker(Protocol):
@@ -75,8 +78,9 @@ class ModelInvoker(Protocol):
         api_key: SecretStr,
         messages: Sequence[AnyMessage],
         cancelled: asyncio.Event,
+        text_sink: AgentTextDeltaSink,
     ) -> AIMessage:
-        """Return one complete model message."""
+        """Return one complete model message while streaming final visible text."""
 
 
 class CommandExecutor(Protocol):
@@ -139,15 +143,15 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
             result = handler(state, runtime)
             patch = await result if inspect.isawaitable(result) else result
         except BaseException as error:
-            # Cancellation and system-exit signals are logged only at this
-            # boundary and immediately re-raised; the graph keeps ownership.
+            # Node failures may carry Provider bodies, commands, or remote output
+            # in their exception chain. Emit only the stable allowlisted fields.
             error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
             if not isinstance(error_code, str):
                 error_code = "SIDECAR_RUNTIME_FAILED"
-            log_exception_event(
+            log_event(
                 LOGGER,
+                logging.ERROR,
                 "agent_node_failed",
-                error,
                 error_code=error_code,
                 **fields,
             )
@@ -203,6 +207,7 @@ def build_agent_graph(
             runtime.context.api_key,
             state["model_messages"],
             runtime.context.cancelled,
+            runtime.context.text_sink,
         )
         dependencies.conversations.append_message(
             state["agent_run_id"],

@@ -1,5 +1,7 @@
 const JSON_RESPONSE_LIMIT = 1_048_576;
 const BINARY_CHUNK_LIMIT = 262_144;
+const SSE_FRAME_LIMIT = 65_536;
+const SSE_BODY_LIMIT = 4_194_304;
 
 type FetchLike = typeof fetch;
 
@@ -16,6 +18,23 @@ export type BackendRequestOptions = Readonly<{
   body?: unknown;
   signal?: AbortSignal;
 }>;
+
+export type BackendSseFrame = Readonly<{
+  requestId: string;
+  event: string;
+  id: string;
+  data: unknown;
+}>;
+
+export class BackendSseError extends Error {
+  readonly kind: "INVALID" | "TOO_LARGE" | "INTERRUPTED";
+
+  constructor(kind: "INVALID" | "TOO_LARGE" | "INTERRUPTED") {
+    super(`BACKEND_SSE_${kind}`);
+    this.name = "BackendSseError";
+    this.kind = kind;
+  }
+}
 
 export class BackendProblem extends Error {
   readonly code: string;
@@ -101,6 +120,96 @@ export class BackendHttpClient {
       ...(signal ? { signal } : {}),
     });
     return this.#readJson<T>(response, requestId);
+  }
+
+  async *postSse(
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): AsyncGenerator<BackendSseFrame> {
+    const requestId = this.#randomUuid();
+    let response: Response;
+    try {
+      response = await this.#fetch(this.#url(path), {
+        method: "POST",
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": "application/json",
+          "X-Request-ID": requestId,
+        },
+        body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
+      });
+    } catch {
+      throw new BackendSseError("INTERRUPTED");
+    }
+    if (!response.ok) {
+      await this.#readJson<never>(response, requestId);
+      return;
+    }
+    if (response.status !== 200) throw new BackendSseError("INVALID");
+    this.#requireResponseRequestId(response, requestId);
+    if (
+      mediaType(response) !== "text/event-stream" ||
+      response.headers.get("Cache-Control")?.trim().toLowerCase() !== "no-store" ||
+      response.body === null
+    ) {
+      throw new BackendSseError("INVALID");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    const encoder = new TextEncoder();
+    let buffer = "";
+    let totalBytes = 0;
+    let sawFrame = false;
+    let reachedEof = false;
+    try {
+      while (true) {
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = await reader.read();
+        } catch {
+          throw new BackendSseError("INTERRUPTED");
+        }
+        if (result.done) {
+          reachedEof = true;
+          try {
+            buffer += decoder.decode();
+          } catch {
+            throw new BackendSseError("INVALID");
+          }
+          break;
+        }
+        totalBytes += result.value.byteLength;
+        if (totalBytes > SSE_BODY_LIMIT) {
+          throw new BackendSseError("TOO_LARGE");
+        }
+        try {
+          buffer += decoder.decode(result.value, { stream: true });
+        } catch {
+          throw new BackendSseError("INVALID");
+        }
+
+        while (true) {
+          const frame = takeFrame(buffer);
+          if (frame === null) break;
+          if (encoder.encode(frame.raw + frame.delimiter).byteLength > SSE_FRAME_LIMIT) {
+            throw new BackendSseError("TOO_LARGE");
+          }
+          buffer = frame.rest;
+          sawFrame = true;
+          yield parseSseFrame(frame.raw, frame.delimiter, requestId);
+        }
+      }
+
+      if (buffer.length !== 0 || !sawFrame) {
+        throw new BackendSseError("INVALID");
+      }
+    } finally {
+      if (!reachedEof) await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
   }
 
   async getBinary(
@@ -240,3 +349,52 @@ const requireCanonicalHeader = (response: Response, name: string): number => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const takeFrame = (
+  buffer: string,
+): Readonly<{
+  raw: string;
+  rest: string;
+  delimiter: "\n\n" | "\r\n\r\n";
+}> | null => {
+  const lfIndex = buffer.indexOf("\n\n");
+  const crlfIndex = buffer.indexOf("\r\n\r\n");
+  if (lfIndex === -1 && crlfIndex === -1) return null;
+  const useCrlf = crlfIndex !== -1 && (lfIndex === -1 || crlfIndex <= lfIndex);
+  const index = useCrlf ? crlfIndex : lfIndex;
+  const delimiter = useCrlf ? "\r\n\r\n" : "\n\n";
+  return {
+    raw: buffer.slice(0, index),
+    rest: buffer.slice(index + delimiter.length),
+    delimiter,
+  };
+};
+
+const parseSseFrame = (
+  raw: string,
+  delimiter: "\n\n" | "\r\n\r\n",
+  requestId: string,
+): BackendSseFrame => {
+  const normalized = delimiter === "\r\n\r\n" ? raw.split("\r\n").join("\n") : raw;
+  if (normalized.includes("\r")) throw new BackendSseError("INVALID");
+  const lines = normalized.split("\n");
+  if (lines.length !== 3) throw new BackendSseError("INVALID");
+  const event = /^event: ([^\s]+)$/.exec(lines[0]);
+  const id = /^id: (0|[1-9]\d*)$/.exec(lines[1]);
+  const data = /^data: (.+)$/.exec(lines[2]);
+  if (event === null || id === null || data === null) {
+    throw new BackendSseError("INVALID");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(data[1]);
+  } catch {
+    throw new BackendSseError("INVALID");
+  }
+  return {
+    requestId,
+    event: event[1],
+    id: id[1],
+    data: value,
+  };
+};

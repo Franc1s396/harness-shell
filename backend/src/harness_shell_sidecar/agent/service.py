@@ -37,6 +37,7 @@ from .graph import (
     ModelInvoker,
     build_agent_graph,
 )
+from .streaming import AgentTurnEventSink
 from .tools import CommandSafetyReviewer
 
 
@@ -107,8 +108,9 @@ class AgentService:
         cancelled: asyncio.Event,
         *,
         expected_config: ModelApiConfig | None,
+        event_sink: AgentTurnEventSink,
     ) -> AgentTurnResult:
-        """Run one non-streaming turn and return its durable terminal snapshot."""
+        """Run one turn while publishing lifecycle around durable Run states."""
 
         self._validate_run_authorities(request, expected_config, cancelled)
 
@@ -158,8 +160,10 @@ class AgentService:
                 api_key=api_key,
                 cancelled=cancelled,
                 user_message=request.user_message,
+                text_sink=event_sink,
             )
             try:
+                await event_sink.started(run)
                 state = await self._graph.ainvoke(
                     initial_state,
                     config={"recursion_limit": 1024},
@@ -167,6 +171,8 @@ class AgentService:
                 )
                 if state["run_status"] is AgentRunStatus.COMPLETED:
                     final_text = _final_text(state)
+                    if event_sink.streamed_text != final_text:
+                        raise AgentServiceError("MODEL_RESPONSE_INVALID")
                     _require_agent_result_fits(
                         run,
                         final_text,
@@ -178,6 +184,7 @@ class AgentService:
                         None,
                     )
                     _log_terminal_run(finished, config, started_ns)
+                    await event_sink.completed(finished)
                     return _result_from_run(finished, final_text=final_text)
             except asyncio.CancelledError:
                 # A dispatcher shutdown still requires a durable terminal Run.
@@ -195,6 +202,7 @@ class AgentService:
                     error.error_code,
                 )
                 _log_terminal_run(finished, config, started_ns)
+                await event_sink.failed(finished)
                 return _result_from_run(finished, final_text=None)
             except AgentServiceError as error:
                 finished = self._finish_if_running(
@@ -203,7 +211,8 @@ class AgentService:
                     error.error_code,
                 )
                 _log_terminal_run(finished, config, started_ns)
-                raise
+                await event_sink.failed(finished)
+                return _result_from_run(finished, final_text=None)
             except Exception as error:
                 error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
                 if error_code not in _PUBLIC_RUN_FAILURE_CODES:
@@ -214,6 +223,7 @@ class AgentService:
                     error_code,
                 )
                 _log_terminal_run(finished, config, started_ns)
+                await event_sink.failed(finished)
                 return _result_from_run(finished, final_text=None)
 
             finished = self._conversations.get_run(run.agent_run_id)
@@ -221,6 +231,12 @@ class AgentService:
                 raise RuntimeError("Agent graph returned without a durable terminal Run")
             _log_terminal_run(finished, config, started_ns)
             final_text = _final_text(state) if finished.status is AgentRunStatus.COMPLETED else None
+            if finished.status is AgentRunStatus.COMPLETED:
+                if event_sink.streamed_text != final_text:
+                    raise RuntimeError("durable final text does not match streamed text")
+                await event_sink.completed(finished)
+            else:
+                await event_sink.failed(finished)
             return _result_from_run(finished, final_text=final_text)
 
     def _validate_run_authorities(
@@ -336,7 +352,7 @@ def _final_text(state: dict[str, Any]) -> str:
 
 
 def _result_from_run(run: AgentRun, *, final_text: str | None) -> AgentTurnResult:
-    """Project one durable Run snapshot into the strict public turn result."""
+    """Project one durable Run snapshot into the bounded internal result."""
 
     return AgentTurnResult(
         conversation_id=run.conversation_id,
@@ -354,7 +370,7 @@ def _require_agent_result_fits(
     *,
     react_iteration: int,
 ) -> None:
-    """Validate a successful result against its exact typed HTTP JSON shape."""
+    """Keep the pre-SSE complete-result logical byte budget unchanged."""
 
     result = AgentTurnResult(
         conversation_id=run.conversation_id,

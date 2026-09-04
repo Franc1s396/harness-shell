@@ -1,36 +1,38 @@
-"""Typed HTTP routes for Provider configuration and non-streaming Agent turns."""
+"""Typed HTTP routes for Provider configuration and streaming Agent turns."""
 
 from __future__ import annotations
 
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi.responses import StreamingResponse
 
-from harness_shell_sidecar.agent.contracts import (
-    AgentTurnResult,
-    ModelApiConfig,
-)
+from harness_shell_sidecar.agent.contracts import ModelApiConfig
 from harness_shell_sidecar.agent.handlers import (
     AgentTurnRequest,
     ModelApiConfigCreateRequest,
     ModelApiConfigUpdateRequest,
 )
+from harness_shell_sidecar.runtime.dispatcher import DispatchError
 
+from ..agent_stream import AgentTurnStreamSession
 from ..dependencies import (
     dispatch_application,
+    dispatch_error_problem,
     model_from_result,
+    require_ready_resources,
     require_request_id,
     runtime_owner,
     set_correlation,
     validate_json_model,
 )
+from ..errors import HttpProblem, build_problem
 from ..lifespan import RuntimeOwner
 from ..limits import ResponseLimitRoute
 from ..models import (
     AgentApiConfigListResponse,
     AgentApiConfigResponse,
-    AgentTurnResponse,
     DeleteResponse,
 )
 
@@ -133,22 +135,43 @@ async def delete_api_config(
     return DeleteResponse(request_id=request_id, deleted=bool(result["deleted"]))
 
 
-@router.post("/v1/agent/turns", response_model=AgentTurnResponse)
+@router.post("/v1/agent/turns", response_model=None)
 async def run_agent_turn(
     payload: dict[str, object],
-    response: Response,
     request_id: CorrelationId,
     owner: Owner,
-) -> AgentTurnResponse:
-    """Run one complete non-streaming Agent turn with transient API key bytes."""
+    accept: Annotated[str | None, Header()] = None,
+) -> StreamingResponse:
+    """Start one Agent SSE response only after its durable Run exists."""
 
+    if accept is None or accept.strip().lower() != "text/event-stream":
+        raise HttpProblem(
+            build_problem(
+                request_id=request_id,
+                status=406,
+                error_code="AGENT_STREAM_ACCEPT_REQUIRED",
+                title="Agent stream accept required",
+                message="Accept must be text/event-stream",
+            )
+        )
     value = validate_json_model(payload, AgentTurnRequest, request_id)
-    result = await dispatch_application(
-        owner, request_id, "agent.turn.run", value.model_dump(mode="json")
-    )
-    turn = model_from_result(result, AgentTurnResult)
-    set_correlation(response, request_id)
-    return AgentTurnResponse(
+    resources = require_ready_resources(owner, request_id)
+    session = AgentTurnStreamSession(
         request_id=request_id,
-        **turn.model_dump(),
+        dispatcher=resources.dispatcher,
+        application=resources.agent_turn_application,
+        params=value.model_dump(mode="json"),
+    )
+    try:
+        await session.start()
+    except DispatchError as error:
+        raise dispatch_error_problem(request_id, error) from None
+    return StreamingResponse(
+        session.body(),
+        status_code=200,
+        media_type="text/event-stream",
+        headers={
+            "X-Request-ID": str(request_id),
+            "Cache-Control": "no-store",
+        },
     )

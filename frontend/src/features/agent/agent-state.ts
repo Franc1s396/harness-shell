@@ -1,7 +1,10 @@
 import type {
   AgentCommandError,
   AgentRunStatus,
-  AgentTurnResult,
+  AgentTurnCompletedEvent,
+  AgentTurnFailedEvent,
+  AgentTurnStartedEvent,
+  AgentTurnTextDeltaEvent,
   ApiType,
 } from "../../api/agent";
 
@@ -53,6 +56,11 @@ export type AgentTabState = {
     requestToken: string;
     sshSessionId: string;
     provider: ProviderSnapshot;
+    conversationId: string | null;
+    agentRunId: string | null;
+    nextSequence: number;
+    streamedText: string;
+    reactIteration: number;
   } | null;
   pendingRiskSshSessionId: string | null;
   riskAcknowledgedSshSessionId: string | null;
@@ -110,16 +118,29 @@ export type AgentAction =
       userMessage: string;
     }
   | {
+      type: "run/stream-started";
+      tabId: string;
+      requestToken: string;
+      event: AgentTurnStartedEvent;
+    }
+  | {
+      type: "run/text-delta";
+      tabId: string;
+      requestToken: string;
+      event: AgentTurnTextDeltaEvent;
+    }
+  | {
       type: "run/complete";
       tabId: string;
       requestToken: string;
-      result: AgentTurnResult;
+      event: AgentTurnCompletedEvent;
       messageId: string;
     }
   | {
       type: "run/fail";
       tabId: string;
       requestToken: string;
+      event: AgentTurnFailedEvent | null;
       error: AgentCommandError;
       messageId: string;
     }
@@ -154,15 +175,15 @@ const activeRequestMatches = (
 ) =>
   tab.activeRun?.requestToken === requestToken && tab.phase === "RUNNING";
 
-const resultErrorCode = (result: AgentTurnResult): string => {
-  if (result.status === "COMPLETED" && result.final_text === null) {
-    return "UI_AGENT_FINAL_TEXT_MISSING";
-  }
-  if (result.error_code) return result.error_code;
-  if (result.status === "LIMIT_REACHED") return "REACT_LIMIT_REACHED";
-  if (result.status === "CANCELLED") return "AGENT_CANCELLED";
-  return "AGENT_TURN_FAILED";
-};
+const streamEventMatches = (
+  tab: AgentTabState,
+  requestToken: string,
+  event: AgentTurnTextDeltaEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
+): boolean =>
+  activeRequestMatches(tab, requestToken) &&
+  tab.activeRun?.conversationId === event.conversation_id &&
+  tab.activeRun.agentRunId === event.agent_run_id &&
+  tab.activeRun.nextSequence === event.sequence;
 
 export const agentReducer = (
   state: AgentState,
@@ -266,64 +287,109 @@ export const agentReducer = (
                 requestToken: action.requestToken,
                 sshSessionId: action.sshSessionId,
                 provider: action.provider,
+                conversationId: tab.conversationId,
+                agentRunId: null,
+                nextSequence: 0,
+                streamedText: "",
+                reactIteration: 0,
               },
               pendingRiskSshSessionId: null,
               lastError: null,
               backgroundState: "RUNNING",
             },
       );
-    case "run/complete":
+    case "run/stream-started":
       return updateTab(state, action.tabId, (tab) => {
         if (!activeRequestMatches(tab, action.requestToken)) return tab;
         const activeRun = tab.activeRun!;
+        if (
+          activeRun.agentRunId !== null ||
+          activeRun.nextSequence !== 0 ||
+          action.event.sequence !== 0 ||
+          (activeRun.conversationId !== null &&
+            activeRun.conversationId !== action.event.conversation_id)
+        ) {
+          return tab;
+        }
+        return {
+          ...tab,
+          activeRun: {
+            ...activeRun,
+            conversationId: action.event.conversation_id,
+            agentRunId: action.event.agent_run_id,
+            nextSequence: 1,
+          },
+        };
+      });
+    case "run/text-delta":
+      return updateTab(state, action.tabId, (tab) => {
+        if (!streamEventMatches(tab, action.requestToken, action.event)) return tab;
+        const activeRun = tab.activeRun!;
+        return {
+          ...tab,
+          activeRun: {
+            ...activeRun,
+            nextSequence: activeRun.nextSequence + 1,
+            streamedText: activeRun.streamedText + action.event.delta,
+          },
+        };
+      });
+    case "run/complete":
+      return updateTab(state, action.tabId, (tab) => {
+        if (!streamEventMatches(tab, action.requestToken, action.event)) return tab;
+        const activeRun = tab.activeRun!;
         const run: AgentRunProjection = {
-          agentRunId: action.result.agent_run_id,
-          status: action.result.status,
-          reactIteration: action.result.react_iteration,
+          agentRunId: action.event.agent_run_id,
+          status: action.event.status,
+          reactIteration: action.event.react_iteration,
           sshSessionId: activeRun.sshSessionId,
           provider: activeRun.provider,
         };
-        const completed =
-          action.result.status === "COMPLETED" &&
-          action.result.final_text !== null;
-        const errorCode = completed ? null : resultErrorCode(action.result);
-        const message: AgentUiMessage = completed
-          ? {
-              id: action.messageId,
-              kind: "assistant",
-              text: action.result.final_text!,
-              run,
-            }
-          : {
-              id: action.messageId,
-              kind: "error",
-              error: { code: errorCode!, message: errorCode! },
-              run,
-            };
+        const message: AgentUiMessage = {
+          id: action.messageId,
+          kind: "assistant",
+          text: activeRun.streamedText,
+          run,
+        };
         return {
           ...tab,
-          conversationId: action.result.conversation_id,
+          conversationId: action.event.conversation_id,
           messages: [...tab.messages, message],
           phase: "IDLE",
           activeRun: null,
-          lastError: completed ? null : message.kind === "error" ? message.error : null,
-          backgroundState: completed
-            ? "COMPLETED_UNREAD"
-            : "FAILED_UNREAD",
+          lastError: null,
+          backgroundState: "COMPLETED_UNREAD",
         };
       });
     case "run/fail":
       return updateTab(state, action.tabId, (tab) => {
         if (!activeRequestMatches(tab, action.requestToken)) return tab;
+        if (
+          action.event !== null &&
+          !streamEventMatches(tab, action.requestToken, action.event)
+        ) {
+          return tab;
+        }
+        const activeRun = tab.activeRun!;
+        const run: AgentRunProjection | null = action.event === null
+          ? null
+          : {
+              agentRunId: action.event.agent_run_id,
+              status: action.event.status,
+              reactIteration: action.event.react_iteration,
+              sshSessionId: activeRun.sshSessionId,
+              provider: activeRun.provider,
+            };
         return {
           ...tab,
+          conversationId: action.event?.conversation_id ?? tab.conversationId,
           messages: [
             ...tab.messages,
             {
               id: action.messageId,
               kind: "error",
               error: action.error,
-              run: null,
+              run,
             },
           ],
           phase: "IDLE",

@@ -30,6 +30,7 @@ from .fakes import (
     CancellationAwareModel,
     FakeModelSequence,
     RecordingModelBuilder,
+    RecordingTurnSink,
     instant_sleep,
     make_tool_call,
     make_turn_input,
@@ -103,6 +104,7 @@ async def _run_turn(
     turn: AgentTurnInput,
     key: str,
     cancelled: asyncio.Event,
+    event_sink: RecordingTurnSink | None = None,
 ) -> AgentTurnResult:
     """Run with the exact configuration snapshot observed by the handler."""
 
@@ -113,6 +115,7 @@ async def _run_turn(
         SecretStr(key),
         cancelled,
         expected_config=config,
+        event_sink=event_sink or RecordingTurnSink(),
     )
 
 
@@ -145,8 +148,16 @@ def test_model_failure_marks_run_failed_exactly_once(
 
         monkeypatch.setattr(agent_storage.conversations, "finish_run", count_finish)
         caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
+        event_sink = RecordingTurnSink()
 
-        result = await _run_turn(agent_storage, service, turn, "key", asyncio.Event())
+        result = await _run_turn(
+            agent_storage,
+            service,
+            turn,
+            "key",
+            asyncio.Event(),
+            event_sink,
+        )
 
         assert result.status is AgentRunStatus.FAILED
         assert result.error_code == "MODEL_REQUEST_FAILED"
@@ -160,6 +171,9 @@ def test_model_failure_marks_run_failed_exactly_once(
             "MODEL_REQUEST_FAILED"
         )
         assert run_events[-1].harness_fields["duration_ms"] >= 0
+        assert [name for name, _value in event_sink.events] == ["started", "failed"]
+        assert event_sink.events[0][1].status is AgentRunStatus.RUNNING
+        assert event_sink.events[-1][1].status is AgentRunStatus.FAILED
 
     asyncio.run(scenario())
 
@@ -200,6 +214,49 @@ def test_tool_failure_marks_run_failed_exactly_once(
         assert result.status is AgentRunStatus.FAILED
         assert result.error_code == "SIDECAR_RUNTIME_FAILED"
         assert statuses == [AgentRunStatus.FAILED]
+
+    asyncio.run(scenario())
+
+
+def test_success_publishes_started_text_and_completed_after_durable_finish(
+    agent_storage: AgentStorage,
+) -> None:
+    """Expose exact visible text between durable RUNNING and COMPLETED snapshots."""
+
+    async def scenario() -> None:
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        service = _service(
+            agent_storage,
+            FakeModelSequence([AIMessage(content=" hello\nworld ")]),
+            RecordingExecutor(),
+        )
+        turn = make_turn_input().model_copy(
+            update={"api_config_id": config.api_config_id}
+        )
+        event_sink = RecordingTurnSink()
+
+        result = await _run_turn(
+            agent_storage,
+            service,
+            turn,
+            "key",
+            asyncio.Event(),
+            event_sink,
+        )
+
+        assert result.status is AgentRunStatus.COMPLETED
+        assert result.final_text == " hello\nworld "
+        assert event_sink.streamed_text == result.final_text
+        assert [name for name, _value in event_sink.events] == [
+            "started",
+            "delta",
+            "completed",
+        ]
+        assert event_sink.events[0][1].status is AgentRunStatus.RUNNING
+        assert event_sink.events[-1][1].status is AgentRunStatus.COMPLETED
+        assert agent_storage.conversations.get_run(result.agent_run_id).status is (
+            AgentRunStatus.COMPLETED
+        )
 
     asyncio.run(scenario())
 
@@ -376,6 +433,7 @@ def test_missing_or_disabled_api_config_fails_before_run_creation(
                 SecretStr("key"),
                 asyncio.Event(),
                 expected_config=None,
+                event_sink=RecordingTurnSink(),
             )
         assert missing_error.value.error_code == "MODEL_API_CONFIG_NOT_FOUND"
 
@@ -391,6 +449,7 @@ def test_missing_or_disabled_api_config_fails_before_run_creation(
                 SecretStr("key"),
                 asyncio.Event(),
                 expected_config=disabled_config,
+                event_sink=RecordingTurnSink(),
             )
         assert disabled_error.value.error_code == "MODEL_API_CONFIG_DISABLED"
         assert agent_storage.database.execute(
@@ -424,6 +483,7 @@ def test_missing_session_fails_before_conversation_run_or_model_call(
                 SecretStr("key"),
                 asyncio.Event(),
                 expected_config=config,
+                event_sink=RecordingTurnSink(),
             )
 
         assert error.value.error_code == "SSH_SESSION_UNAVAILABLE"
@@ -462,6 +522,7 @@ def test_queued_turn_rejects_config_change_before_starting_second_run(
                 SecretStr("key-1"),
                 asyncio.Event(),
                 expected_config=config,
+                event_sink=RecordingTurnSink(),
             )
         )
         while model.calls == 0:
@@ -472,6 +533,7 @@ def test_queued_turn_rejects_config_change_before_starting_second_run(
                 SecretStr("key-2"),
                 asyncio.Event(),
                 expected_config=config,
+                event_sink=RecordingTurnSink(),
             )
         )
         await asyncio.sleep(0)
@@ -519,6 +581,7 @@ def test_successful_turn_removes_unused_conversation_lock(
             SecretStr("key"),
             asyncio.Event(),
             expected_config=config,
+            event_sink=RecordingTurnSink(),
         )
 
         assert service._conversation_locks == {}
@@ -587,15 +650,17 @@ def test_oversized_final_response_marks_run_failed_before_returning_error(
             update={"api_config_id": config.api_config_id}
         )
 
-        with pytest.raises(AgentServiceError) as error:
-            await service.run_turn(
-                turn,
-                SecretStr("key"),
-                asyncio.Event(),
-                expected_config=config,
-            )
+        event_sink = RecordingTurnSink()
+        result = await service.run_turn(
+            turn,
+            SecretStr("key"),
+            asyncio.Event(),
+            expected_config=config,
+            event_sink=event_sink,
+        )
 
-        assert error.value.error_code == "AGENT_RESPONSE_TOO_LARGE"
+        assert result.error_code == "AGENT_RESPONSE_TOO_LARGE"
+        assert [name for name, _value in event_sink.events][-1] == "failed"
         row = agent_storage.database.execute(
             "SELECT status, error_code FROM agent_runs"
         ).fetchone()
@@ -653,15 +718,17 @@ def test_response_budget_uses_final_react_iteration(
             update={"api_config_id": config.api_config_id}
         )
 
-        with pytest.raises(AgentServiceError) as error:
-            await service.run_turn(
-                turn,
-                SecretStr("key"),
-                asyncio.Event(),
-                expected_config=config,
-            )
+        event_sink = RecordingTurnSink()
+        result = await service.run_turn(
+            turn,
+            SecretStr("key"),
+            asyncio.Event(),
+            expected_config=config,
+            event_sink=event_sink,
+        )
 
-        assert error.value.error_code == "AGENT_RESPONSE_TOO_LARGE"
+        assert result.error_code == "AGENT_RESPONSE_TOO_LARGE"
+        assert [name for name, _value in event_sink.events][-1] == "failed"
         row = agent_storage.database.execute(
             "SELECT status, react_iteration, error_code FROM agent_runs"
         ).fetchone()

@@ -36,12 +36,12 @@ from harness_shell_sidecar.storage import RuntimeDatabase
 from .api_configs import ApiConfigRepository, ApiConfigRepositoryError
 from .contracts import (
     AgentTurnInput,
-    AgentTurnResult,
     ModelApiConfig,
     ModelApiConfigFields,
     ModelApiConfigInput,
 )
 from .service import AgentServiceError
+from .streaming import AgentTurnEventSink
 
 
 _PUBLIC_REPOSITORY_ERRORS = {
@@ -62,9 +62,6 @@ _UNKNOWN_REPOSITORY_ERROR = (
     "MODEL_API_CONFIG_PERSISTENCE_FAILED",
     "model API configuration persistence failed",
 )
-_MAX_JSON_RESPONSE_BYTES = 1_048_576
-
-
 class _AgentServiceProtocol(Protocol):
     """Describe the secret turn service surface required by the handler."""
 
@@ -75,7 +72,8 @@ class _AgentServiceProtocol(Protocol):
         cancelled: asyncio.Event,
         *,
         expected_config: ModelApiConfig,
-    ) -> AgentTurnResult:
+        event_sink: AgentTurnEventSink,
+    ) -> object:
         """Execute one bounded Agent turn."""
 
 
@@ -137,6 +135,95 @@ class AgentTurnRequest(BaseModel):
         )
 
 
+class AgentTurnApplication:
+    """Resolve one frozen Provider secret and invoke the streaming Agent service."""
+
+    def __init__(
+        self,
+        api_configs: ApiConfigRepository,
+        agent_service: _AgentServiceProtocol,
+        credential_repository: CredentialRepository,
+    ) -> None:
+        """Bind the non-secret config, durable service, and plaintext secret owners."""
+
+        self._api_configs = api_configs  # Frozen Provider metadata authority.
+        self._agent_service = agent_service  # Durable Agent Run owner.
+        self._credential_repository = credential_repository  # Plain API key owner.
+
+    async def run(
+        self,
+        context: RequestContext,
+        raw_params: Mapping[str, object],
+        event_sink: AgentTurnEventSink,
+    ) -> None:
+        """Resolve, use, and zeroize one key without exposing a JSON result."""
+
+        params = _params(raw_params, AgentTurnRequest)
+        config = self._api_configs.get(params.api_config_id)
+        if config is None:
+            raise DispatchError(
+                "MODEL_API_CONFIG_NOT_FOUND",
+                "model API configuration was not found",
+            )
+        if not config.enabled:
+            raise DispatchError(
+                "MODEL_API_CONFIG_DISABLED",
+                "model API configuration is disabled",
+            )
+        context.require_active()
+
+        try:
+            decoded = self._credential_repository.resolve(
+                config.api_key_credential_id,
+                "api_key",
+            )
+        except CredentialRepositoryError as error:
+            raise DispatchError(
+                error.error_code,
+                "Agent credential resolution failed",
+            ) from None
+
+        api_key_text = ""
+        api_key: SecretStr | None = None
+        try:
+            if self._api_configs.get(params.api_config_id) != config:
+                raise DispatchError(
+                    "MODEL_API_CONFIG_CHANGED",
+                    "model API configuration changed before turn dispatch",
+                )
+            try:
+                api_key_text = decoded.decode("utf-8", errors="strict")
+            except UnicodeDecodeError as error:
+                raise DispatchError(
+                    "INVALID_REQUEST_PAYLOAD",
+                    "API key must be valid UTF-8",
+                ) from error
+            api_key = SecretStr(api_key_text)
+            await self._agent_service.run_turn(
+                params.to_input(),
+                api_key,
+                context.cancelled,
+                expected_config=config,
+                event_sink=event_sink,
+            )
+        except AgentServiceError as error:
+            raise DispatchError(
+                error.error_code,
+                "Agent turn could not be started",
+            ) from None
+        except DispatchError:
+            raise
+        except Exception:
+            raise DispatchError(
+                "AGENT_TURN_FAILED",
+                "Agent turn failed",
+            ) from None
+        finally:
+            api_key = None
+            api_key_text = ""
+            zeroize(decoded)
+
+
 def register_agent_handlers(
     dispatcher: RequestDispatcher,
     api_configs: ApiConfigRepository,
@@ -144,8 +231,14 @@ def register_agent_handlers(
     credential_repository: CredentialRepository,
     credential_cipher: RuntimeCredentialCipher,
     database: RuntimeDatabase,
-) -> None:
+) -> AgentTurnApplication:
     """Register aggregate Provider CRUD and identity-only Agent turns."""
+
+    turn_application = AgentTurnApplication(
+        api_configs,
+        agent_service,
+        credential_repository,
+    )
 
     async def list_configs(
         context: RequestContext,
@@ -230,90 +323,15 @@ def register_agent_handlers(
             )
         return {"deleted": True}
 
-    async def run_turn(
-        context: RequestContext,
-        raw_params: Mapping[str, object],
-    ) -> dict[str, object]:
-        """Resolve the configured API key, reject config races, and run one turn."""
-
-        params = _params(raw_params, AgentTurnRequest)
-        config = api_configs.get(params.api_config_id)
-        if config is None:
-            raise DispatchError(
-                "MODEL_API_CONFIG_NOT_FOUND",
-                "model API configuration was not found",
-            )
-        if not config.enabled:
-            raise DispatchError(
-                "MODEL_API_CONFIG_DISABLED",
-                "model API configuration is disabled",
-            )
-        context.require_active()
-
-        try:
-            decoded = credential_repository.resolve(
-                config.api_key_credential_id,
-                "api_key",
-            )
-        except CredentialRepositoryError as error:
-            raise DispatchError(
-                error.error_code,
-                "Agent credential resolution failed",
-            ) from None
-        current_config = api_configs.get(params.api_config_id)
-        if current_config != config:
-            zeroize(decoded)
-            raise DispatchError(
-                "MODEL_API_CONFIG_CHANGED",
-                "model API configuration changed before turn dispatch",
-            )
-        api_key_text = ""
-        api_key: SecretStr | None = None
-        try:
-            try:
-                api_key_text = decoded.decode("utf-8", errors="strict")
-            except UnicodeDecodeError as error:
-                raise DispatchError(
-                    "INVALID_REQUEST_PAYLOAD",
-                    "API key must be valid UTF-8",
-                ) from error
-            api_key = SecretStr(api_key_text)
-            request = params.to_input()
-            result = await agent_service.run_turn(
-                request,
-                api_key,
-                context.cancelled,
-                expected_config=config,
-            )
-            payload = result.model_dump(mode="json")
-            _require_agent_response_fits(payload)
-            return payload
-        except AgentServiceError as error:
-            raise DispatchError(
-                error.error_code,
-                "Agent turn could not be started",
-            ) from None
-        except DispatchError:
-            raise
-        except Exception:
-            raise DispatchError(
-                "AGENT_TURN_FAILED",
-                "Agent turn failed",
-            ) from None
-        finally:
-            api_key = None
-            api_key_text = ""
-            zeroize(decoded)
-
     handlers = {
         "agent.api_configs.list": list_configs,
         "agent.api_configs.create": create_config,
         "agent.api_configs.update": update_config,
         "agent.api_configs.delete": delete_config,
-        "agent.turn.run": run_turn,
     }
     for method, handler in handlers.items():
         dispatcher.register(method, _map_repository_errors(handler))
+    return turn_application
 
 
 def _params(raw_params: Mapping[str, object], model: type[BaseModel]) -> Any:
@@ -331,28 +349,6 @@ def _params(raw_params: Mapping[str, object], model: type[BaseModel]) -> Any:
             "INVALID_REQUEST_PAYLOAD",
             "request params are invalid",
         ) from error
-
-
-def _require_agent_response_fits(payload: dict[str, object]) -> None:
-    """Reject a result which cannot fit in one bounded JSON response.
-
-    AgentService performs the authoritative pre-COMPLETED budget check. This
-    handler check is defense in depth and must never truncate, summarize, or
-    move final text to an implicit fallback.
-    """
-
-    encoded_size = len(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    )
-    if encoded_size > _MAX_JSON_RESPONSE_BYTES:
-        raise DispatchError(
-            "AGENT_RESPONSE_TOO_LARGE",
-            "Agent response exceeds the typed HTTP JSON body limit",
-        )
 
 
 def _map_repository_errors(handler: Handler) -> Handler:

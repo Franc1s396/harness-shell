@@ -7,8 +7,9 @@
 ## 启动与 API 边界
 
 - `src/api/bootstrap.ts` 是唯一 Tauri bootstrap 调用点；production 缺失或非法 Backend URL 必须显式失败。
-- `src/api/http-client.ts` 独占 base URL、`X-Request-ID`、JSON/Problem 解析与 response budget。
+- `src/api/http-client.ts` 独占 base URL、`X-Request-ID`、JSON/Problem 解析，以及 Agent `fetch()`/`ReadableStream` 的 strict SSE framing、UTF-8 与 65,536-byte frame/4,194,304-byte body budget。
 - `src/api/runtime-websocket.ts` 独占 Runtime WebSocket、首轮 ping/pong、message validation 与 close handling。
+- `src/api/agent.ts` 独占四类 Agent SSE event schema、连续 sequence、固定 request/conversation/run correlation 与 terminal-before-EOF 校验；不 reconnect、retry、resume 或 fallback。
 - 各领域 `src/api/*.ts` 只封装固定 typed route；组件中不得散落 URL、裸 `fetch`、`invoke` 或 event listener。
 - `features/connections/private-key-file.ts` 独占连接私钥文件选择、大小校验与 strict UTF-8 读取；只把短生命周期文本交给连接提交流程，不发送本地路径。
 - `get_backend_bootstrap` 是唯一允许的自定义 Tauri command；不得新增业务 command 或独立 approval window。
@@ -26,6 +27,7 @@
 - Connection、Terminal、Agent 与 SFTP 只绑定用户显式选择的 connected Session；不得按列表顺序回退或在 tab 切换时偷换 owner。
 - pending transfer/run 的 disconnect、Session close 和 application close 必须有显式门禁。
 - unknown response/event、失联、stale identity/version 必须进入明确失败状态，不返回 success-shaped fallback。
+- Agent Run 在首个 visible delta 前显示 thinking；delta 只进入 per-tab `activeRun.streamedText`，completed 后才写正式 assistant message。server failed、invalid、too-large 或 interrupted stream 必须清除 partial text并只显示 error；provisional 内容不显示 Run details，也不新增 Stop 控件。
 - 凭据只以 Web Crypto 生成的 RSA-OAEP/AES-GCM request envelope，随所属 Connection 或 Provider mutation 发送；不存在独立 credential mutation endpoint，也不做 UI 补偿删除。secret 禁止写入 store、日志或错误详情。Backend 在同一业务事务中解封并以 schema-v6 plaintext credential record 保存，UI 必须把这一 at-rest 风险视为当前产品事实。
 
 ## 目录与测试

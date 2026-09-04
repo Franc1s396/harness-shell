@@ -48,6 +48,8 @@ Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated 
 - schema v6 新建、自检、旧 schema 在任何写入前拒绝、plaintext record；不得重新出现无读取闭环的 Audit/Trace/Artifact 表。
 - credential request envelope、Python repository kind match、Provider key lookup、secret non-logging。
 - direct HTTP Problem、request ID、size/media/header/unknown-field failure。
+- Agent SSE 必测 strict LF/CRLF framing、UTF-8 chunk boundary、frame/body/terminal reserve、started-first HTTP 200 barrier、durable terminal ordering、capacity 64 背压、terminal 发送前 request ID/capacity ownership、disconnect/shutdown cancellation、secret/tool/command/output non-exposure 与 OpenAPI/fixture drift。
+- React Agent 必测 event sequence/correlation/EOF、thinking→provisional text、同 tab 增量滚动、跨 tab isolation，以及 failed/invalid/too-large/interrupted 时丢弃 partial assistant text。
 - Runtime WebSocket single owner、ping/pong causation、queue、close、PTY input/event。
 - Manual SFTP React picker/handle/hash/chunk loop和 Python remote temp/commit/abort/recovery。
 - Launcher ready/control frame、handle inheritance、Job cleanup、UI-first/Backend-first exit、无 respawn。

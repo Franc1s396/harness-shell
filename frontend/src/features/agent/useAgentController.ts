@@ -233,7 +233,7 @@ export function useAgentController(
           updatedAt: config.updated_at,
         };
         // Freeze the verified Provider and Session identities before crossing
-        // the non-streaming Promise boundary. The reducer token owns completion.
+        // the per-tab stream boundary. The reducer token owns completion.
         dispatch({
           type: "run/start",
           tabId,
@@ -248,24 +248,58 @@ export function useAgentController(
           .setPreferredApiConfigId(config.api_config_id);
 
         try {
-          const result = await dependencies.api.runAgentTurn({
-            conversationId,
-            sshSessionId,
-            apiConfigId: config.api_config_id,
-            userMessage,
-          });
-          dispatch({
-            type: "run/complete",
-            tabId,
-            requestToken,
-            result,
-            messageId: dependencies.makeId(),
-          });
+          const terminal = await dependencies.api.streamAgentTurn(
+            {
+              conversationId,
+              sshSessionId,
+              apiConfigId: config.api_config_id,
+              userMessage,
+            },
+            (event) => {
+              if (event.type === "agent.turn.started") {
+                dispatch({
+                  type: "run/stream-started",
+                  tabId,
+                  requestToken,
+                  event,
+                });
+              } else {
+                dispatch({
+                  type: "run/text-delta",
+                  tabId,
+                  requestToken,
+                  event,
+                });
+              }
+            },
+          );
+          if (terminal.type === "agent.turn.completed") {
+            dispatch({
+              type: "run/complete",
+              tabId,
+              requestToken,
+              event: terminal,
+              messageId: dependencies.makeId(),
+            });
+          } else {
+            dispatch({
+              type: "run/fail",
+              tabId,
+              requestToken,
+              event: terminal,
+              error: {
+                code: terminal.error_code,
+                message: terminal.message,
+              },
+              messageId: dependencies.makeId(),
+            });
+          }
         } catch (error) {
           dispatch({
             type: "run/fail",
             tabId,
             requestToken,
+            event: null,
             error: normalizeAgentCommandError(error),
             messageId: dependencies.makeId(),
           });

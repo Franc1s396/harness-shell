@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ModelApiConfig } from "../../api/agent";
+import type { AgentCommandError, ModelApiConfig } from "../../api/agent";
 import { Button } from "../../components/ui/controls";
 import { Dialog } from "../../components/ui/Dialog";
 import { ShellIcon } from "../shell/icons";
@@ -40,11 +40,17 @@ export function AgentWorkspace({
   onResetConversation,
   onMarkRead,
 }: AgentWorkspaceProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [providerOpen, setProviderOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const lastMessageId = tab?.messages[tab.messages.length - 1]?.id ?? null;
+  const streamedText = tab?.activeRun?.streamedText ?? "";
+  const streamSequence = tab?.activeRun?.nextSequence ?? null;
+  const errorMessage = (error: AgentCommandError): string => {
+    const key = `agent.errors.${error.code}`;
+    return i18n.exists(key) ? t(key) : error.message;
+  };
   const openProviderSettings = () => {
     setProviderOpen(false);
     onOpenProviderSettings();
@@ -63,7 +69,7 @@ export function AgentWorkspace({
     const messageList = messageListRef.current;
     if (!messageList) return;
     messageList.scrollTop = messageList.scrollHeight;
-  }, [lastMessageId]);
+  }, [lastMessageId, streamSequence]);
 
   if (!tab) {
     return (
@@ -147,7 +153,7 @@ export function AgentWorkspace({
           if (message.kind === "error") {
             return (
               <article key={message.id} role="alert" className="w-fit max-w-[88%] break-words rounded-xl border border-danger/40 px-3 py-2 text-danger">
-                <strong>{message.error.code}</strong>: {message.error.message}
+                <strong>{message.error.code}</strong>: {errorMessage(message.error)}
               </article>
             );
           }
@@ -171,7 +177,7 @@ export function AgentWorkspace({
             </article>
           );
         })}
-        {tab.phase === "RUNNING" ? (
+        {tab.phase === "RUNNING" && streamedText.length === 0 ? (
           <article
             role="status"
             className="flex w-fit max-w-[88%] items-center gap-2 rounded-xl border border-line px-3 py-2 text-ink-muted"
@@ -182,11 +188,19 @@ export function AgentWorkspace({
             />
             <span>{t("agent.thinking")}</span>
           </article>
+        ) : tab.phase === "RUNNING" ? (
+          <article
+            data-provisional="true"
+            role="status"
+            className="w-fit max-w-[88%] rounded-xl border border-line px-3 py-2"
+          >
+            <p className="whitespace-pre-wrap break-words">{streamedText}</p>
+          </article>
         ) : null}
         {tab.lastError &&
         tab.messages[tab.messages.length - 1]?.kind !== "error" ? (
           <p role="alert" className="text-sm text-danger">
-            <strong>{tab.lastError.code}</strong>: {tab.lastError.message}
+            <strong>{tab.lastError.code}</strong>: {errorMessage(tab.lastError)}
           </p>
         ) : null}
       </div>

@@ -1,4 +1,9 @@
 {
+  "agent_result_json_bytes": 1048576,
+  "agent_sse_body_bytes": 4194304,
+  "agent_sse_frame_bytes": 65536,
+  "agent_sse_queue_events": 64,
+  "agent_sse_terminal_reserve_bytes": 65536,
   "json_request_bytes": 1048576,
   "json_response_bytes": 1048576,
   "websocket_text_bytes": 65536,

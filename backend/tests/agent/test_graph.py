@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 import pytest
+import httpx
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
@@ -27,6 +28,7 @@ from harness_shell_sidecar.telemetry import JsonLogFormatter
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
     FakeModelSequence,
+    RecordingTurnSink,
     RecordingModelBuilder,
     instant_sleep,
     make_tool_call,
@@ -109,6 +111,7 @@ async def _run_turn(
     turn: AgentTurnInput,
     *,
     api_key: str = "key",
+    event_sink: RecordingTurnSink | None = None,
 ) -> AgentTurnResult:
     """Run through the service with the exact handler-observed config snapshot."""
 
@@ -119,6 +122,7 @@ async def _run_turn(
         SecretStr(api_key),
         asyncio.Event(),
         expected_config=config,
+        event_sink=event_sink or RecordingTurnSink(),
     )
 
 
@@ -136,13 +140,20 @@ def test_tool_result_returns_to_model_before_final_answer(
         executor = RecordingExecutor()
         service, turn = _service(agent_storage, model, executor)
         turn = turn.model_copy(update={"user_message": "where am I?"})
+        event_sink = RecordingTurnSink()
 
-        result = await _run_turn(agent_storage, service, turn)
+        result = await _run_turn(
+            agent_storage,
+            service,
+            turn,
+            event_sink=event_sink,
+        )
 
         assert result.status is AgentRunStatus.COMPLETED
         assert result.final_text == "The remote directory is /home/test."
         assert model.message_calls[1][-1].tool_call_id == "call-1"
         assert executor.calls == [(turn.ssh_session_id, "pwd")]
+        assert event_sink.parts == ["The remote directory is /home/test."]
 
     asyncio.run(scenario())
 
@@ -248,11 +259,11 @@ def test_graph_logs_no_message_command_output_or_provider_key(
     asyncio.run(scenario())
 
 
-def test_execute_tool_failure_logs_complete_exception_and_preserves_result(
+def test_execute_tool_failure_logs_only_safe_metadata_and_preserves_result(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Log the failing node and let AgentService retain its existing mapping."""
+    """Log only safe node metadata and retain the existing failure mapping."""
 
     async def scenario() -> None:
         marker = "graph-executor-failure-marker-6e9a"
@@ -279,7 +290,67 @@ def test_execute_tool_failure_logs_complete_exception_and_preserves_result(
         ]
         assert len(failed) == 1
         assert failed[0].harness_fields["node"] == "execute_tool"
-        assert marker in JsonLogFormatter().format(failed[0])
+        encoded = JsonLogFormatter().format(failed[0])
+        assert marker not in encoded
+        assert '"error_code":"SIDECAR_RUNTIME_FAILED"' in encoded
+
+    asyncio.run(scenario())
+
+
+def test_provider_failure_body_is_absent_from_full_graph_logs(
+    agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Keep secrets and Provider or remote content out of the full graph path."""
+
+    async def scenario() -> None:
+        api_key_marker = "provider-key-marker-01"
+        user_marker = "user-message-marker-02"
+        provider_body_marker = "provider-body-marker-03"
+        command_marker = "command-marker-04"
+        output_marker = "output-marker-05"
+        request = httpx.Request("POST", "https://provider.example/v1/responses")
+        response = httpx.Response(
+            500,
+            request=request,
+            json={
+                "error": {
+                    "message": provider_body_marker,
+                    "command": command_marker,
+                    "output": output_marker,
+                }
+            },
+        )
+        failure = httpx.HTTPStatusError(
+            "provider request failed",
+            request=request,
+            response=response,
+        )
+        model = FakeModelSequence([failure])
+        service, turn = _service(agent_storage, model, RecordingExecutor())
+        turn = turn.model_copy(update={"user_message": user_marker})
+        caplog.set_level(logging.DEBUG)
+
+        result = await _run_turn(
+            agent_storage,
+            service,
+            turn,
+            api_key=api_key_marker,
+        )
+
+        assert result.status is AgentRunStatus.FAILED
+        assert result.error_code == "MODEL_REQUEST_FAILED"
+        encoded = "\n".join(
+            JsonLogFormatter().format(record) for record in caplog.records
+        )
+        for marker in (
+            api_key_marker,
+            user_marker,
+            provider_body_marker,
+            command_marker,
+            output_marker,
+        ):
+            assert marker not in encoded
 
     asyncio.run(scenario())
 
@@ -557,6 +628,7 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
             SecretStr(sentinel),
             asyncio.Event(),
             expected_config=config,
+            event_sink=RecordingTurnSink(),
         )
 
         assert result.status is AgentRunStatus.COMPLETED

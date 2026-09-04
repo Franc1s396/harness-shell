@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AgentApi,
-  AgentTurnResult,
+  AgentTurnCompletedEvent,
+  AgentTurnProgressEvent,
   ModelApiConfig,
 } from "../../api/agent";
 import { useAgentPreferencesStore } from "../../stores/agent-preferences-store";
@@ -39,7 +40,7 @@ const mockAgentApi = {
   createModelApiConfig: vi.fn(),
   updateModelApiConfig: vi.fn(),
   deleteModelApiConfig: vi.fn(),
-  runAgentTurn: vi.fn(),
+  streamAgentTurn: vi.fn(),
 } satisfies AgentApi;
 
 let generatedId = 0;
@@ -67,14 +68,43 @@ const providerDraft: ProviderDraft = {
 const completedResult = (
   conversationId: string,
   runId: string,
-): AgentTurnResult => ({
+): AgentTurnCompletedEvent => ({
+  schema_version: 1,
+  type: "agent.turn.completed",
+  request_id: "request-id-1",
+  sequence: 2,
   conversation_id: conversationId,
   agent_run_id: runId,
   status: "COMPLETED",
-  final_text: "ok",
   react_iteration: 1,
   error_code: null,
 });
+
+const emitSuccess = (
+  onProgress: (event: AgentTurnProgressEvent) => void,
+  conversationId = "conversation-1",
+  runId = "run-1",
+) => {
+  onProgress({
+    schema_version: 1,
+    type: "agent.turn.started",
+    request_id: "request-id-1",
+    sequence: 0,
+    conversation_id: conversationId,
+    agent_run_id: runId,
+    status: "RUNNING",
+    react_iteration: 0,
+  });
+  onProgress({
+    schema_version: 1,
+    type: "agent.turn.text_delta",
+    request_id: "request-id-1",
+    sequence: 1,
+    conversation_id: conversationId,
+    agent_run_id: runId,
+    delta: "ok",
+  });
+};
 
 const renderController = (sessions: TerminalSessionModel[]) =>
   renderHook(
@@ -112,12 +142,13 @@ describe("useAgentController", () => {
     );
     useAgentPreferencesStore.getState().reset();
     mockAgentApi.listModelApiConfigs.mockResolvedValue([config]);
+    mockAgentApi.streamAgentTurn.mockImplementation(async (_input, onProgress) => {
+      emitSuccess(onProgress);
+      return completedResult("conversation-1", "run-1");
+    });
   });
 
-  it("refreshes and freezes Provider plus Session before a non-streaming turn", async () => {
-    mockAgentApi.runAgentTurn.mockResolvedValue(
-      completedResult("conversation-1", "run-1"),
-    );
+  it("refreshes and freezes Provider plus Session before a streamed turn", async () => {
     const view = renderController([connectedSession]);
 
     await primeTab(view, "tab-1", "inspect service");
@@ -126,12 +157,15 @@ describe("useAgentController", () => {
     );
     await act(() => view.result.current.confirmRiskAndSend("tab-1"));
 
-    expect(mockAgentApi.runAgentTurn).toHaveBeenCalledWith({
-      conversationId: null,
-      sshSessionId: "ssh-1",
-      apiConfigId: config.api_config_id,
-      userMessage: "inspect service",
-    });
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledWith(
+      {
+        conversationId: null,
+        sshSessionId: "ssh-1",
+        apiConfigId: config.api_config_id,
+        userMessage: "inspect service",
+      },
+      expect.any(Function),
+    );
     expect(
       view.result.current.state.tabs["tab-1"].messages[
         view.result.current.state.tabs["tab-1"].messages.length - 1
@@ -139,12 +173,18 @@ describe("useAgentController", () => {
     ).toMatchObject({ kind: "assistant", text: "ok" });
   });
 
-  it("allows different tabs to own concurrent non-streaming Runs", async () => {
-    const first = deferred<AgentTurnResult>();
-    const second = deferred<AgentTurnResult>();
-    mockAgentApi.runAgentTurn
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+  it("allows different tabs to own concurrent streamed Runs", async () => {
+    const first = deferred<AgentTurnCompletedEvent>();
+    const second = deferred<AgentTurnCompletedEvent>();
+    mockAgentApi.streamAgentTurn
+      .mockImplementationOnce(async (_input, onProgress) => {
+        emitSuccess(onProgress, "conversation-1", "run-1");
+        return first.promise;
+      })
+      .mockImplementationOnce(async (_input, onProgress) => {
+        emitSuccess(onProgress, "conversation-2", "run-2");
+        return second.promise;
+      });
     const secondSession = {
       ...connectedSession,
       tabId: "tab-2",
@@ -166,7 +206,7 @@ describe("useAgentController", () => {
       sendTwo = view.result.current.confirmRiskAndSend("tab-2");
     });
     await waitFor(() =>
-      expect(mockAgentApi.runAgentTurn).toHaveBeenCalledTimes(2),
+      expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledTimes(2),
     );
     expect(view.result.current.activeAgentRunCount).toBe(2);
     first.resolve(completedResult("conversation-1", "run-1"));
@@ -183,15 +223,18 @@ describe("useAgentController", () => {
     await primeTab(view, "tab-1", "inspect");
     await act(() => view.result.current.confirmRiskAndSend("tab-1"));
 
-    expect(mockAgentApi.runAgentTurn).not.toHaveBeenCalled();
+    expect(mockAgentApi.streamAgentTurn).not.toHaveBeenCalled();
     expect(view.result.current.state.tabs["tab-1"].lastError?.code).toBe(
       "UI_AGENT_PROVIDER_UNAVAILABLE",
     );
   });
 
   it("drops a late completion after an unexpected tab removal", async () => {
-    const pending = deferred<AgentTurnResult>();
-    mockAgentApi.runAgentTurn.mockReturnValue(pending.promise);
+    const pending = deferred<AgentTurnCompletedEvent>();
+    mockAgentApi.streamAgentTurn.mockImplementation(async (_input, onProgress) => {
+      emitSuccess(onProgress);
+      return pending.promise;
+    });
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "inspect");
     let send!: Promise<void>;
@@ -248,7 +291,7 @@ describe("useAgentController", () => {
   });
 
   it("does not retry a rejected turn and keeps the prior conversation identity", async () => {
-    mockAgentApi.runAgentTurn.mockRejectedValue({
+    mockAgentApi.streamAgentTurn.mockRejectedValue({
       code: "MODEL_NETWORK_TIMEOUT",
     });
     const view = renderController([connectedSession]);
@@ -256,7 +299,7 @@ describe("useAgentController", () => {
 
     await act(() => view.result.current.confirmRiskAndSend("tab-1"));
 
-    expect(mockAgentApi.runAgentTurn).toHaveBeenCalledOnce();
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledOnce();
     expect(
       view.result.current.state.tabs["tab-1"].conversationId,
     ).toBeNull();
@@ -266,9 +309,6 @@ describe("useAgentController", () => {
   });
 
   it("requires risk confirmation again after reconnect changes the SSH Session ID", async () => {
-    mockAgentApi.runAgentTurn.mockResolvedValue(
-      completedResult("conversation-1", "run-1"),
-    );
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "first turn");
     await act(() => view.result.current.confirmRiskAndSend("tab-1"));
@@ -286,6 +326,6 @@ describe("useAgentController", () => {
       pendingRiskSshSessionId: "ssh-reconnected",
       riskAcknowledgedSshSessionId: "ssh-1",
     });
-    expect(mockAgentApi.runAgentTurn).toHaveBeenCalledOnce();
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledOnce();
   });
 });

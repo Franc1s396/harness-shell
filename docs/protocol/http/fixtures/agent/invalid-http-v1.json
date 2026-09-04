@@ -1,32 +1,98 @@
 {
   "cases": [
     {
-      "name": "create-api-config-with-unknown-provider-type",
+      "name": "create-api-config-with-unknown-api-type",
       "request": {
-        "request_id": "1a0a01b8-af36-4cdf-b524-b37158dafaf4",
+        "headers": {"X-Request-ID": "1a0a01b8-af36-4cdf-b524-b37158dafaf4"},
         "body": {
-          "provider_type": "unknown",
           "display_name": "Invalid provider",
+          "api_type": "UNKNOWN",
           "base_url": "https://provider.example/v1",
-          "model": "example-model"
+          "model": "example-model",
+          "enabled": true,
+          "api_key_envelope": {
+            "version": 1,
+            "key_id": "9a0a01b8-af36-4cdf-b524-b37158dafaf9",
+            "wrapped_key_b64": "AA==",
+            "iv_b64": "AA==",
+            "ciphertext_b64": "AA=="
+          }
         }
       },
       "expected_http_status": 422,
-      "expected_error_code": "VALIDATION_ERROR"
+      "expected_error_code": "REQUEST_VALIDATION_FAILED"
     },
     {
       "name": "start-turn-with-disconnected-session",
       "request": {
-        "request_id": "d14fd352-ae44-4c2a-b9c3-8544bb3b00d7",
+        "headers": {
+          "Accept": "text/event-stream",
+          "X-Request-ID": "d14fd352-ae44-4c2a-b9c3-8544bb3b00d7"
+        },
         "body": {
-          "conversation_id": "8f09f716-a2d4-457d-a1b1-e6a41985d18c",
+          "conversation_id": null,
           "ssh_session_id": "2fa254dc-6853-4c4c-8847-b2262387a0fc",
           "api_config_id": "df7df775-0c58-4a33-88a3-e8d7bc455022",
-          "user_text": "检查服务状态。"
+          "user_message": "检查服务状态。"
         }
       },
-      "expected_http_status": 409,
-      "expected_error_code": "SSH_SESSION_NOT_CONNECTED"
+      "expected_http_status": 404,
+      "expected_error_code": "SSH_SESSION_UNAVAILABLE"
+    },
+    {
+      "name": "missing-started",
+      "wire_utf8": "event: agent.turn.text_delta\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.text_delta\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"delta\":\"x\"}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "sequence-gap",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.completed\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "identity-change",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.completed\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "unknown-event",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.unknown\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.unknown\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\"}\n\nevent: agent.turn.completed\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "duplicate-terminal",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.completed\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\nevent: agent.turn.completed\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "frame-too-large",
+      "generated_wire": {"kind": "single-frame", "encoded_bytes": 65537},
+      "expected_error_code": "BACKEND_AGENT_STREAM_TOO_LARGE"
+    },
+    {
+      "name": "body-too-large",
+      "generated_wire": {"kind": "complete-body", "encoded_bytes": 4194305},
+      "expected_error_code": "BACKEND_AGENT_STREAM_TOO_LARGE"
+    },
+    {
+      "name": "comment-field",
+      "wire_utf8": ": comment\nevent: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.completed\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "retry-field",
+      "wire_utf8": "retry: 1000\nevent: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.completed\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "multiline-data",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\ndata:  \n\nevent: agent.turn.completed\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "bare-cr",
+      "wire_utf8": "event: agent.turn.started\rid: 0\rdata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\r\revent: agent.turn.completed\rid: 1\rdata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\r\r",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
     }
   ]
 }

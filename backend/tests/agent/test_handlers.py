@@ -29,6 +29,7 @@ from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispa
 from harness_shell_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
+from .fakes import RecordingTurnSink
 
 
 MAX_JSON_RESPONSE_BYTES = 1_048_576
@@ -51,6 +52,7 @@ class FakeAgentService:
         cancelled: asyncio.Event,
         *,
         expected_config: object,
+        event_sink: object,
     ) -> AgentTurnResult:
         """Capture decoded values without exposing them through handler errors."""
 
@@ -146,6 +148,67 @@ def _dispatcher(
     return dispatcher
 
 
+def _registered(
+    agent_storage: AgentStorage,
+    service: FakeAgentService,
+) -> tuple[RequestDispatcher, object]:
+    """Return both the shared dispatcher and explicit turn application."""
+
+    dispatcher = RequestDispatcher()
+    config_rows = agent_storage.database.execute(
+        "SELECT api_key_credential_id FROM model_api_configs"
+    ).fetchall()
+    for (credential_id_text,) in config_rows:
+        credential_id = UUID(credential_id_text)
+        payload = json.dumps(
+            {
+                "credential_id": str(credential_id),
+                "kind": "api_key",
+                "secret": "provider-key",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        agent_storage.record_store.put(
+            PlaintextRecord("credential", str(credential_id), 1, payload)
+        )
+    application = register_agent_handlers(
+        dispatcher,
+        agent_storage.api_configs,
+        service,
+        CredentialRepository(agent_storage.record_store),
+        RuntimeCredentialCipher.generate(),
+        agent_storage.database,
+    )
+    return dispatcher, application
+
+
+def test_turn_uses_explicit_application_inside_dispatcher_ownership(
+    agent_storage: AgentStorage,
+) -> None:
+    """Keep streaming turns out of the buffered JSON dispatcher handler map."""
+
+    async def scenario() -> None:
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        service = FakeAgentService(_result())
+        dispatcher, application = _registered(agent_storage, service)
+
+        assert application is not None
+        assert dispatcher.handles("agent.turn.run") is False
+        await dispatcher.execute(
+            uuid4(),
+            lambda context: application.run(
+                context,
+                _turn_params(config.api_config_id),
+                RecordingTurnSink(),
+            ),
+        )
+
+        assert service.api_keys == ["provider-key"]
+
+    asyncio.run(scenario())
+
+
 def encrypted_api_key(
     cipher: RuntimeCredentialCipher,
     secret: str,
@@ -236,11 +299,19 @@ def test_agent_turn_rejects_strict_payload_errors(
         config = agent_storage.api_configs.create(valid_api_config_input())
         params = _turn_params(config.api_config_id)
         params.update(mutation)
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
+        dispatcher, application = _registered(
+            agent_storage,
+            FakeAgentService(_result()),
+        )
 
         with pytest.raises(DispatchError) as error:
-            await dispatcher.dispatch(
-                *application_frame("agent.turn.run", params=params)
+            await dispatcher.execute(
+                uuid4(),
+                lambda context: application.run(
+                    context,
+                    params,
+                    RecordingTurnSink(),
+                ),
             )
 
         assert error.value.error_code == "INVALID_REQUEST_PAYLOAD"
@@ -258,18 +329,26 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
         disabled = agent_storage.api_configs.create(
             valid_api_config_input().model_copy(update={"enabled": False})
         )
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
+        dispatcher, application = _registered(
+            agent_storage,
+            FakeAgentService(_result()),
+        )
         with pytest.raises(DispatchError) as disabled_error:
-            await dispatcher.dispatch(
-                *application_frame(
-                    "agent.turn.run",
-                    params=_turn_params(disabled.api_config_id),
+            await dispatcher.execute(
+                uuid4(),
+                lambda context: application.run(
+                    context,
+                    _turn_params(disabled.api_config_id),
+                    RecordingTurnSink(),
                 )
             )
         assert disabled_error.value.error_code == "MODEL_API_CONFIG_DISABLED"
 
         enabled = agent_storage.api_configs.create(valid_api_config_input())
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
+        dispatcher, application = _registered(
+            agent_storage,
+            FakeAgentService(_result()),
+        )
         real_get = agent_storage.api_configs.get
         get_count = 0
 
@@ -283,10 +362,12 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
 
         monkeypatch.setattr(agent_storage.api_configs, "get", changed_get)
         with pytest.raises(DispatchError) as changed_error:
-            await dispatcher.dispatch(
-                *application_frame(
-                    "agent.turn.run",
-                    params=_turn_params(enabled.api_config_id),
+            await dispatcher.execute(
+                uuid4(),
+                lambda context: application.run(
+                    context,
+                    _turn_params(enabled.api_config_id),
+                    RecordingTurnSink(),
                 )
             )
         assert changed_error.value.error_code == "MODEL_API_CONFIG_CHANGED"
@@ -294,32 +375,26 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
     asyncio.run(scenario())
 
 
-def test_agent_turn_decodes_key_and_returns_only_turn_result(
+def test_agent_turn_decodes_key_without_returning_a_json_result(
     agent_storage: AgentStorage,
 ) -> None:
-    """Pass a short-lived SecretStr to the service and serialize the strict result."""
+    """Pass a short-lived SecretStr while leaving output ownership to the sink."""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
         service = FakeAgentService(_result())
-        dispatcher = _dispatcher(agent_storage, service)
-        result = await dispatcher.dispatch(
-            *application_frame(
-                "agent.turn.run",
-                params=_turn_params(config.api_config_id),
-            )
+        dispatcher, application = _registered(agent_storage, service)
+        result = await dispatcher.execute(
+            uuid4(),
+            lambda context: application.run(
+                context,
+                _turn_params(config.api_config_id),
+                RecordingTurnSink(),
+            ),
         )
 
         assert service.api_keys == ["provider-key"]
-        assert set(result) == {
-            "conversation_id",
-            "agent_run_id",
-            "status",
-            "final_text",
-            "react_iteration",
-            "error_code",
-        }
-        assert "api_key" not in str(result)
+        assert result is None
 
     asyncio.run(scenario())
 
@@ -336,16 +411,18 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
-        dispatcher = _dispatcher(
+        dispatcher, application = _registered(
             agent_storage,
             FakeAgentService(AgentServiceError(error_code)),
         )
 
         with pytest.raises(DispatchError) as error:
-            await dispatcher.dispatch(
-                *application_frame(
-                    "agent.turn.run",
-                    params=_turn_params(config.api_config_id),
+            await dispatcher.execute(
+                uuid4(),
+                lambda context: application.run(
+                    context,
+                    _turn_params(config.api_config_id),
+                    RecordingTurnSink(),
                 )
             )
 
@@ -363,21 +440,24 @@ def test_agent_turn_shutdown_cancellation_flows_through_dispatcher(
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
         service = FakeAgentService(_result(), wait_for_cancel=True)
-        dispatcher = _dispatcher(agent_storage, service)
+        dispatcher, application = _registered(agent_storage, service)
         request_id = uuid4()
-        request = application_frame(
-            "agent.turn.run",
-            params=_turn_params(config.api_config_id),
-            request_id=request_id,
-        )
 
-        running = asyncio.create_task(dispatcher.dispatch(*request))
+        running = asyncio.create_task(
+            dispatcher.execute(
+                request_id,
+                lambda context: application.run(
+                    context,
+                    _turn_params(config.api_config_id),
+                    RecordingTurnSink(),
+                ),
+            )
+        )
         await service.started.wait()
         await dispatcher.close()
         result = await running
 
-        assert result["status"] == "CANCELLED"
-        assert result["error_code"] == "AGENT_CANCELLED"
+        assert result is None
 
     asyncio.run(scenario())
 
@@ -393,14 +473,16 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
         key = "provider-key"
         config = agent_storage.api_configs.create(valid_api_config_input())
         service = FakeAgentService(RuntimeError(f"{key}:{marker}"))
-        dispatcher = _dispatcher(agent_storage, service)
+        dispatcher, application = _registered(agent_storage, service)
         caplog.set_level(logging.DEBUG)
 
         with pytest.raises(DispatchError) as error:
-            await dispatcher.dispatch(
-                *application_frame(
-                    "agent.turn.run",
-                    params=_turn_params(config.api_config_id),
+            await dispatcher.execute(
+                uuid4(),
+                lambda context: application.run(
+                    context,
+                    _turn_params(config.api_config_id),
+                    RecordingTurnSink(),
                 )
             )
 
@@ -448,10 +530,10 @@ def test_api_config_handlers_round_trip_without_secret_bytes(
     asyncio.run(scenario())
 
 
-def test_oversized_agent_response_fails_without_truncating_final_text(
+def test_application_never_serializes_a_service_result(
     agent_storage: AgentStorage,
 ) -> None:
-    """Reject a terminal HTTP response exceeding the limit instead of truncating it."""
+    """Keep even a large fake service result out of the application return value."""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -464,19 +546,21 @@ def test_oversized_agent_response_fails_without_truncating_final_text(
             react_iteration=0,
             error_code=None,
         )
-        dispatcher = _dispatcher(agent_storage, FakeAgentService(oversized))
+        dispatcher, application = _registered(
+            agent_storage,
+            FakeAgentService(oversized),
+        )
 
-        with pytest.raises(DispatchError) as error:
-            await dispatcher.dispatch(
-                *application_frame(
-                    "agent.turn.run",
-                    params=_turn_params(config.api_config_id),
-                )
-            )
+        result = await dispatcher.execute(
+            uuid4(),
+            lambda context: application.run(
+                context,
+                _turn_params(config.api_config_id),
+                RecordingTurnSink(),
+            ),
+        )
 
-        assert error.value.error_code == "AGENT_RESPONSE_TOO_LARGE"
-        exposed = f"{error.value}:{error.value.details}"
-        assert oversized_text not in exposed
-        assert oversized_text[:1024] not in exposed
+        assert result is None
+        assert oversized_text not in str(result)
 
     asyncio.run(scenario())

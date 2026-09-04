@@ -15,13 +15,13 @@ FastAPI ASGI lifespan 从 `RuntimeSettings` 创建唯一 `RuntimeResources`，�
 
 ## 目录职责
 
-- `web/`：Uvicorn、lifespan、typed HTTP/WebSocket gateway、Problem Details 与 OpenAPI export。
+- `web/`：Uvicorn、lifespan、typed HTTP/WebSocket gateway、Agent SSE encoder/session/startup barrier、Problem Details 与 OpenAPI export。
 - `runtime/`：settings、resources、dispatcher、request context 与 Desktop control pipe。
 - `storage/`：schema-v6-only plaintext database 与 generic plaintext records。
 - `credentials/`：request envelope 解封、kind-checked plaintext credential repository、temporary secret cleanup；不提供独立 credential mutation route。
 - `ssh/`、`terminal/`：SSH/ProxyJump/Host Key/PTY owner。
 - `manual_sftp/`：remote-only listing、mutation、temporary/commit/abort/recovery；不得读取或写入本地用户文件。
-- `agent/`：Provider metadata、Python credential lookup、conversation/run/message、model gateway 与 strict `execute_command` loop。
+- `agent/`：Provider metadata、Python credential lookup/zeroize、conversation/run/message、durable stream lifecycle、只发布最终可见文本的 model gateway 与 strict `execute_command` loop。
 
 ## 存储
 
@@ -32,9 +32,11 @@ schema v6 的 `runtime_records.payload` 与 credential records 是 plaintext。�
 ## Protocol 约束
 
 - route 在进入 dispatcher 前完成 strict Pydantic/header/media-type/body-size 校验。
+- Agent turn route 要求 `Accept: text/event-stream`。worker 在 shared dispatcher 内取得 conversation lock、创建 durable RUNNING Run、建立 capacity 64 queue 并入队 started 后才允许 HTTP 200；consumer 发送 terminal frame 后才释放 dispatcher request ID/capacity，断连与 shutdown 都必须取消并 await worker。
+- Agent SSE 固定 frame 65,536 bytes、body 4,194,304 bytes、terminal reserve 65,536 bytes；producer awaited put，不 drop/merge/truncate。完整 Agent result 的 1,048,576-byte 逻辑预算继续生效。
 - Manual SFTP chunk 固定最大 262,144 bytes，使用 raw `application/octet-stream` 和 exact offset/operation identity。
 - WebSocket inbound/outbound queue capacity 固定且不 drop/merge；只有 strict ping 刷新 heartbeat。
-- credential、command、model response、stdout/stderr、SFTP bytes 和 HTTP body 不得主动进入日志或 Problem detail。
+- credential、command、model response body/text、stdout/stderr、SFTP bytes 和 HTTP body 不得主动进入日志或 Problem detail；Provider failure 日志只允许 stable metadata。
 - Connection 与 Provider handler 必须在同一 `RuntimeDatabase` 事务中维护业务记录及其拥有的 credential；更新省略 envelope 时保留现有引用，删除业务记录时同步删除 credential。
 - 未知字段、stale profile/session、duplicate owner、取消和 cleanup failure 都显式失败，不重放远程 mutation。
 

@@ -13,23 +13,30 @@
       }
     },
     {
-      "name": "start-agent-turn",
+      "name": "agent-turn-sse",
       "request": {
-        "request_id": "12cc3e7a-5358-48fd-af76-aa3ced75f45b",
+        "headers": {
+          "Accept": "text/event-stream",
+          "X-Request-ID": "10000000-0000-4000-8000-000000000001"
+        },
         "body": {
-          "conversation_id": "998db68a-df92-4495-b20b-17f339c42b38",
-          "ssh_session_id": "6be7788c-bf12-443b-b8f9-f88c6ec80f19",
-          "api_config_id": "64ecaf43-c1f6-470b-b9c3-dd4c9e1cf71c",
-          "user_text": "检查当前目录中的文件。"
+          "conversation_id": null,
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "api_config_id": "30000000-0000-4000-8000-000000000003",
+          "user_message": "检查当前目录中的文件。"
         }
       },
       "response": {
-        "status": 201,
-        "body": {
-          "run_id": "48f3954b-717b-4c18-96cb-7d4e6014e6bc",
-          "state": "running"
-        }
-      }
+        "status": 200,
+        "content_type": "text/event-stream; charset=utf-8",
+        "cache_control": "no-store"
+      },
+      "event_types": [
+        "agent.turn.started",
+        "agent.turn.text_delta",
+        "agent.turn.completed"
+      ],
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.text_delta\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.text_delta\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"delta\":\"完成\"}\n\nevent: agent.turn.completed\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n"
     }
   ]
 }

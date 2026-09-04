@@ -33,7 +33,7 @@
         "description": "Stable typed failure.",
         "headers": {
           "X-Request-ID": {
-            "description": "Matches the request and JSON body request_id.",
+            "description": "Matches the request correlation identifier.",
             "schema": {
               "format": "uuid",
               "type": "string"
@@ -87,17 +87,168 @@
         "title": "AgentApiConfigResponse",
         "type": "object"
       },
-      "AgentRunStatus": {
-        "description": "Represent the only persisted lifecycle states for an Agent run.",
-        "enum": [
-          "RUNNING",
-          "COMPLETED",
-          "FAILED",
-          "LIMIT_REACHED",
-          "CANCELLED"
+      "AgentTurnCompletedEvent": {
+        "additionalProperties": false,
+        "description": "Close a stream after the full message and successful Run are durable.",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "error_code": {
+            "default": null,
+            "description": "Successful terminal events never contain an error code.",
+            "title": "Error Code",
+            "type": "null"
+          },
+          "react_iteration": {
+            "description": "Number of completed ReAct tool loops.",
+            "maximum": 128,
+            "minimum": 0,
+            "title": "React Iteration",
+            "type": "integer"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "const": "COMPLETED",
+            "default": "COMPLETED",
+            "description": "Durable successful Run status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.completed",
+            "default": "agent.turn.completed",
+            "description": "Successful terminal event discriminator.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "sequence",
+          "conversation_id",
+          "agent_run_id",
+          "react_iteration"
         ],
-        "title": "AgentRunStatus",
-        "type": "string"
+        "title": "AgentTurnCompletedEvent",
+        "type": "object"
+      },
+      "AgentTurnFailedEvent": {
+        "additionalProperties": false,
+        "description": "Close a stream after a failed, limited, or cancelled Run is durable.",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "error_code": {
+            "description": "Stable non-sensitive machine-readable failure code.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Bounded safe failure explanation without remote output.",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "react_iteration": {
+            "description": "Number of completed ReAct tool loops before failure.",
+            "maximum": 128,
+            "minimum": 0,
+            "title": "React Iteration",
+            "type": "integer"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Durable unsuccessful Run status.",
+            "enum": [
+              "FAILED",
+              "LIMIT_REACHED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.failed",
+            "default": "agent.turn.failed",
+            "description": "Failure terminal event discriminator.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "sequence",
+          "conversation_id",
+          "agent_run_id",
+          "status",
+          "react_iteration",
+          "error_code",
+          "message"
+        ],
+        "title": "AgentTurnFailedEvent",
+        "type": "object"
       },
       "AgentTurnRequest": {
         "additionalProperties": false,
@@ -141,73 +292,132 @@
         "title": "AgentTurnRequest",
         "type": "object"
       },
-      "AgentTurnResponse": {
+      "AgentTurnStartedEvent": {
         "additionalProperties": false,
-        "description": "Return the complete non-streaming Agent result with HTTP correlation.",
+        "description": "Open a stream only after its durable Run is in RUNNING state.",
         "properties": {
           "agent_run_id": {
-            "description": "Run which produced this result.",
+            "description": "Durable Agent Run identity frozen for the complete stream.",
             "format": "uuid",
             "title": "Agent Run Id",
             "type": "string"
           },
           "conversation_id": {
-            "description": "Conversation receiving the turn.",
+            "description": "Conversation identity frozen for the complete stream.",
             "format": "uuid",
             "title": "Conversation Id",
             "type": "string"
           },
-          "error_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Stable terminal failure code, if any.",
-            "title": "Error Code"
-          },
-          "final_text": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Final model text when successfully available.",
-            "title": "Final Text"
-          },
           "react_iteration": {
-            "description": "Completed Tool Call to ToolMessage loops.",
-            "maximum": 128.0,
-            "minimum": 0.0,
+            "const": 0,
+            "default": 0,
+            "description": "No tool loop has completed when a Run starts.",
             "title": "React Iteration",
             "type": "integer"
           },
           "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
           },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
           "status": {
-            "$ref": "#/components/schemas/AgentRunStatus",
-            "description": "Terminal run status."
+            "const": "RUNNING",
+            "default": "RUNNING",
+            "description": "Durable status at the HTTP success boundary.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.started",
+            "default": "agent.turn.started",
+            "description": "Started event discriminator.",
+            "title": "Type",
+            "type": "string"
           }
         },
         "required": [
+          "request_id",
+          "sequence",
+          "conversation_id",
+          "agent_run_id"
+        ],
+        "title": "AgentTurnStartedEvent",
+        "type": "object"
+      },
+      "AgentTurnTextDeltaEvent": {
+        "additionalProperties": false,
+        "description": "Carry one exact non-empty piece of final visible model text.",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "delta": {
+            "description": "Exact visible model text without trimming or post-processing.",
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Delta",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "type": {
+            "const": "agent.turn.text_delta",
+            "default": "agent.turn.text_delta",
+            "description": "Visible text delta event discriminator.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "sequence",
           "conversation_id",
           "agent_run_id",
-          "status",
-          "final_text",
-          "react_iteration",
-          "error_code",
-          "request_id"
+          "delta"
         ],
-        "title": "AgentTurnResponse",
+        "title": "AgentTurnTextDeltaEvent",
         "type": "object"
       },
       "ApiType": {
@@ -2694,7 +2904,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -2738,7 +2948,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -2784,7 +2994,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -2838,7 +3048,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -2855,11 +3065,20 @@
     },
     "/v1/agent/turns": {
       "post": {
-        "description": "Run one complete non-streaming Agent turn with transient API key bytes.",
+        "description": "Start one Agent SSE response only after its durable Run exists.",
         "operationId": "run_agent_turn_v1_agent_turns_post",
         "parameters": [
           {
             "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "header",
+            "name": "accept",
+            "required": true,
+            "schema": {
+              "const": "text/event-stream",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -2875,16 +3094,39 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
+              "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentTurnResponse"
+                  "type": "string"
+                },
+                "x-event-schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/AgentTurnStartedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnTextDeltaEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnCompletedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnFailedEvent"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Successful Response",
+            "description": "Strict Agent turn SSE stream.",
             "headers": {
+              "Cache-Control": {
+                "description": "Disables storage of streamed Agent text.",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              },
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request and every Agent SSE event request_id.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -2920,7 +3162,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -2964,7 +3206,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3010,7 +3252,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3064,7 +3306,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3100,7 +3342,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3129,7 +3371,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3165,7 +3407,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3201,7 +3443,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3247,7 +3489,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3293,7 +3535,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3339,7 +3581,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3385,7 +3627,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3431,7 +3673,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3487,7 +3729,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3523,7 +3765,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3559,7 +3801,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3605,7 +3847,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3651,7 +3893,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3697,7 +3939,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3743,7 +3985,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3789,7 +4031,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3835,7 +4077,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3929,7 +4171,7 @@
                 }
               },
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -3975,7 +4217,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4021,7 +4263,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4067,7 +4309,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4113,7 +4355,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4170,7 +4412,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4216,7 +4458,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4262,7 +4504,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4298,7 +4540,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4344,7 +4586,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4400,7 +4642,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4446,7 +4688,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4492,7 +4734,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4538,7 +4780,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4584,7 +4826,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4630,7 +4872,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4703,7 +4945,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4749,7 +4991,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4795,7 +5037,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"
@@ -4841,7 +5083,7 @@
             "description": "Successful Response",
             "headers": {
               "X-Request-ID": {
-                "description": "Matches the request and JSON body request_id.",
+                "description": "Matches the request correlation identifier.",
                 "schema": {
                   "format": "uuid",
                   "type": "string"

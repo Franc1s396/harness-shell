@@ -34,7 +34,7 @@ const api = () =>
     createModelApiConfig: vi.fn(),
     updateModelApiConfig: vi.fn(),
     deleteModelApiConfig: vi.fn(),
-    runAgentTurn: vi.fn(),
+    streamAgentTurn: vi.fn(),
   }) satisfies AgentApi;
 
 describe("provider config actions", () => {

@@ -41,7 +41,7 @@ def test_plaintext_resources_initialize_without_injected_keys(
             assert resources.credential_cipher.public_key().key_id
             assert resources.credential_repository is not None
             assert resources.dispatcher.handles("ssh.connect")
-            assert resources.dispatcher.handles("agent.turn.run")
+            assert resources.agent_turn_application is not None
         finally:
             await resources.shutdown()
 
