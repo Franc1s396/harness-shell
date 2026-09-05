@@ -38,6 +38,7 @@ Tauri 自身的 `harness-shell.log` 与 Launcher 写入的 Backend 日志相互�
 - target 固定 `x86_64-pc-windows-msvc`。
 - Tauri `mainBinaryName` 固定 `harness-shell-ui`，bundle target 只为 NSIS。
 - external binaries 包含 target-triple Backend 与 Launcher companion。
+- Launcher 通过 `launcher/build.rs` 独立编译 Windows 图标资源，与 Tauri UI 共用 `frontend/src-tauri/icons/icon.ico`；图标变更触发重新构建，资源编译失败必须终止打包。
 - custom NSIS template 必须与 lockfile 中 Tauri CLI 版本一致；Start Menu、Desktop shortcut、finish action 和 silent `/R` 都只启动 Launcher。
 - `scripts/build-desktop.ps1` 按 Backend → Launcher → Frontend → NSIS 顺序 fail fast。
 
