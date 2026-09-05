@@ -1,15 +1,11 @@
+"""Package the official SDK runtime without the retired LangChain OpenAI adapter."""
+
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 BACKEND_ROOT = Path(SPECPATH)
-
-
-def _is_agent_runtime_submodule(module_name: str) -> bool:
-    """Exclude optional middleware which depends on the unplanned langchain package."""
-
-    return not module_name.startswith("langchain_openai.middleware")
 
 
 hiddenimports = sorted(
@@ -21,10 +17,6 @@ hiddenimports = sorted(
         + collect_submodules("uvicorn")
         + collect_submodules("websockets")
         + collect_submodules("langchain_core")
-        + collect_submodules(
-            "langchain_openai",
-            filter=_is_agent_runtime_submodule,
-        )
         + collect_submodules("langgraph")
         + collect_submodules("opentelemetry")
     )
@@ -43,7 +35,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # The shared development venv can still contain this extra package.
+    # Its presence must never reintroduce the retired adapter into the executable.
+    excludes=["langchain_openai"],
     noarchive=False,
     optimize=0,
 )

@@ -14,12 +14,13 @@ Backend 只监听 `127.0.0.1`，没有远程监听、TLS 或用户认证。loopb
 - Backend ready frame 走匿名 inherited pipe：4-byte length prefix + bounded strict JSON `{version, instance_id, port}`。
 - Launcher 只接受 version 1、合法 UUID、nonzero port、无未知/重复字段；不得扫描监听端口。
 - Launcher 到 Backend 的 graceful control 是一次单字节信号；EOF/非法内容/提前退出都按失败处理。
+- Launcher 只把 Backend stderr 排入 per-user 独立轮转文件，不得把 stderr 内容转发给 Tauri、WebView 或 native error dialog；Tauri 自身日志与 Backend 日志使用不同文件。
 - UI 只接受唯一 `--backend-url http://127.0.0.1:<nonzero>`；release 缺失 bootstrap 不允许独立运行。
 
 ## HTTP/WebSocket
 
 - HTTP 只允许固定 `/v1/...` typed routes、`X-Request-ID`、bounded body/response 与 Problem Details。
-- `POST /v1/agent/turns` 的 success 只允许 strict SSE。durable Run 之前的失败为 Problem Details；HTTP 200 后只允许 correlated `started -> text_delta* -> completed|failed -> EOF`，且只暴露最终 AI 可见文本。
+- `POST /v1/agent/turns` 的 success 只允许 strict SSE。durable Run 之前的失败为 Problem Details；HTTP 200 后只允许 correlated `started -> text_delta* -> completed|failed -> EOF`，且只暴露最终 AI 可见文本。已知领域失败的 `message` 必须来自异常产生点明确审查的 `safe_message`，未知异常只能使用固定安全文本。
 - Agent SSE 由创建本轮的 POST response 独占，不进入 Runtime WebSocket；不使用 EventSource、Socket.IO、reconnect、resume、replay 或 JSON success fallback。
 - Runtime WebSocket 是 single owner，首轮 heartbeat causation、message union、queue capacity、close code 均严格验证；不自动 reconnect、drop、merge 或 replay。
 - Manual SFTP bytes 只经 raw chunk endpoints，以 `application/octet-stream` 和 `X-Chunk-Offset` 关联；禁止 Base64 transport、path-embedded local path 和 high-level aggregate route。

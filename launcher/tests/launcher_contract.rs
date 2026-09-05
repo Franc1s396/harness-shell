@@ -116,6 +116,55 @@ fn backend_exit_before_readiness_never_starts_the_ui() {
 }
 
 #[test]
+fn backend_stderr_is_written_to_the_dedicated_log_file() {
+    let _lock = ENVIRONMENT_LOCK.lock().unwrap();
+    let fixture = InstalledFixture::new();
+    let log_path = fixture
+        .config
+        .data_dir
+        .join("logs")
+        .join("harness-shell-backend.log");
+    let _environment = TestEnvironment::new(&[
+        ("HARNESS_LAUNCHER_TEST_BACKEND_MODE", "ready-wait".into()),
+        ("HARNESS_LAUNCHER_TEST_UI_MODE", "exit-immediately".into()),
+        (
+            "HARNESS_LAUNCHER_TEST_BACKEND_STDERR",
+            "backend-log-marker".into(),
+        ),
+    ]);
+
+    assert_eq!(run(fixture.config), Ok(()));
+    assert_eq!(fs::read(log_path).unwrap(), b"backend-log-marker\n");
+}
+
+#[test]
+fn full_backend_log_rotates_before_new_stderr_is_appended() {
+    let _lock = ENVIRONMENT_LOCK.lock().unwrap();
+    let fixture = InstalledFixture::new();
+    let log_dir = fixture.config.data_dir.join("logs");
+    fs::create_dir_all(&log_dir).unwrap();
+    let log_path = log_dir.join("harness-shell-backend.log");
+    fs::write(&log_path, vec![b'x'; 10 * 1024 * 1024]).unwrap();
+    let _environment = TestEnvironment::new(&[
+        ("HARNESS_LAUNCHER_TEST_BACKEND_MODE", "ready-wait".into()),
+        ("HARNESS_LAUNCHER_TEST_UI_MODE", "exit-immediately".into()),
+        (
+            "HARNESS_LAUNCHER_TEST_BACKEND_STDERR",
+            "after-rotation".into(),
+        ),
+    ]);
+
+    assert_eq!(run(fixture.config), Ok(()));
+    assert_eq!(fs::read(&log_path).unwrap(), b"after-rotation\n");
+    assert_eq!(
+        fs::metadata(log_path.with_extension("log.1"))
+            .unwrap()
+            .len(),
+        10 * 1024 * 1024
+    );
+}
+
+#[test]
 fn ui_exit_sends_one_graceful_byte_and_uses_the_ready_port() {
     let _lock = ENVIRONMENT_LOCK.lock().unwrap();
     let fixture = InstalledFixture::new();

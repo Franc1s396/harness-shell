@@ -51,6 +51,10 @@ _PUBLIC_RUN_FAILURE_CODES = frozenset(
         "SSH_SESSION_UNAVAILABLE",
     }
 )
+_UNEXPECTED_RUN_FAILURE_MESSAGE = (
+    "the Agent turn failed because the local runtime raised an unexpected error"
+)
+_REACT_LIMIT_FAILURE_MESSAGE = "the Agent reached the ReAct iteration limit"
 LOGGER = logging.getLogger("harness_shell_sidecar.agent.service")
 
 
@@ -219,7 +223,7 @@ class AgentService:
                     error.error_code,
                 )
                 _log_terminal_run(finished, config, started_ns)
-                await event_sink.failed(finished)
+                await event_sink.failed(finished, error.safe_message)
                 return _result_from_run(finished, final_text=None)
             except AgentServiceError as error:
                 finished = self._finish_if_running(
@@ -228,19 +232,27 @@ class AgentService:
                     error.error_code,
                 )
                 _log_terminal_run(finished, config, started_ns)
-                await event_sink.failed(finished)
+                await event_sink.failed(finished, error.safe_message)
                 return _result_from_run(finished, final_text=None)
             except Exception as error:
                 error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
                 if error_code not in _PUBLIC_RUN_FAILURE_CODES:
                     error_code = "SIDECAR_RUNTIME_FAILED"
+                    failure_message = _UNEXPECTED_RUN_FAILURE_MESSAGE
+                else:
+                    candidate = getattr(error, "safe_message", None)
+                    failure_message = (
+                        candidate
+                        if isinstance(candidate, str)
+                        else _UNEXPECTED_RUN_FAILURE_MESSAGE
+                    )
                 finished = self._finish_if_running(
                     run,
                     AgentRunStatus.FAILED,
                     error_code,
                 )
                 _log_terminal_run(finished, config, started_ns)
-                await event_sink.failed(finished)
+                await event_sink.failed(finished, failure_message)
                 return _result_from_run(finished, final_text=None)
 
             finished = self._conversations.get_run(run.agent_run_id)
@@ -253,7 +265,11 @@ class AgentService:
                     raise RuntimeError("durable final text does not match streamed text")
                 await event_sink.completed(finished)
             else:
-                await event_sink.failed(finished)
+                if finished.status is not AgentRunStatus.LIMIT_REACHED:
+                    raise RuntimeError(
+                        "Agent graph returned an unsupported terminal failure status"
+                    )
+                await event_sink.failed(finished, _REACT_LIMIT_FAILURE_MESSAGE)
             return _result_from_run(finished, final_text=final_text)
 
     def _validate_run_authorities(

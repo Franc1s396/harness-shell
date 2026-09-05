@@ -16,7 +16,6 @@ from harness_shell_sidecar.agent.streaming import (
     AgentTurnStartedEvent,
     AgentTurnStreamEvent,
     AgentTurnTextDeltaEvent,
-    public_failure_message,
 )
 from harness_shell_sidecar.runtime.dispatcher import RequestDispatcher
 from harness_shell_sidecar.runtime.request_context import RequestContext
@@ -124,8 +123,8 @@ class _AgentEventPublisher:
         )
         await self._publish_terminal(event)
 
-    async def failed(self, run: AgentRun) -> None:
-        """Queue one safe failure after the matching Run is durably terminal."""
+    async def failed(self, run: AgentRun, message: str) -> None:
+        """Queue the reviewed failure reason after the Run is durably terminal."""
 
         self._require_terminal_run(
             run,
@@ -145,7 +144,7 @@ class _AgentEventPublisher:
             status=run.status.value,
             react_iteration=run.react_iteration,
             error_code=run.error_code,
-            message=public_failure_message(run.error_code),
+            message=message,
         )
         await self._publish_terminal(event)
 

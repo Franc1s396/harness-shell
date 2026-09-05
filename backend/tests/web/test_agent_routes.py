@@ -108,7 +108,8 @@ class FailedTurnApplication(SuccessfulTurnApplication):
                     "error_code": "MODEL_RESPONSE_INVALID",
                     "ended_at": datetime.now(UTC),
                 }
-            )
+            ),
+            "provider stream completed without any message chunks",
         )
 
 
@@ -374,5 +375,7 @@ def test_agent_turn_post_start_failure_remains_sse(autonomous_client) -> None:
     ]
     assert events[-1]["status"] == "FAILED"
     assert events[-1]["error_code"] == "MODEL_RESPONSE_INVALID"
-    assert events[-1]["message"] == "Model response was invalid"
+    assert events[-1]["message"] == (
+        "provider stream completed without any message chunks"
+    )
     assert "partial" not in str(events[-1])

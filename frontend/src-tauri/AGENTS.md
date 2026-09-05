@@ -15,6 +15,7 @@
 - custom command 仅允许 `get_backend_bootstrap`；修改时同步检查实现、re-export、handler、permission、capability、Frontend wrapper 和契约测试。
 - capability/permission 保持最小授权；只允许 main window 获得 bootstrap 与固定 close/destroy 权限，不得重新引入独立 approval window。
 - raw secret、private key、passphrase、HTTP/WebSocket body、Backend stderr 和 SFTP bytes 不得进入 Tauri event、日志、`Debug` 或普通错误详情。
+- Tauri 自身 `harness-shell.log` 使用设备本地时区；Backend stderr 由 Launcher 写入另一个文件，不得合并到 Tauri 日志。
 - 本 crate 不实现业务 HTTP/WebSocket client、日志目录 API、通用 shell/filesystem capability、child process 或 Job Object。
 - production 缺失/非法 `--backend-url` 必须 native error 后退出；不得扫描端口、fallback 到默认地址或伪造 bootstrap。
 - 至少运行最小相关 Rust test；跨层或打包改动按 Testing Guide 扩大验证范围。

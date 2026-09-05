@@ -14,6 +14,7 @@ from harness_shell_sidecar.agent.contracts import (
 from harness_shell_sidecar.agent.tools import (
     CommandRejected,
     CommandSafetyReviewer,
+    build_execute_command_tool_definition,
     tool_message,
 )
 
@@ -98,3 +99,28 @@ def test_tool_message_uses_versioned_json_and_original_call_id() -> None:
     assert isinstance(message, ToolMessage)
     assert message.tool_call_id == "call-7"
     assert json.loads(message.content) == envelope.model_dump(mode="json")
+
+
+def test_execute_command_tool_definition_is_provider_neutral_and_strict() -> None:
+    """Expose one reviewed schema without binding it to LangChain or an API shape."""
+
+    definition = build_execute_command_tool_definition()
+
+    assert definition.name == "execute_command"
+    assert definition.strict is True
+    assert definition.parameters == {
+        "additionalProperties": False,
+        "description": "Validate the only model-controlled argument accepted by the SSH tool.",
+        "properties": {
+            "command": {
+                "description": "Complete raw shell command passed without normalization.",
+                "maxLength": 4096,
+                "minLength": 1,
+                "title": "Command",
+                "type": "string",
+            }
+        },
+        "required": ["command"],
+        "title": "ExecuteCommandArguments",
+        "type": "object",
+    }

@@ -9,6 +9,8 @@ pub enum LauncherError {
     ComponentMissing,
     #[error("LAUNCHER_DATA_DIRECTORY_FAILED: The application data directory could not be prepared.")]
     DataDirectoryFailed,
+    #[error("LAUNCHER_BACKEND_LOG_FAILED: The Backend log file could not be written.")]
+    BackendLogFailed,
     #[error("LAUNCHER_CONTROL_PIPE_FAILED: The Backend control channel could not be created.")]
     ControlPipeFailed,
     #[error("LAUNCHER_JOB_FAILED: The desktop process owner could not be created.")]

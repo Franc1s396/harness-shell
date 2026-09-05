@@ -1500,7 +1500,7 @@
             "description": "Explicit API selection; automatic probing is forbidden."
           },
           "base_url": {
-            "description": "Normalized HTTP(S) base URL supplied to ChatOpenAI.",
+            "description": "Normalized HTTP(S) base URL supplied to AsyncOpenAI.",
             "maxLength": 2048,
             "minLength": 1,
             "title": "Base Url",
@@ -1565,7 +1565,7 @@
             "description": "Explicit API selection; automatic probing is forbidden."
           },
           "base_url": {
-            "description": "Normalized HTTP(S) base URL supplied to ChatOpenAI.",
+            "description": "Normalized HTTP(S) base URL supplied to AsyncOpenAI.",
             "maxLength": 2048,
             "minLength": 1,
             "title": "Base Url",
@@ -1623,7 +1623,7 @@
             "description": "Explicit API selection; automatic probing is forbidden."
           },
           "base_url": {
-            "description": "Normalized HTTP(S) base URL supplied to ChatOpenAI.",
+            "description": "Normalized HTTP(S) base URL supplied to AsyncOpenAI.",
             "maxLength": 2048,
             "minLength": 1,
             "title": "Base Url",

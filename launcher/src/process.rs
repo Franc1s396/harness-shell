@@ -13,7 +13,8 @@ use windows_sys::Win32::{
         InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
         UpdateProcThreadAttribute, WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED,
         CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-        PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTUPINFOEXW, STARTUPINFOW,
+        PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES,
+        STARTUPINFOEXW, STARTUPINFOW,
     },
 };
 
@@ -33,6 +34,7 @@ impl DesktopProcess {
         executable: &Path,
         arguments: &[OsString],
         inherited_handles: &[HANDLE],
+        stderr_handle: Option<HANDLE>,
         job: &WindowsJob,
     ) -> Result<Self, ProcessStartError> {
         let application = wide_null(executable.as_os_str());
@@ -42,6 +44,12 @@ impl DesktopProcess {
         let mut basic_startup = STARTUPINFOW::default();
         basic_startup.cb = size_of::<STARTUPINFOW>() as u32;
         let mut extended_startup = STARTUPINFOEXW::default();
+        if let Some(stderr_handle) = stderr_handle {
+            basic_startup.dwFlags |= STARTF_USESTDHANDLES;
+            basic_startup.hStdError = stderr_handle;
+            extended_startup.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+            extended_startup.StartupInfo.hStdError = stderr_handle;
+        }
         let mut attributes = None;
         let (startup, extended_flag) = if inherited_handles.is_empty() {
             (&basic_startup as *const STARTUPINFOW, 0)

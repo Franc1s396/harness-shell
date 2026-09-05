@@ -16,8 +16,8 @@ if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
 }
 
 $pythonVersion = & $pythonExe -c 'import platform; print(platform.python_version())'
-if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne '3.12.13') {
-    throw "Sidecar build requires Python 3.12.13, found $pythonVersion"
+if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne '3.12.14') {
+    throw "Sidecar build requires Python 3.12.14, found $pythonVersion"
 }
 $installedPackages = @(& $pythonExe -m pip list --format=freeze)
 if ($LASTEXITCODE -ne 0) {

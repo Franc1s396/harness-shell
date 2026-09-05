@@ -55,13 +55,15 @@ class ConsoleLogFormatter(logging.Formatter):
         if self._colorize:
             level = f"{_level_color(record.levelno)}{record.levelname:<5}"
             timestamp = f"{_ANSI_FAINT}{timestamp}"
+            request_id = f"{_ANSI_FAINT}{request_id}"
             thread = f"{_ANSI_CYAN}{record.threadName}"
             logger_name = f"{_ANSI_YELLOW}{record.name}"
+            logger_message = f"{_ANSI_FAINT}{record.getMessage()}"
             separator = f"{_ANSI_RESET}{_ANSI_DEFAULT_FOREGROUND} | "
             rendered = (
                 f"{_ANSI_DEFAULT_FOREGROUND}{timestamp}{separator}"
                 f"{level}{separator}{request_id} | {thread}{separator}"
-                f"{logger_name}{separator}{record.getMessage()}"
+                f"{logger_name}{separator}{logger_message}"
             )
         else:
             rendered = (

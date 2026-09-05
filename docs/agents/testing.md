@@ -52,7 +52,7 @@ Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated 
 - React Agent 必测 event sequence/correlation/EOF、thinking→provisional text、同 tab 增量滚动、跨 tab isolation，以及 failed/invalid/too-large/interrupted 时丢弃 partial assistant text。
 - Runtime WebSocket single owner、ping/pong causation、queue、close、PTY input/event。
 - Manual SFTP React picker/handle/hash/chunk loop和 Python remote temp/commit/abort/recovery。
-- Launcher ready/control frame、handle inheritance、Job cleanup、UI-first/Backend-first exit、无 respawn。
+- Launcher ready/control/stderr pipe、Backend 独立日志落盘与 10 MiB/4 归档轮转、handle inheritance、Job cleanup、UI-first/Backend-first exit、无 respawn。
 - Tauri production bootstrap 只有 `get_backend_bootstrap`；main capability 只含 bootstrap 与固定 close/destroy 权限。
 
 ## Desktop 与安装验收

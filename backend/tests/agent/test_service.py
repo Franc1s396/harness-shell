@@ -29,7 +29,7 @@ from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
     CancellationAwareModel,
     FakeModelSequence,
-    RecordingModelBuilder,
+    RecordingSequenceClientBuilder,
     RecordingTurnSink,
     instant_sleep,
     make_tool_call,
@@ -90,7 +90,7 @@ def _service(
         agent_storage.conversations,
         executor,
         ModelGateway(
-            model_builder=RecordingModelBuilder(model),
+            client_builder=RecordingSequenceClientBuilder(model),
             sleep=instant_sleep,
         ),
         ContextService(agent_storage.conversations),
@@ -174,6 +174,9 @@ def test_model_failure_marks_run_failed_exactly_once(
         assert [name for name, _value in event_sink.events] == ["started", "failed"]
         assert event_sink.events[0][1].status is AgentRunStatus.RUNNING
         assert event_sink.events[-1][1].status is AgentRunStatus.FAILED
+        assert event_sink.failure_messages == [
+            "provider request failed before producing a valid response"
+        ]
 
     asyncio.run(scenario())
 
@@ -209,11 +212,23 @@ def test_tool_failure_marks_run_failed_exactly_once(
 
         monkeypatch.setattr(agent_storage.conversations, "finish_run", count_finish)
 
-        result = await _run_turn(agent_storage, service, turn, "key", asyncio.Event())
+        event_sink = RecordingTurnSink()
+        result = await _run_turn(
+            agent_storage,
+            service,
+            turn,
+            "key",
+            asyncio.Event(),
+            event_sink,
+        )
 
         assert result.status is AgentRunStatus.FAILED
         assert result.error_code == "SIDECAR_RUNTIME_FAILED"
         assert statuses == [AgentRunStatus.FAILED]
+        assert event_sink.failure_messages == [
+            "the Agent turn failed because the local runtime raised an unexpected error"
+        ]
+        assert "tool failed" not in event_sink.failure_messages[0]
 
     asyncio.run(scenario())
 

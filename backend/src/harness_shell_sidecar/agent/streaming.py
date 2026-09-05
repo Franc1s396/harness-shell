@@ -146,25 +146,8 @@ class AgentTurnEventSink(AgentTextDeltaSink, Protocol):
     async def completed(self, run: AgentRun) -> None:
         """Publish success only after the Run and final message are durable."""
 
-    async def failed(self, run: AgentRun) -> None:
-        """Publish failure only after the Run has a durable terminal status."""
-
-
-_PUBLIC_MESSAGES = {
-    "AGENT_CANCELLED": "Agent turn was cancelled",
-    "AGENT_RESPONSE_TOO_LARGE": "Agent response exceeded the configured limit",
-    "MODEL_NETWORK_TIMEOUT": "Model request timed out",
-    "MODEL_REQUEST_FAILED": "Model request failed",
-    "MODEL_RESPONSE_INVALID": "Model response was invalid",
-    "REACT_LIMIT_REACHED": "Agent reached the ReAct iteration limit",
-    "SSH_SESSION_UNAVAILABLE": "SSH session is unavailable",
-}
-
-
-def public_failure_message(error_code: str) -> str:
-    """Return bounded allowlisted text without copying exception or remote output."""
-
-    return _PUBLIC_MESSAGES.get(error_code, "Agent turn failed")
+    async def failed(self, run: AgentRun, message: str) -> None:
+        """Publish one reviewed message after the Run is durably terminal."""
 
 
 __all__ = [
@@ -175,5 +158,4 @@ __all__ = [
     "AgentTurnStartedEvent",
     "AgentTurnStreamEvent",
     "AgentTurnTextDeltaEvent",
-    "public_failure_message",
 ]

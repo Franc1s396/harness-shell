@@ -22,8 +22,8 @@ if ($null -eq (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     throw 'npm.cmd was not found on PATH'
 }
 $pythonVersion = & $pythonExe -c 'import platform; print(platform.python_version())'
-if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne '3.12.13') {
-    throw "M1 requires Python 3.12.13, found $pythonVersion"
+if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne '3.12.14') {
+    throw "M1 requires Python 3.12.14, found $pythonVersion"
 }
 $rustHost = & (Join-Path $cargoBin 'rustc.exe') -vV | Where-Object { $_ -match '^host:' }
 if ($LASTEXITCODE -ne 0 -or $rustHost -ne 'host: x86_64-pc-windows-msvc') {

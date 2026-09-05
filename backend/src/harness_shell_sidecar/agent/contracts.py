@@ -44,7 +44,7 @@ class ModelApiConfigFields(BaseModel):
     base_url: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=2048),
-        Field(description="Normalized HTTP(S) base URL supplied to ChatOpenAI."),
+        Field(description="Normalized HTTP(S) base URL supplied to AsyncOpenAI."),
     ]
     model: Annotated[
         str,

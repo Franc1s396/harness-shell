@@ -429,6 +429,7 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
             )
 
         assert error.value.error_code == error_code
+        assert str(error.value) == "test-only safe failure"
         assert error.value.details == {}
 
     asyncio.run(scenario())

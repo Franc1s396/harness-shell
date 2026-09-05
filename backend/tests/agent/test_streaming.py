@@ -11,7 +11,6 @@ from harness_shell_sidecar.agent.streaming import (
     AgentTurnStartedEvent,
     AgentTurnStreamEvent,
     AgentTurnTextDeltaEvent,
-    public_failure_message,
 )
 
 
@@ -125,9 +124,3 @@ def test_failed_event_rejects_non_failure_status(status: str) -> None:
                 "message": "Model request failed",
             }
         )
-
-
-def test_public_failure_message_never_copies_unknown_error_text() -> None:
-    """Use one bounded generic sentence for error codes outside the allowlist."""
-
-    assert public_failure_message("provider-secret-marker") == "Agent turn failed"

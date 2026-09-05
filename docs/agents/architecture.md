@@ -17,7 +17,7 @@ NSIS shortcut / finish action
   -> React direct typed HTTP (including Agent turn SSE) + one Runtime WebSocket
 ```
 
-Launcher 独占两个 child、Windows Job、ready/control pipe、启动顺序和退出清理。它不扫描端口、不 reconnect、不 respawn。Backend 提前退出时 UI 不被重新绑定；UI 退出时 Launcher 发送一次 graceful byte，3 秒后仍存活则终止 Job。
+Launcher 独占两个 child、Windows Job、ready/control pipe、Backend stderr capture、启动顺序和退出清理。Backend 的纯文本 stderr 由 Launcher 写入 `%LOCALAPPDATA%\com.harnessshell.app\logs\harness-shell-backend.log`，单文件上限 10 MiB 并保留 4 个归档；不得转发给 Tauri 或 WebView。它不扫描端口、不 reconnect、不 respawn。Backend 提前退出时 UI 不被重新绑定；UI 退出时 Launcher 发送一次 graceful byte，3 秒后仍存活则终止 Job。
 
 开发模式显式拆分为 Backend 与 UI：
 
@@ -30,7 +30,7 @@ npm.cmd --prefix frontend run tauri:dev -- -- --backend-url http://127.0.0.1:876
 
 | 组件 | 独占权威 | 不得承担 |
 | --- | --- | --- |
-| Launcher | packaged child、Job、动态端口协商、ready/control pipe、退出顺序 | 业务 API、凭据解析、状态机、端口扫描 |
+| Launcher | packaged child、Job、动态端口协商、ready/control pipe、Backend stderr 文件、退出顺序 | 业务 API、凭据解析、状态机、端口扫描 |
 | Tauri UI shell | `get_backend_bootstrap`、主窗口关闭/销毁权限 | HTTP/WebSocket 代理、Backend 生命周期、业务状态、文件传输、approval UI |
 | React | UI 状态、typed loopback client、Agent SSE framing/语义验证/临时文本、Runtime WebSocket、连接私钥 picker/读取、Manual SFTP 本地 picker/handle/SHA-256/256 KiB chunk loop | SSH/PTY 远端状态、任意本地路径 API、后台恢复 |
 | Python Backend | FastAPI lifespan、dispatcher、Agent SSE worker/startup barrier/queue、SQLite、凭据、SSH/PTY、remote SFTP、Agent、stderr console 与 HTTP access 日志 | 本地 file picker/handle、Desktop child/Job、自动重连/重放 |
@@ -48,6 +48,8 @@ Manual SFTP 只允许固定 typed JSON endpoints 加严格 raw chunk endpoints�
 ## Agent turn 流式调用链
 
 React `BackendHttpClient` 通过 `fetch()` 消费创建本轮的 POST response `ReadableStream` 并独占 SSE framing/UTF-8/byte budget；`api/agent.ts` 独占 event schema、sequence 和 correlation 状态机；per-tab reducer 只暂存 provisional text，收到合法 completed 后才提交 assistant message，任何 failed/interrupted 都丢弃 partial text。
+
+Agent 的已知领域异常只把产生异常处明确标记为 `safe_message` 的具体原因传入 Problem Details 或 SSE `failed.message`；不得根据 `error_code` 二次替换文案。未知异常仍映射为固定安全文本，禁止暴露 Provider body、command、stdout/stderr 或任意异常链内容。
 
 Python `AgentTurnStreamSession` 在 shared dispatcher 内拥有 worker、capacity 64 queue、HTTP-200 startup barrier 与断连收敛；terminal frame 被 consumer 发送前不会释放 dispatcher request ID/capacity。`AgentTurnApplication` 继续拥有 Provider snapshot、credential resolve/zeroize；`AgentService` 拥有 durable RUNNING/terminal 顺序；`ModelGateway` 只向 sink 发布最终回答调用的可见文本。该 POST stream 不使用或扩展 Runtime WebSocket。
 

@@ -2,6 +2,7 @@ pub mod config;
 pub mod control;
 pub mod error;
 pub mod job;
+pub mod logging;
 pub mod process;
 
 use std::time::Duration;
@@ -15,6 +16,7 @@ use config::LauncherConfig;
 use control::ControlPipes;
 use error::LauncherError;
 use job::WindowsJob;
+use logging::BackendLogCapture;
 use process::DesktopProcess;
 
 const BACKEND_READY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -26,19 +28,25 @@ pub fn run(config: LauncherConfig) -> Result<(), LauncherError> {
     std::fs::create_dir_all(&config.data_dir)
         .map_err(|_| LauncherError::DataDirectoryFailed)?;
 
+    // Declared before the Job so error-path destruction kills children before
+    // joining the stderr reader that waits for the inherited writer to close.
+    let mut backend_log = BackendLogCapture::create(&config.data_dir)?;
     let job = WindowsJob::create()?;
     let mut pipes = ControlPipes::create()?;
-    let inherited_handles = pipes.backend_handles();
+    let mut inherited_handles = pipes.backend_handles().to_vec();
+    inherited_handles.push(backend_log.backend_handle());
     let (control_read, ready_write) = pipes.backend_handle_values();
     let backend_arguments = config.backend_arguments(control_read, ready_write);
     let backend = DesktopProcess::spawn_suspended(
         &config.backend_exe,
         &backend_arguments,
         &inherited_handles,
+        Some(backend_log.backend_handle()),
         &job,
     )
     .map_err(|_| LauncherError::BackendStartFailed)?;
     pipes.close_backend_ends();
+    backend_log.close_backend_end();
 
     let ready = pipes.read_ready(backend.raw(), BACKEND_READY_TIMEOUT)?;
     if backend.wait_timeout(Duration::ZERO)? {
@@ -49,6 +57,7 @@ pub fn run(config: LauncherConfig) -> Result<(), LauncherError> {
         &config.ui_exe,
         &LauncherConfig::ui_arguments(ready.port),
         &[],
+        None,
         &job,
     ) {
         Ok(ui) => ui,
@@ -86,5 +95,6 @@ pub fn run(config: LauncherConfig) -> Result<(), LauncherError> {
     if job.active_processes()? != 0 {
         job.terminate()?;
     }
+    backend_log.finish()?;
     Ok(())
 }

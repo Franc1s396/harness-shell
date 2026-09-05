@@ -209,7 +209,7 @@ class AgentTurnApplication:
         except AgentServiceError as error:
             raise DispatchError(
                 error.error_code,
-                "Agent turn could not be started",
+                error.safe_message,
             ) from None
         except DispatchError:
             raise

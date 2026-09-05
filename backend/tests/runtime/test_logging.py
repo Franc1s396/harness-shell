@@ -101,4 +101,4 @@ def test_colorized_logging_uses_the_console_palette(
         "\x1b[33mharness_shell_sidecar.test\x1b[0m\x1b[39m"
         in rendered
     )
-    assert rendered.endswith(" | message\x1b[0m\n")
+    assert rendered.endswith(" | \x1b[2mmessage\x1b[0m\n")

@@ -28,6 +28,10 @@ fn main() {
 fn run_backend(arguments: &[String]) {
     let mode = std::env::var("HARNESS_LAUNCHER_TEST_BACKEND_MODE")
         .unwrap_or_else(|_| "ready-wait".to_owned());
+    if let Some(message) = std::env::var_os("HARNESS_LAUNCHER_TEST_BACKEND_STDERR") {
+        writeln!(std::io::stderr(), "{}", message.to_string_lossy())
+            .expect("write Backend stderr marker");
+    }
     if mode == "early-exit" {
         std::process::exit(7);
     }

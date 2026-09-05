@@ -26,14 +26,14 @@ from .handlers import AgentTurnApplication, AgentTurnRequest, register_agent_han
 from .model_gateway import (
     MODEL_REQUEST_TIMEOUT_SECONDS,
     MODEL_RETRY_DELAYS_SECONDS,
-    ChatModelFactory,
     ModelGateway,
     ModelGatewayError,
 )
 from .tools import (
     CommandRejected,
     CommandSafetyReviewer,
-    build_execute_command_schema_tool,
+    ExecuteCommandToolDefinition,
+    build_execute_command_tool_definition,
     tool_message,
 )
 from .service import AgentService, AgentServiceError
@@ -51,6 +51,8 @@ __all__ = [
     "CommandExecutionResult",
     "CommandRejected",
     "CommandSafetyReviewer",
+    "ExecuteCommandToolDefinition",
+    "build_execute_command_tool_definition",
     "CommandToolEnvelope",
     "ConversationRepository",
     "ConversationRepositoryError",
@@ -66,12 +68,10 @@ __all__ = [
     "AgentGraphState",
     "AgentService",
     "AgentServiceError",
-    "ChatModelFactory",
     "ModelGateway",
     "ModelGatewayError",
     "SshCommandExecutor",
     "SYSTEM_MESSAGE",
-    "build_execute_command_schema_tool",
     "build_agent_graph",
     "tool_message",
     "register_agent_handlers",

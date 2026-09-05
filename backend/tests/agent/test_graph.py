@@ -29,7 +29,7 @@ from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
     FakeModelSequence,
     RecordingTurnSink,
-    RecordingModelBuilder,
+    RecordingSequenceClientBuilder,
     instant_sleep,
     make_tool_call,
     make_turn_input,
@@ -90,7 +90,7 @@ def _service(
     config = agent_storage.api_configs.create(valid_api_config_input())
     context = ContextService(agent_storage.conversations)
     gateway = ModelGateway(
-        model_builder=RecordingModelBuilder(model),
+        client_builder=RecordingSequenceClientBuilder(model),
         sleep=instant_sleep,
     )
     service = AgentService(
@@ -151,7 +151,7 @@ def test_tool_result_returns_to_model_before_final_answer(
 
         assert result.status is AgentRunStatus.COMPLETED
         assert result.final_text == "The remote directory is /home/test."
-        assert model.message_calls[1][-1].tool_call_id == "call-1"
+        assert model.message_calls[1][-1]["tool_call_id"] == "call-1"
         assert executor.calls == [(turn.ssh_session_id, "pwd")]
         assert event_sink.parts == ["The remote directory is /home/test."]
 
@@ -411,7 +411,7 @@ def test_regex_rejection_is_persisted_and_returned_to_model(
         result = await _run_turn(agent_storage, service, turn)
 
         tool = model.message_calls[1][-1]
-        assert json.loads(tool.content)["code"] == (
+        assert json.loads(tool["content"])["code"] == (
             "COMMAND_REJECTED_DANGEROUS_PATTERN"
         )
         assert executor.calls == []
@@ -444,12 +444,12 @@ def test_multiple_tool_calls_execute_none_and_each_gets_paired_error(
         result = await _run_turn(agent_storage, service, turn)
 
         tool_messages = model.message_calls[1][-2:]
-        assert [message.tool_call_id for message in tool_messages] == [
+        assert [message["tool_call_id"] for message in tool_messages] == [
             "call-1",
             "call-2",
         ]
         assert all(
-            json.loads(message.content)["code"]
+            json.loads(message["content"])["code"]
             == "MULTIPLE_TOOL_CALLS_UNSUPPORTED"
             for message in tool_messages
         )
@@ -478,7 +478,7 @@ def test_unknown_tool_is_not_executed(
 
         await _run_turn(agent_storage, service, turn)
 
-        assert json.loads(model.message_calls[1][-1].content)["code"] == "UNKNOWN_TOOL"
+        assert json.loads(model.message_calls[1][-1]["content"])["code"] == "UNKNOWN_TOOL"
         assert executor.calls == []
 
     asyncio.run(scenario())
@@ -587,7 +587,7 @@ def test_compiled_graph_has_no_checkpointer(agent_storage: AgentStorage) -> None
         conversations=agent_storage.conversations,
         context=ContextService(agent_storage.conversations),
         gateway=ModelGateway(
-            model_builder=RecordingModelBuilder(model),
+            client_builder=RecordingSequenceClientBuilder(model),
             sleep=instant_sleep,
         ),
         reviewer=CommandSafetyReviewer(),
@@ -609,12 +609,12 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
         sentinel = "provider-key-sentinel-full-turn-71d4"
         config = agent_storage.api_configs.create(valid_api_config_input())
         model = FakeModelSequence([AIMessage(content="safe final answer")])
-        builder = RecordingModelBuilder(model)
+        builder = RecordingSequenceClientBuilder(model)
         service = AgentService(
             agent_storage.api_configs,
             agent_storage.conversations,
             RecordingExecutor(),
-            ModelGateway(model_builder=builder, sleep=instant_sleep),
+            ModelGateway(client_builder=builder, sleep=instant_sleep),
             ContextService(agent_storage.conversations),
             lambda _session_id: True,
         )
