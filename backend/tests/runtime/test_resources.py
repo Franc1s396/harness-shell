@@ -12,11 +12,11 @@ from harness_shell_sidecar.storage import RuntimeDatabase
 
 
 async def discard_event(_event: dict[str, object]) -> None:
-    """Provide an asynchronous sink for tests that do not inspect events."""
+    """为不检查事件的测试提供异步接收端。"""
 
 
 def settings(tmp_path: Path) -> RuntimeSettings:
-    """Return one isolated schema-v6 runtime configuration."""
+    """返回独立运行时配置。"""
 
     return RuntimeSettings.from_data_dir((tmp_path / "runtime-data").resolve())
 
@@ -134,3 +134,19 @@ def test_runtime_resources_preserve_first_cleanup_error_and_run_later_stages(
         assert resources.state is RuntimePhase.FAILED
 
     asyncio.run(scenario())
+
+
+def test_tokenizer_startup_failure_preserves_code_and_closes_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from harness_shell_sidecar.agent.context_models import ContextError
+    runtime_settings = settings(tmp_path)
+    def missing_encoding(*args: object) -> None:
+        """模拟 READY 发布前缺失打包编码资源。"""
+        raise ContextError("CONTEXT_TOKENIZER_UNAVAILABLE", "bundled encoding missing")
+    monkeypatch.setattr("harness_shell_sidecar.runtime.resources.load_local_encoding", missing_encoding)
+    with pytest.raises(RuntimeInitializationFailure) as error:
+        RuntimeResources.initialize_from_settings(runtime_settings, discard_event)
+    assert error.value.error_code == "CONTEXT_TOKENIZER_UNAVAILABLE"
+    database = RuntimeDatabase.open_plaintext(runtime_settings.database_path)
+    database.close()

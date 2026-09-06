@@ -18,7 +18,7 @@ EVENT_ADAPTER = TypeAdapter(AgentTurnStreamEvent)
 
 
 def test_started_event_is_strict_and_correlated() -> None:
-    """Reject changing the schema or identities of the stream-opening event."""
+    """拒绝改变流开始事件的 schema 或标识。"""
 
     request_id = uuid4()
     conversation_id = uuid4()
@@ -55,7 +55,7 @@ def test_started_event_is_strict_and_correlated() -> None:
     ],
 )
 def test_stream_event_rejects_schema_drift(mutation: dict[str, object]) -> None:
-    """Reject malformed common fields before an event reaches the transport."""
+    """事件到达传输层前拒绝格式错误的公共字段。"""
 
     value: dict[str, object] = {
         "schema_version": 1,
@@ -73,7 +73,7 @@ def test_stream_event_rejects_schema_drift(mutation: dict[str, object]) -> None:
 
 
 def test_text_delta_rejects_empty_text() -> None:
-    """Prevent empty events from changing sequence without visible output."""
+    """防止空事件在无可见输出时改变序号。"""
 
     with pytest.raises(ValidationError):
         AgentTurnTextDeltaEvent(
@@ -86,7 +86,7 @@ def test_text_delta_rejects_empty_text() -> None:
 
 
 def test_completed_event_accepts_only_durable_success_shape() -> None:
-    """Keep final text out of the terminal event and require a null error code."""
+    """最终文本不放入终止事件，且要求错误码为 null。"""
 
     event = AgentTurnCompletedEvent(
         request_id=uuid4(),
@@ -109,7 +109,7 @@ def test_completed_event_accepts_only_durable_success_shape() -> None:
 
 @pytest.mark.parametrize("status", ["RUNNING", "COMPLETED"])
 def test_failed_event_rejects_non_failure_status(status: str) -> None:
-    """Prevent a failure frame from contradicting durable Run status."""
+    """防止失败帧与持久化 Run 状态矛盾。"""
 
     with pytest.raises(ValidationError):
         AgentTurnFailedEvent.model_validate(

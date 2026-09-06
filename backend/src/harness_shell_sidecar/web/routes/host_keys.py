@@ -1,4 +1,4 @@
-"""Typed HTTP routes for explicit SSH Host Key trust decisions."""
+"""显式 SSH Host Key 信任决策的 typed HTTP 路由。"""
 
 from __future__ import annotations
 
@@ -26,11 +26,11 @@ from ..models import HostKeyResponse, SshStatusResponse
 
 
 class HostKeyReplacementRequest(HostKeyCandidate):
-    """Bind a new candidate to the exact trusted fingerprint being replaced."""
+    """将新候选绑定到被替换的精确可信指纹。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    #: Current active fingerprint observed before the replacement decision.
+    #: 作出替换决策前观察到的当前活动指纹。
     expected_old_fingerprint: str
 
 
@@ -46,7 +46,7 @@ async def inspect_host_key(
     request_id: CorrelationId,
     owner: Owner,
 ) -> SshStatusResponse:
-    """Inspect a direct or single-hop Host Key without retaining credentials."""
+    """检查直连或单层跳板 Host Key，不保留凭据。"""
 
     value = validate_json_model(payload, HostKeyInspectionRequest, request_id)
     result = await dispatch_application(
@@ -70,7 +70,7 @@ async def confirm_host_key(
     request_id: CorrelationId,
     owner: Owner,
 ) -> HostKeyResponse:
-    """Persist a user's explicit first-trust Host Key confirmation."""
+    """持久化用户显式首次信任确认的 Host Key。"""
 
     value = validate_json_model(payload, HostKeyCandidate, request_id)
     result = await dispatch_application(
@@ -90,7 +90,7 @@ async def replace_host_key(
     request_id: CorrelationId,
     owner: Owner,
 ) -> HostKeyResponse:
-    """Replace a trusted Host Key with an explicit compare-and-swap fingerprint."""
+    """使用显式比较交换指纹替换可信 Host Key。"""
 
     value = validate_json_model(payload, HostKeyReplacementRequest, request_id)
     result = await dispatch_application(

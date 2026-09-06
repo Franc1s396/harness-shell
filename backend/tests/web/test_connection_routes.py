@@ -17,13 +17,13 @@ from harness_shell_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:
-    """Create one valid request correlation header."""
+    """创建合法请求关联头。"""
 
     return {"X-Request-ID": str(uuid4())}
 
 
 def connection_input(**overrides: object) -> dict[str, object]:
-    """Build one valid password-auth connection mutation input."""
+    """构建合法密码认证连接变更输入。"""
 
     value: dict[str, object] = {
         "display_name": "Test host",
@@ -40,7 +40,7 @@ def connection_input(**overrides: object) -> dict[str, object]:
 
 
 def encrypted_secret(client: TestClient, secret: str) -> dict[str, object]:
-    """Encrypt one test secret for the current Runtime public key."""
+    """使用当前 Runtime 公钥加密测试秘密。"""
 
     public_key = client.get(
         "/v1/runtime/credential-encryption-key",
@@ -71,7 +71,7 @@ def encrypted_secret(client: TestClient, secret: str) -> dict[str, object]:
 
 
 def credential_record(database_path: Path, credential_id: str) -> dict[str, str] | None:
-    """Read one persisted credential through an independent SQLite connection."""
+    """通过独立 SQLite 连接读取持久化凭据。"""
 
     with sqlite3.connect(database_path) as database:
         row = database.execute(
@@ -86,7 +86,7 @@ def credential_record(database_path: Path, credential_id: str) -> dict[str, str]
 
 
 def credential_count(database_path: Path) -> int:
-    """Count persisted credential records from the test thread safely."""
+    """从测试线程安全统计持久化凭据记录。"""
 
     with sqlite3.connect(database_path) as database:
         row = database.execute(

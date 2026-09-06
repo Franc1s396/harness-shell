@@ -10,7 +10,7 @@ from harness_shell_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:
-    """Create one valid request correlation header."""
+    """创建合法请求关联头。"""
 
     return {"X-Request-ID": str(uuid4())}
 
@@ -52,7 +52,7 @@ def test_ssh_connect_accepts_only_connection_identity(tmp_path: Path) -> None:
 def test_standalone_credential_mutation_routes_are_removed(
     tmp_path: Path,
 ) -> None:
-    """Keep credential persistence behind owning business mutations only."""
+    """凭据持久化仅能通过所属业务变更进行。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime").resolve())
     paths = create_app(settings=settings).openapi()["paths"]

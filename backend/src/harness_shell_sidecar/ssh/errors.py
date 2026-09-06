@@ -1,4 +1,4 @@
-"""Safe SSH runtime errors and public connection status models."""
+"""安全 SSH 运行时错误和公开连接状态模型。"""
 
 from __future__ import annotations
 

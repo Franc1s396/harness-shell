@@ -1,4 +1,4 @@
-"""Strict public credential wire and repository identity models."""
+"""严格的公开凭据传输与仓库标识模型。"""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ CredentialKind = Literal[
 
 
 class StrictCredentialModel(BaseModel):
-    """Forbid unknown fields and implicit coercion on credential boundaries."""
+    """在凭据边界拒绝未知字段和隐式类型转换。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
 class CredentialEnvelope(StrictCredentialModel):
-    """Carry one RSA-wrapped AES-GCM credential mutation payload."""
+    """携带 RSA 包装的 AES-GCM 凭据变更载荷。"""
 
     version: Literal[1] = Field(description="Credential envelope protocol version.")
     key_id: UUID = Field(description="Ephemeral Runtime RSA key identity.")
@@ -35,7 +35,7 @@ class CredentialEnvelope(StrictCredentialModel):
 
 
 class CredentialPublicKey(StrictCredentialModel):
-    """Expose only the current Runtime RSA public encryption material."""
+    """仅暴露当前 Runtime RSA 公共加密材料。"""
 
     version: Literal[1] = Field(description="Credential envelope protocol version.")
     scheme: Literal["RSA-OAEP-256+A256GCM"] = Field(

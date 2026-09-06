@@ -1,4 +1,4 @@
-"""Remote POSIX path validation tests."""
+"""远程 POSIX 路径校验测试。"""
 
 from __future__ import annotations
 

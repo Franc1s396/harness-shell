@@ -10,7 +10,7 @@ from harness_shell_sidecar.web import create_app
 
 
 def runtime_settings(data_dir: Path):
-    """Create target settings while keeping a missing implementation RED."""
+    """创建目标配置，缺失实现时仍明确测试失败。"""
 
     try:
         settings_type = import_module(

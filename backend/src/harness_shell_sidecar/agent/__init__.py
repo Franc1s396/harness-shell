@@ -1,4 +1,4 @@
-"""Experimental ReAct Agent backend public contracts and repositories."""
+"""实验性 ReAct Agent 后端的公共契约与仓库。"""
 
 from .api_configs import ApiConfigRepository, ApiConfigRepositoryError
 from .contracts import (

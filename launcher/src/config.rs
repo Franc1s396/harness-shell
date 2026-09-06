@@ -2,14 +2,14 @@ use std::{ffi::OsString, path::{Path, PathBuf}};
 
 use crate::error::LauncherError;
 
-/// Fixed installed component paths and the single per-user Backend data directory.
+/// 固定安装组件路径和唯一的每用户 Backend 数据目录。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LauncherConfig {
-    /// Independent Tauri UI executable beside the Launcher.
+    /// 位于 Launcher 旁的独立 Tauri UI 可执行文件。
     pub ui_exe: PathBuf,
-    /// Packaged Python Backend executable beside the Launcher.
+    /// 位于 Launcher 旁的打包 Python Backend 可执行文件。
     pub backend_exe: PathBuf,
-    /// `%LOCALAPPDATA%\com.harnessshell.app`, passed only to the Backend.
+    /// 仅传给 Backend 的 `%LOCALAPPDATA%\com.harnessshell.app` 目录。
     pub data_dir: PathBuf,
 }
 

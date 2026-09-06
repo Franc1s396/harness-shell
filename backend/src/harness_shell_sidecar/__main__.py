@@ -1,4 +1,4 @@
-"""Command-line entry point for the Harness Shell sidecar."""
+"""Harness Shell Sidecar 的命令行入口。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ LOGGER = logging.getLogger("harness_shell_sidecar.process")
 
 
 def _serve_port(value: str) -> int:
-    """Parse one explicit non-privileged-or-privileged TCP port value."""
+    """解析显式指定的 TCP 端口，允许特权端口与非特权端口。"""
 
     try:
         port = int(value)
@@ -27,7 +27,7 @@ def _serve_port(value: str) -> int:
 
 
 def _desktop_port(value: str) -> int:
-    """Accept only dynamic port selection for packaged desktop mode."""
+    """打包版桌面模式只接受动态端口分配。"""
 
     try:
         port = int(value)
@@ -39,7 +39,7 @@ def _desktop_port(value: str) -> int:
 
 
 def _absolute_path(value: str) -> Path:
-    """Parse one explicit absolute path without environment expansion."""
+    """解析显式绝对路径，不展开环境变量。"""
 
     path = Path(value)
     if not path.is_absolute():
@@ -48,7 +48,7 @@ def _absolute_path(value: str) -> Path:
 
 
 def _inherited_handle(value: str) -> int:
-    """Parse one nonzero inherited Windows HANDLE numeric value."""
+    """解析非零的继承 Windows HANDLE 数值。"""
 
     try:
         handle = int(value)
@@ -60,7 +60,7 @@ def _inherited_handle(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the strict CLI with no legacy stdio or host override path."""
+    """构建严格命令行入口，不保留旧 stdio 或 host 覆盖路径。"""
 
     parser = argparse.ArgumentParser(
         prog="harness-shell-sidecar",
@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run one autonomous loopback backend in development or desktop mode."""
+    """以开发或桌面模式运行自主初始化的 loopback 后端。"""
 
     args = build_parser().parse_args(argv)
     configure_stderr_logging(colorize=args.command == "serve")

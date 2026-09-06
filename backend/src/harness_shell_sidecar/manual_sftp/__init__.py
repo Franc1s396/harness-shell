@@ -1,4 +1,4 @@
-"""User-operated manual SFTP domain with no Agent-callable surface."""
+"""用户手动操作的 SFTP 领域，不提供 Agent 可调用接口。"""
 
 from .errors import ManualSftpError
 from .models import (

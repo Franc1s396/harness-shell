@@ -1,4 +1,4 @@
-"""Strict plaintext credential persistence and kind-checked resolution."""
+"""严格的明文凭据持久化与按类型校验的解析。"""
 
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ _CREDENTIAL_KINDS = frozenset(
 
 
 class CredentialRepositoryError(ValueError):
-    """Report a stable safe credential persistence failure code."""
+    """报告稳定且安全的凭据持久化失败错误码。"""
 
     error_code: str
 
     def __init__(self, error_code: str, message: str) -> None:
-        """Store a stable code and reviewed detail without credential contents."""
+        """保存稳定错误码与已审查详情，不包含凭据内容。"""
 
         self.error_code = error_code
         self.safe_message = message
@@ -37,17 +37,17 @@ class CredentialRepositoryError(ValueError):
 
 
 class CredentialRepository:
-    """Own schema-v6 plaintext credentials and enforce exact purpose on reads."""
+    """管理 schema v7 明文凭据，并在读取时严格匹配用途。"""
 
     _store: PlaintextRecordStore
 
     def __init__(self, store: PlaintextRecordStore) -> None:
-        """Bind the repository to the Runtime-owned generic record store."""
+        """将仓库绑定到 Runtime 拥有的通用记录存储。"""
 
-        self._store = store  # Shared owner closed after all domain repositories.
+        self._store = store  # 在所有领域仓库之后关闭的共享资源管理者。
 
     def create(self, kind: CredentialKind, secret: str) -> UUID:
-        """Persist one new plaintext credential and return its opaque identity."""
+        """持久化新的明文凭据并返回不透明标识。"""
 
         _require_kind(kind)
         encoded_secret = secret.encode("utf-8")
@@ -83,7 +83,7 @@ class CredentialRepository:
         credential_id: UUID,
         expected_kind: CredentialKind,
     ) -> bytearray:
-        """Return a mutable secret only when identity and purpose both match."""
+        """只有标识与用途均匹配时才返回可变秘密缓冲区。"""
 
         _require_kind(expected_kind)
         record = self._store.get(_CREDENTIAL_RECORD_TYPE, str(credential_id))
@@ -101,13 +101,13 @@ class CredentialRepository:
         return bytearray(payload["secret"].encode("utf-8"))
 
     def delete(self, credential_id: UUID) -> bool:
-        """Delete one credential identity and report whether it existed."""
+        """删除指定凭据，并报告其原先是否存在。"""
 
         return self._store.delete(_CREDENTIAL_RECORD_TYPE, str(credential_id))
 
 
 def _decode_record(record: PlaintextRecord, credential_id: UUID) -> dict[str, str]:
-    """Validate complete record identity, version, JSON shape, and field types."""
+    """校验完整记录标识、版本、JSON 结构和字段类型。"""
 
     if record.schema_version != _CREDENTIAL_SCHEMA_VERSION:
         raise CredentialRepositoryError(
@@ -151,7 +151,7 @@ def _decode_record(record: PlaintextRecord, credential_id: UUID) -> dict[str, st
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    """Reject duplicate JSON keys instead of silently taking the final value."""
+    """拒绝重复 JSON 键，不静默采用最后一个值。"""
 
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -162,7 +162,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _require_kind(kind: str) -> None:
-    """Reject any credential purpose outside the closed supported set."""
+    """拒绝限定支持集合之外的凭据用途。"""
 
     if kind not in _CREDENTIAL_KINDS:
         raise CredentialRepositoryError(

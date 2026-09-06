@@ -1,4 +1,4 @@
-"""Explicit-only recovery summary tests."""
+"""仅显式触发的恢复摘要测试。"""
 
 from __future__ import annotations
 
@@ -26,10 +26,10 @@ SESSION_ID = UUID("00000000-0000-4000-8000-000000000502")
 
 
 class FakeChannels:
-    """Resolve only the connection identity needed by recovery mutations."""
+    """仅解析恢复变更所需的连接标识。"""
 
     def session_id_for_recovery(self, **identity) -> UUID:
-        """Return the explicitly registered session for the expected connection."""
+        """为预期连接返回显式注册的会话。"""
 
         assert identity == {
             "connection_id": CONNECTION_ID,
@@ -42,51 +42,51 @@ class FakeChannels:
         return SESSION_ID
 
     async def open(self, ssh_session_id: UUID):
-        """Return the minimal lease shape needed by delete-temp snapshotting."""
+        """返回 delete-temp 快照所需的最小租约结构。"""
 
         assert ssh_session_id == SESSION_ID
         return FakeLease()
 
 
 class NoChannels(FakeChannels):
-    """Fail if a proven terminal receipt attempts any remote reconciliation."""
+    """已证实终态回执若尝试远程核对则失败。"""
 
     def session_id_for_recovery(self, **identity) -> UUID:
         raise AssertionError("terminal recovery inspection must not resolve a session")
 
 
 class FakeLease:
-    """Expose an opaque client and deterministic close for a patched snapshot read."""
+    """为替换的快照读取暴露不透明客户端和确定性关闭。"""
 
     def __init__(self) -> None:
-        """Create the opaque client marker."""
+        """创建不透明客户端标记。"""
 
         self.client = object()
 
     async def close(self) -> None:
-        """Close the fake lease without external resources."""
+        """关闭无外部资源的租约替身。"""
 
 
 class FakeOperations:
-    """Keep authenticated operation records in memory for focused identity tests."""
+    """在内存保存操作记录，用于定向标识测试。"""
 
     def __init__(self, record: RemoteOperationRecord) -> None:
-        """Seed the old recovery record and no fresh operation."""
+        """预置旧恢复记录，不创建新操作。"""
 
         self.records = {record.operation_id: record}
 
     def get(self, operation_id: UUID) -> RemoteOperationRecord | None:
-        """Resolve one exact operation identity."""
+        """解析精确操作标识。"""
 
         return self.records.get(operation_id)
 
     def put(self, record: RemoteOperationRecord) -> None:
-        """Persist a complete replacement record."""
+        """持久化完整替换记录。"""
 
         self.records[record.operation_id] = record
 
     def list_non_terminal(self) -> tuple[RemoteOperationRecord, ...]:
-        """Return the seeded non-terminal records."""
+        """返回预置的非终态记录。"""
 
         return tuple(
             record
@@ -96,10 +96,10 @@ class FakeOperations:
 
 
 class FakeMutations:
-    """Capture the fresh operation identity without performing remote I/O."""
+    """捕获新操作标识，不执行远程 I/O。"""
 
     def __init__(self) -> None:
-        """Start with no mutation calls."""
+        """从没有变更调用的状态开始。"""
 
         self.rename_operation_ids: list[UUID] = []
         self.remove_operation_ids: list[UUID] = []
@@ -107,7 +107,7 @@ class FakeMutations:
         self._delete_operation_id: UUID | None = None
 
     async def rename(self, *, operation_id: UUID, **_kwargs):
-        """Return a trustworthy terminal receipt tied to the supplied identity."""
+        """返回关联给定标识的可信终态回执。"""
 
         self.rename_operation_ids.append(operation_id)
         return OperationTerminalProjection(
@@ -121,7 +121,7 @@ class FakeMutations:
         )
 
     async def remove(self, *, operation_id: UUID, **_kwargs):
-        """Capture the selected identity for delete-temp."""
+        """捕获 delete-temp 选择的标识。"""
 
         self.remove_operation_ids.append(operation_id)
         return terminal(operation_id, "Temporary file removed.")
@@ -129,21 +129,21 @@ class FakeMutations:
     async def delete_preflight(
         self, _session_id: UUID, _path: str, *, operation_id: UUID
     ):
-        """Capture the selected identity for continue-delete."""
+        """捕获 continue-delete 选择的标识。"""
 
         self.delete_preflight_operation_ids.append(operation_id)
         self._delete_operation_id = operation_id
         return SimpleNamespace(delete_plan_id=uuid4())
 
     async def delete_execute(self, _delete_plan_id: UUID):
-        """Return the terminal receipt for the preselected recursive-delete identity."""
+        """返回预选递归删除标识对应的终态回执。"""
 
         assert self._delete_operation_id is not None
         return terminal(self._delete_operation_id, "Delete continued.")
 
 
 def terminal(operation_id: UUID, message: str) -> OperationTerminalProjection:
-    """Build a trustworthy successful receipt for one fake mutation."""
+    """为变更替身构建可信成功回执。"""
 
     return OperationTerminalProjection(
         operation_id=operation_id,
@@ -159,7 +159,7 @@ def terminal(operation_id: UUID, message: str) -> OperationTerminalProjection:
 def recovery_record(
     operation_id: UUID, *, kind: str = "recursive_delete"
 ) -> RemoteOperationRecord:
-    """Build one plaintext-record shape requiring tombstone restoration."""
+    """构建需要墓碑还原的明文记录结构。"""
 
     return RemoteOperationRecord(
         operation_id=operation_id,
@@ -182,7 +182,7 @@ def recovery_record(
 
 
 def test_recovery_manager_exposes_no_automatic_replay_entrypoint() -> None:
-    """Recovery may inspect or execute a new action, never replay an old request."""
+    """恢复可检查或执行新操作，但不能回放旧请求。"""
 
     assert not hasattr(RecoveryManager, "replay")
     assert not hasattr(RecoveryManager, "resume_automatically")
@@ -240,7 +240,7 @@ def test_recovery_execute_uses_and_validates_the_rust_selected_operation_id() ->
 def test_all_mutating_recovery_actions_use_the_rust_selected_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """delete-temp, continue-delete, and restore must use exactly the wire identity."""
+    """delete-temp、continue-delete 和 restore 必须使用精确传输标识。"""
 
     async def fake_snapshot(
         _client: object, path: str, *, include_hash: bool
@@ -287,7 +287,7 @@ def test_all_mutating_recovery_actions_use_the_rust_selected_identity(
 def test_read_only_reconciliation_persists_the_proven_terminal_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A proven upload target must disappear from future recovery listings."""
+    """上传目标已证实成功后不得继续出现在恢复列表中。"""
 
     expected_hash = "a" * 64
 

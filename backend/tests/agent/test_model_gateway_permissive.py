@@ -1,4 +1,4 @@
-"""Exercise provider wire variations without requiring a complete SDK schema."""
+"""覆盖 Provider 传输变体，不要求完整 SDK schema。"""
 
 import asyncio
 
@@ -16,7 +16,7 @@ from .test_model_gateway import RecordingTextSink, responses_config
 
 @pytest.mark.parametrize("variant", ["sparse", "usage", "unknown", "multiple", "finish", "eof"])
 def test_chat_accepts_permissive_wire(variant: str) -> None:
-    """Metadata and finish conventions must not reject valid first-choice text."""
+    """元数据和结束惯例不得导致合法首个 choice 文本被拒绝。"""
     async def scenario() -> None:
         wire = [{"choices": [{"delta": {"content": "answer"}}]}]
         if variant == "usage":
@@ -36,7 +36,7 @@ def test_chat_accepts_permissive_wire(variant: str) -> None:
 
 @pytest.mark.parametrize("tool", [False, True])
 def test_responses_publishes_only_resolved_final_answer(tool: bool) -> None:
-    """Final replacement and tool commentary must never leak provisional text."""
+    """最终替换和工具说明不得泄露临时文本。"""
     async def scenario() -> None:
         sink = RecordingTextSink()
         output = [{"type": "message", "content": [{"type": "output_text", "text": "final"}]}]
@@ -56,7 +56,7 @@ def test_responses_publishes_only_resolved_final_answer(tool: bool) -> None:
 
 @pytest.mark.parametrize("variant", ["unknown", "missing_index", "done_only", "final_only", "empty_final", "duplicate", "eof", "reasoning"])
 def test_responses_accepts_permissive_wire(variant: str) -> None:
-    """Sparse lifecycle events and unknown metadata must preserve visible output."""
+    """稀疏生命周期事件和未知元数据必须保留可见输出。"""
     async def scenario() -> None:
         item = {"type": "message", "id": "msg-1", "content": [{"type": "output_text", "text": "answer"}]}
         delta = {"type": "response.output_text.delta", "item_id": "msg-1", "delta": "answer"}
@@ -90,7 +90,7 @@ def test_responses_accepts_permissive_wire(variant: str) -> None:
 
 @pytest.mark.parametrize("responses", [False, True])
 def test_tool_can_complete_without_delta_lifecycle(responses: bool) -> None:
-    """Complete tool arguments do not require redundant finish metadata."""
+    """完整工具参数不要求冗余结束元数据。"""
     async def scenario() -> None:
         if responses:
             wire = [{"type": "response.completed", "response": {"output": [{"type": "function_call", "call_id": "call-1", "name": "execute_command", "arguments": {"command": "pwd"}}]}}]
@@ -108,7 +108,7 @@ def test_tool_can_complete_without_delta_lifecycle(responses: bool) -> None:
 
 @pytest.mark.parametrize("responses", [False, True])
 def test_mixed_tool_turn_preserves_history_without_publishing_commentary(agent_storage, responses: bool) -> None:
-    """Run the real graph/service so buffered tool text cannot break final SSE checks."""
+    """运行真实图和服务，确保缓冲工具文本不破坏最终 SSE 检查。"""
     from harness_shell_sidecar.agent.context import ContextService
     from harness_shell_sidecar.agent.contracts import ApiType, AgentRunStatus
     from harness_shell_sidecar.agent.model_gateway import ModelGateway

@@ -1,4 +1,4 @@
-"""Strict plaintext persistence for remote manual SFTP operations."""
+"""远程手动 SFTP 操作的严格明文持久化。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 
 
 class RemoteOperationRecord(StrictModel):
-    """Persist only remote mutation/reconciliation state, never file content."""
+    """仅持久化远程变更和核对状态，不保存文件内容。"""
 
     operation_id: UUID
     kind: Literal["upload", "recursive_delete", "rename", "remove", "mkdir"]
@@ -60,7 +60,7 @@ class RemoteOperationRecord(StrictModel):
 
 
 class DeletePlanRecord(StrictModel):
-    """Persist a complete one-shot delete manifest without a replayable session ID."""
+    """持久化完整的一次性删除清单，不携带可回放会话 ID。"""
 
     delete_plan_id: UUID
     operation_id: UUID
@@ -81,15 +81,15 @@ class DeletePlanRecord(StrictModel):
 
 
 class ManualSftpOperationStore:
-    """Validate every plaintext operation before returning domain state."""
+    """返回领域状态前校验每条明文操作记录。"""
 
     def __init__(self, records: PlaintextRecordStore) -> None:
-        """Bind the shared schema-v6 plaintext record store."""
+        """绑定共享的 schema v7 明文记录存储。"""
 
         self._records = records
 
     def put(self, record: RemoteOperationRecord) -> None:
-        """Atomically insert or replace one complete strict JSON record."""
+        """原子插入或替换完整严格 JSON 记录。"""
 
         self._records.put(
             PlaintextRecord(
@@ -101,7 +101,7 @@ class ManualSftpOperationStore:
         )
 
     def get(self, operation_id: UUID) -> RemoteOperationRecord | None:
-        """Decode strict UTF-8 JSON, validate, and identity-check one record."""
+        """严格解码 UTF-8 JSON，校验记录内容及标识。"""
 
         stored = self._records.get(RECORD_TYPE, str(operation_id))
         if stored is None:
@@ -119,12 +119,12 @@ class ManualSftpOperationStore:
         return record
 
     def delete(self, operation_id: UUID) -> bool:
-        """Delete one operation record by its composite identity."""
+        """通过组合标识删除操作记录。"""
 
         return self._records.delete(RECORD_TYPE, str(operation_id))
 
     def list_non_terminal(self) -> tuple[RemoteOperationRecord, ...]:
-        """Return validated non-terminal records in stable creation order."""
+        """按稳定创建顺序返回已校验的非终态记录。"""
 
         result: list[RemoteOperationRecord] = []
         for record_id in self._records.list_ids(RECORD_TYPE):
@@ -145,7 +145,7 @@ class ManualSftpOperationStore:
         return tuple(result)
 
     def put_delete_plan(self, plan: DeletePlanRecord) -> None:
-        """Persist a complete one-shot delete plan and canonical manifest."""
+        """持久化完整的一次性删除计划和规范清单。"""
 
         self._records.put(
             PlaintextRecord(
@@ -157,7 +157,7 @@ class ManualSftpOperationStore:
         )
 
     def get_delete_plan(self, delete_plan_id: UUID) -> DeletePlanRecord | None:
-        """Decode and validate one plaintext delete plan."""
+        """解码并校验明文删除计划。"""
 
         stored = self._records.get(DELETE_PLAN_RECORD_TYPE, str(delete_plan_id))
         if stored is None:
@@ -180,10 +180,10 @@ class ManualSftpOperationStore:
 
 
 def _validated_json_text(payload: bytes) -> str:
-    """Return canonical JSON after strict UTF-8 and duplicate-field checks."""
+    """严格检查 UTF-8 和重复字段后返回规范 JSON。"""
 
     def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        """Build one object and fail on the first duplicate field."""
+        """构造对象，遇到首个重复字段即失败。"""
 
         result: dict[str, object] = {}
         for name, value in pairs:
@@ -207,13 +207,13 @@ def _validated_json_text(payload: bytes) -> str:
 
 
 def _operation_record_error(message: str) -> ManualSftpError:
-    """Build the stable invalid operation-record failure."""
+    """构建稳定的非法操作记录失败。"""
 
     return ManualSftpError("SFTP_OPERATION_RECORD_INVALID", message)
 
 
 def _delete_plan_error(message: str) -> ManualSftpError:
-    """Build the stable invalid delete-plan failure."""
+    """构建稳定的非法删除计划失败。"""
 
     return ManualSftpError("SFTP_DELETE_PLAN_INVALID", message)
 

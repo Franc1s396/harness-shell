@@ -1,4 +1,4 @@
-"""ASGI lifespan owner for the unique initialized runtime resource graph."""
+"""唯一已初始化运行时资源图的 ASGI lifespan 管理者。"""
 
 from __future__ import annotations
 
@@ -18,36 +18,36 @@ ResourceFactory = Callable[[RuntimeSettings, EventSink], RuntimeResources]
 
 
 class RuntimeOwnerError(RuntimeError):
-    """Describe a stable invalid operation on the runtime lifecycle owner."""
+    """描述运行时生命周期管理者上的稳定非法操作错误。"""
 
     def __init__(self, error_code: str, message: str) -> None:
-        """Retain only a stable code and safe public lifecycle message."""
+        """仅保留稳定错误码和安全公开生命周期消息。"""
 
         super().__init__(message)
-        self.error_code = error_code  # HTTP mapping uses this stable identifier.
-        self.public_message = message  # Safe bounded text without resource details.
-        self.safe_message = message  # Internal diagnostic alias.
+        self.error_code = error_code  # HTTP 映射使用的稳定标识。
+        self.public_message = message  # 不含资源详情的安全有界文本。
+        self.safe_message = message  # 内部诊断别名。
 
 
 class RuntimeOwner:
-    """Initialize, expose, and converge exactly one RuntimeResources instance."""
+    """初始化、暴露并收敛且仅收敛一个 RuntimeResources 实例。"""
 
     def __init__(
         self,
         settings: RuntimeSettings,
         resource_factory: ResourceFactory,
     ) -> None:
-        """Create an owner that must initialize before ASGI accepts requests."""
+        """创建必须在 ASGI 接收请求前初始化的管理者。"""
 
-        self._settings = settings  # Fixed paths derived from the CLI data directory.
-        self._resource_factory = resource_factory  # Atomic graph constructor.
-        self._resources: RuntimeResources | None = None  # Sole graph reference.
-        self._state = RuntimePhase.INITIALIZING  # Shared public phase.
-        self._start_attempted = False  # Lifespan startup is one-shot.
+        self._settings = settings  # 根据 CLI 数据目录派生的固定路径。
+        self._resource_factory = resource_factory  # 原子资源图构造器。
+        self._resources: RuntimeResources | None = None  # 唯一资源图引用。
+        self._state = RuntimePhase.INITIALIZING  # 共享公开阶段。
+        self._start_attempted = False  # lifespan 启动只能执行一次。
         self.websocket_gateway = RuntimeWebSocketGateway()
 
     async def start(self, event_sink: EventSink) -> RuntimeResources:
-        """Initialize all resources before ASGI accepts requests."""
+        """在 ASGI 接收请求前初始化全部资源。"""
 
         if self._start_attempted:
             raise RuntimeOwnerError(
@@ -65,24 +65,24 @@ class RuntimeOwner:
         return resources
 
     async def event_sink(self, event: dict[str, object]) -> None:
-        """Apply bounded backpressure to domain events until WebSocket delivery."""
+        """对领域事件施加有界背压，直至 WebSocket 交付。"""
 
         await self.websocket_gateway.publish_domain_event(event)
 
     def state(self) -> RuntimePhase:
-        """Return the current safe lifecycle phase."""
+        """返回当前安全生命周期阶段。"""
 
         return self._state
 
     def require_resources(self) -> RuntimeResources:
-        """Return the ready graph or reject application work fail closed."""
+        """返回就绪资源图，否则明确拒绝应用工作。"""
 
         if self._state is not RuntimePhase.READY or self._resources is None:
             raise RuntimeOwnerError("RUNTIME_NOT_READY", "Runtime is not ready")
         return self._resources
 
     async def shutdown(self) -> RuntimePhase:
-        """Converge the graph exactly once and retain terminal failure state."""
+        """仅收敛一次资源图，并保留终态失败状态。"""
 
         resources = self._resources
         if resources is None:
@@ -105,14 +105,14 @@ def default_resource_factory(
     settings: RuntimeSettings,
     event_sink: EventSink,
 ) -> RuntimeResources:
-    """Construct the plaintext graph without injected Runtime keys."""
+    """构建明文资源图，不注入 Runtime 密钥。"""
 
     return RuntimeResources.initialize_from_settings(settings, event_sink)
 
 
 @asynccontextmanager
 async def runtime_lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Own the unique RuntimeOwner for the entire ASGI application lifespan."""
+    """在整个 ASGI 应用生命周期中拥有唯一 RuntimeOwner。"""
 
     factory = app.state.resource_factory
     owner = RuntimeOwner(app.state.settings, factory)

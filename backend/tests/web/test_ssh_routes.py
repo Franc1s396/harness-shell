@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 def request_headers() -> dict[str, str]:
-    """Create one valid request correlation header."""
+    """创建合法请求关联头。"""
 
     return {"X-Request-ID": str(uuid4())}
 

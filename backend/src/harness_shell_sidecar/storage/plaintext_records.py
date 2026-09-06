@@ -1,4 +1,4 @@
-"""Plaintext runtime-record persistence without encoding or encryption."""
+"""不编码或加密的明文运行时记录持久化。"""
 
 from __future__ import annotations
 
@@ -12,19 +12,19 @@ from .database import RuntimeDatabase
 
 @dataclass(frozen=True, slots=True)
 class PlaintextRecord:
-    """Describe one immutable plaintext payload and its composite identity."""
+    """描述不可变明文载荷及其组合标识。"""
 
-    #: Business namespace used as the first half of the durable composite key.
+    #: 持久化组合键第一部分使用的业务命名空间。
     record_type: str
-    #: Identifier unique within ``record_type``.
+    #: record_type 内唯一的标识。
     record_id: str
-    #: Positive version used by the owning repository to validate the payload.
+    #: 所属仓库用来校验载荷的正整数版本。
     schema_version: int
-    #: Unchanged plaintext bytes persisted directly in Runtime SQLite.
+    #: 不改写、直接持久化到 Runtime SQLite 的明文字节。
     payload: bytes
 
     def __post_init__(self) -> None:
-        """Reject identities or payloads that cannot form a stable record."""
+        """拒绝无法形成稳定记录的标识或载荷。"""
 
         if not self.record_type or not self.record_id:
             raise ValueError("record type and id must not be empty")
@@ -35,24 +35,24 @@ class PlaintextRecord:
 
 
 class PlaintextRecordStore:
-    """Own CRUD access to schema-v6 generic plaintext runtime records."""
+    """管理 schema v7 通用明文运行时记录的 CRUD。"""
 
     _database: RuntimeDatabase
 
     def __init__(self, database: RuntimeDatabase) -> None:
-        """Bind the store to the Runtime-owned shared database connection."""
+        """将存储绑定到 Runtime 拥有的共享数据库连接。"""
 
-        # The Runtime owner closes this shared connection after all repositories.
+        # 所有仓库结束后，由 Runtime 管理者关闭共享连接。
         self._database = database
 
     @property
     def connection(self) -> sqlite3.Connection:
-        """Expose the shared connection for repository-level atomic transactions."""
+        """提供共享连接以支持仓库级原子事务。"""
 
         return self._database.connection
 
     def put(self, record: PlaintextRecord) -> None:
-        """Insert or update one payload while preserving its creation timestamp."""
+        """插入或更新载荷，同时保留创建时间戳。"""
 
         now = _utc_now()
         self._database.execute(
@@ -77,7 +77,7 @@ class PlaintextRecordStore:
         )
 
     def get(self, record_type: str, record_id: str) -> PlaintextRecord | None:
-        """Return one exact composite-key record, or ``None`` when absent."""
+        """返回精确组合键记录；不存在时返回 None。"""
 
         row = self._database.execute(
             """
@@ -93,7 +93,7 @@ class PlaintextRecordStore:
         return PlaintextRecord(record_type, record_id, schema_version, payload)
 
     def delete(self, record_type: str, record_id: str) -> bool:
-        """Delete one exact composite-key record and report whether it existed."""
+        """删除精确组合键记录，并报告其原先是否存在。"""
 
         cursor = self._database.execute(
             "DELETE FROM runtime_records WHERE record_type = ? AND record_id = ?",
@@ -102,7 +102,7 @@ class PlaintextRecordStore:
         return cursor.rowcount == 1
 
     def list_ids(self, record_type: str) -> Sequence[str]:
-        """Return IDs from one namespace in stable lexical order."""
+        """按稳定字典序返回命名空间内的 ID。"""
 
         rows = self._database.execute(
             """
@@ -117,7 +117,7 @@ class PlaintextRecordStore:
 
 
 def _utc_now() -> str:
-    """Return a millisecond UTC timestamp for record lifecycle metadata."""
+    """为记录生命周期元数据返回毫秒级 UTC 时间戳。"""
 
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"

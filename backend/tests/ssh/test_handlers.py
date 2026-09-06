@@ -75,7 +75,7 @@ def status(
     *,
     session_id: UUID | None = None,
 ) -> ConnectionStatus:
-    """Build one safe deterministic SSH status."""
+    """构建安全确定性 SSH 状态。"""
 
     return ConnectionStatus(
         connection_id=connection_id,

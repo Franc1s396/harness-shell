@@ -1,4 +1,4 @@
-"""Read-only reconciliation and explicit new recovery actions."""
+"""只读状态核对与显式新恢复操作。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .transfers import _snapshot
 
 
 class RecoveryManager:
-    """Inspect uncertain state and execute only new user-confirmed operations."""
+    """检查不确定状态，仅执行用户新确认的操作。"""
 
     def __init__(
         self,
@@ -25,22 +25,23 @@ class RecoveryManager:
         operations: ManualSftpOperationStore,
         mutations: MutationManager,
     ) -> None:
-        """Bind live-session resolution, plaintext state, and new mutation owner."""
+        """绑定活动会话解析、明文状态和新变更管理者。"""
 
         self._channels = channels
         self._operations = operations
         self._mutations = mutations
 
     def list(self) -> tuple[RecoverySummary, ...]:
-        """Return safe summaries for plaintext non-terminal operation records."""
+        """返回明文非终态操作记录的安全摘要。"""
 
         return tuple(self._summary(record) for record in self._operations.list_non_terminal())
 
     async def inspect(
         self, recovery_id: UUID
     ) -> RecoverySummary | OperationTerminalProjection:
-        """Use only metadata/hash reads to reconcile one recovery record."""
+        """仅使用元数据和哈希读取核对恢复记录。"""
 
+        # 1. 优先返回已经证实的终态回执，避免重复远程核对。
         record = self._record(recovery_id, include_terminal=True)
         if record.state in {"succeeded", "failed", "cancelled"}:
             if record.terminal_receipt is None:
@@ -49,6 +50,7 @@ class RecoveryManager:
                     "The terminal recovery record has no receipt.",
                 )
             return record.terminal_receipt
+        # 2. 未终结记录必须匹配原认证链，再仅用元数据和哈希检查远程状态。
         session_id = self._session_id(record)
         lease = await self._channels.open(session_id)
         try:
@@ -110,6 +112,7 @@ class RecoveryManager:
                         "The original recursive-delete root still exists.",
                     ),
                 )
+            # 3. 无法证明终态时保留不确定状态，并只返回允许的显式恢复操作。
             return self._summary(record)
         finally:
             await lease.close()
@@ -117,8 +120,9 @@ class RecoveryManager:
     async def execute(
         self, recovery_id: UUID, action: str, operation_id: UUID
     ) -> RecoverySummary | OperationTerminalProjection:
-        """Use the React-selected fresh identity for every recovery mutation."""
+        """每次恢复变更使用 React 选择的新标识。"""
 
+        # 1. 拒绝旧操作标识，并验证操作位于当前记录的允许列表。
         self._require_fresh_operation(recovery_id, operation_id)
         record = self._record(recovery_id)
         summary = self._summary(record)
@@ -127,11 +131,13 @@ class RecoveryManager:
                 "SFTP_RECOVERY_ACTION_INVALID",
                 "The requested recovery action is not available.",
             )
+        # 2. 保留和验证分支不执行变更；验证交给只读核对。
         if action == "keep":
             return summary
         if action == "verify":
             return await self.inspect(recovery_id)
 
+        # 3. 变更必须重新匹配认证链，并以新标识派发删除、续删或还原。
         session_id = self._session_id(record)
         if action == "delete_temp" and record.temp_path is not None:
             lease = await self._channels.open(session_id)
@@ -177,7 +183,7 @@ class RecoveryManager:
     def _require_fresh_operation(
         self, recovery_id: UUID, operation_id: UUID
     ) -> None:
-        """Reject old or already-persisted identities before any recovery mutation I/O."""
+        """执行任何恢复变更 I/O 前拒绝旧标识或已持久化标识。"""
 
         if operation_id == recovery_id or self._operations.get(operation_id):
             raise ManualSftpError(
@@ -186,10 +192,10 @@ class RecoveryManager:
             )
 
     async def close_all(self) -> None:
-        """Recovery owns no persistent remote channel between explicit requests."""
+        """恢复流程不在显式请求之间持有远程通道。"""
 
     def _session_id(self, record: RemoteOperationRecord) -> UUID:
-        """Resolve only the exact profile, Host Key, and ProxyJump identity."""
+        """仅按精确配置、Host Key 和 ProxyJump 标识解析。"""
 
         return self._channels.session_id_for_recovery(
             connection_id=record.connection_id,
@@ -203,7 +209,7 @@ class RecoveryManager:
     def _record(
         self, recovery_id: UUID, *, include_terminal: bool = False
     ) -> RemoteOperationRecord:
-        """Resolve one recovery ID to its plaintext non-terminal operation."""
+        """将恢复 ID 解析为明文非终态操作。"""
 
         record = self._operations.get(recovery_id)
         if record is None or (
@@ -217,7 +223,7 @@ class RecoveryManager:
 
     @staticmethod
     def _summary(record: RemoteOperationRecord) -> RecoverySummary:
-        """Project only safe display state and an explicit action allowlist."""
+        """仅投影安全显示状态和显式操作允许列表。"""
 
         if record.kind == "upload":
             kind = "upload_temp"
@@ -250,7 +256,7 @@ class RecoveryManager:
         )
 
     def _resolve_old(self, record: RemoteOperationRecord) -> None:
-        """Mark the old operation resolved without replacing it with the new action."""
+        """将旧操作标为已解决，不用新操作替换它。"""
 
         receipt = _reconciled_terminal(
             record.operation_id,
@@ -267,7 +273,7 @@ class RecoveryManager:
         record: RemoteOperationRecord,
         receipt: OperationTerminalProjection,
     ) -> OperationTerminalProjection:
-        """Atomically replace a non-terminal record with its proven read-only result."""
+        """根据已证实的只读结果原子替换非终态记录。"""
 
         self._operations.put(
             record.model_copy(
@@ -280,7 +286,7 @@ class RecoveryManager:
 def _reconciled_terminal(
     operation_id: UUID, state: str, error_code: str | None, message: str
 ) -> OperationTerminalProjection:
-    """Build a safe read-only reconciliation result for the old operation."""
+    """为旧操作构建安全的只读核对结果。"""
 
     return OperationTerminalProjection(
         operation_id=operation_id,

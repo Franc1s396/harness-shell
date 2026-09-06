@@ -1,4 +1,4 @@
-"""Strict M2 connection and host-key contracts."""
+"""严格的 M2 连接与 Host Key 契约。"""
 
 from __future__ import annotations
 

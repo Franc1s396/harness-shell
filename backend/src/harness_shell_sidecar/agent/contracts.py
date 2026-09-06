@@ -1,8 +1,9 @@
-"""Strict contracts shared by the experimental ReAct Agent backend."""
+"""实验性 ReAct Agent 后端共享的严格契约。"""
 
 from __future__ import annotations
 
 from enum import StrEnum
+from math import floor
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     field_validator,
+    model_validator,
 )
 
 
@@ -22,14 +24,14 @@ _HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 
 
 class ApiType(StrEnum):
-    """Select the one explicitly configured OpenAI-compatible API surface."""
+    """选择唯一显式配置的 OpenAI 兼容 API 类型。"""
 
     CHAT_COMPLETIONS = "CHAT_COMPLETIONS"
     RESPONSES = "RESPONSES"
 
 
 class ModelApiConfigFields(BaseModel):
-    """Validate Provider fields which do not contain stored credential identity."""
+    """校验不含已保存凭据标识的 Provider 字段。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -56,16 +58,32 @@ class ModelApiConfigFields(BaseModel):
         description="Whether new Agent runs may use this configuration.",
     )
 
+    context_window_size: int = Field(default=128000, gt=0, le=9007199254740991,
+        description="Maximum configured context window in tokens.")
+    context_compaction_threshold_ratio: float = Field(default=0.75, gt=0, lt=1,
+        allow_inf_nan=False, description="Fraction of the window triggering compaction.")
+    max_output_tokens: int = Field(default=8192, gt=0, le=9007199254740991,
+        description="Reserved and requested maximum output tokens per invocation.")
+
+    @model_validator(mode="after")
+    def validate_context_budget(self) -> ModelApiConfigFields:
+        """拒绝未留输入空间或压缩阈值超出输入上限的预算。"""
+        budget = self.context_window_size - self.max_output_tokens
+        trigger = floor(self.context_window_size * self.context_compaction_threshold_ratio)
+        if not 1 <= trigger <= budget:
+            raise ValueError("compaction trigger must fit the input budget")
+        return self
+
     @field_validator("base_url")
     @classmethod
     def normalize_http_base_url(cls, value: str) -> str:
-        """Require an HTTP(S) URL and persist its canonical Pydantic form."""
+        """要求 HTTP(S) URL，并持久化 Pydantic 标准化后的形式。"""
 
         return str(_HTTP_URL_ADAPTER.validate_python(value))
 
 
 class ModelApiConfigInput(ModelApiConfigFields):
-    """Represent the complete internal value written by the Provider repository."""
+    """表示 Provider 仓库写入的完整内部值。"""
 
     api_key_credential_id: UUID = Field(
         description="Opaque Python credential reference; never API key plaintext."
@@ -73,7 +91,7 @@ class ModelApiConfigInput(ModelApiConfigFields):
 
 
 class AgentRunStatus(StrEnum):
-    """Represent the only persisted lifecycle states for an Agent run."""
+    """表示 Agent Run 唯一允许持久化的生命周期状态。"""
 
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
@@ -83,7 +101,7 @@ class AgentRunStatus(StrEnum):
 
 
 class ModelApiConfig(ModelApiConfigInput):
-    """Represent one persisted API configuration without secret material."""
+    """表示一条不含秘密材料的持久化 API 配置。"""
 
     api_config_id: UUID = Field(description="Stable configuration identity.")
     created_at: AwareDatetime = Field(description="UTC creation timestamp.")
@@ -91,7 +109,7 @@ class ModelApiConfig(ModelApiConfigInput):
 
 
 class AgentRun(BaseModel):
-    """Represent one immutable view of a persisted Agent run."""
+    """表示已持久化 Agent Run 的不可变视图。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -115,7 +133,7 @@ class AgentRun(BaseModel):
 
 
 class AgentTurnInput(BaseModel):
-    """Describe one user turn after Rust has frozen trusted opaque identities."""
+    """描述调用方冻结可信不透明标识后的单个用户轮次。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -133,7 +151,7 @@ class AgentTurnInput(BaseModel):
 
 
 class AgentTurnResult(BaseModel):
-    """Represent the bounded internal terminal projection of one Agent turn."""
+    """表示单个 Agent 轮次有界的内部终态投影。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -154,7 +172,7 @@ class AgentTurnResult(BaseModel):
 
 
 class ExecuteCommandArguments(BaseModel):
-    """Validate the only model-controlled argument accepted by the SSH tool."""
+    """校验 SSH 工具唯一接受的模型控制参数。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -167,21 +185,40 @@ class ExecuteCommandArguments(BaseModel):
     @field_validator("command")
     @classmethod
     def reject_nul(cls, value: str) -> str:
-        """Reject NUL without otherwise rewriting the model-supplied command."""
+        """拒绝 NUL，其余部分不改写模型提供的命令。"""
 
         if "\x00" in value:
             raise ValueError("command cannot contain NUL")
         return value
 
 
+class OutputTruncation(BaseModel):
+    """精确描述一个输出流丢弃的内容量。"""
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    truncated: bool = Field(description="Whether characters were omitted.")
+    original_chars: int = Field(ge=0, description="Original Unicode code point count.")
+    retained_chars: int = Field(ge=0, description="Retained prefix code point count.")
+    omitted_chars: int = Field(ge=0, description="Discarded code point count.")
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> OutputTruncation:
+        """拒绝不一致的输出裁剪统计。"""
+        if (self.original_chars != self.retained_chars + self.omitted_chars
+                or self.truncated != (self.omitted_chars > 0)):
+            raise ValueError("inconsistent output truncation counts")
+        return self
+
+
 class CommandExecutionResult(BaseModel):
-    """Represent a determined completion or the partial output of a timeout."""
+    """表示已确定的完成结果，或超时前获得的部分输出。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
     command: str = Field(description="Original command dispatched to AsyncSSH.")
     exit_code: int | None = Field(description="Remote exit status when determined.")
     exit_signal: str | None = Field(description="Remote signal name when determined.")
+    stdout_truncation: OutputTruncation = Field(description="Stdout prefix provenance.")
+    stderr_truncation: OutputTruncation = Field(description="Stderr prefix provenance.")
     stdout: str = Field(description="Strict UTF-8 standard output.")
     stderr: str = Field(description="Strict UTF-8 standard error.")
     timed_out: bool = Field(description="Whether the 30-second wait expired.")
@@ -196,12 +233,12 @@ class CommandExecutionResult(BaseModel):
 
 
 class CommandToolEnvelope(BaseModel):
-    """Provide the stable versioned JSON contract returned to the model."""
+    """定义返回给模型的稳定、带版本 JSON 契约。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
-    schema_version: Literal[1] = Field(
-        default=1,
+    schema_version: Literal[2] = Field(
+        default=2,
         description="Tool result schema version.",
     )
     ok: bool = Field(

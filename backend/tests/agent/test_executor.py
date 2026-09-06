@@ -15,21 +15,21 @@ from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
 
 
 class FakeCommandProcess:
-    """Controllable non-PTY SSH process used to verify executor ownership."""
+    """可控非 PTY SSH 进程，用于验证执行器所有权。"""
 
     def __init__(self, outcome: object, *, cleanup_failure: str | None = None) -> None:
-        """Store one result, exception, or wait gate as the process outcome."""
+        """保存作为进程结果的返回值、异常或等待门禁。"""
 
-        self.outcome = outcome  # Value returned or raised by wait().
-        self.cleanup_failure = cleanup_failure  # Injected cleanup phase failure.
-        self.terminated = False  # Whether executor sent remote termination.
-        self.closed = False  # Whether executor closed the local channel.
-        self.wait_closed_called = False  # Whether final channel wait was attempted.
-        self.waited_closed = False  # Whether local channel cleanup completed.
-        self.wait_started = asyncio.Event()  # Signals registration before completion.
+        self.outcome = outcome  # wait() 返回或抛出的值。
+        self.cleanup_failure = cleanup_failure  # 注入的清理阶段失败。
+        self.terminated = False  # 执行器是否发送了远程终止。
+        self.closed = False  # 执行器是否关闭了本地通道。
+        self.wait_closed_called = False  # 是否尝试了最终通道等待。
+        self.waited_closed = False  # 本地通道清理是否完成。
+        self.wait_started = asyncio.Event()  # 在完成前发出已注册信号。
 
     async def wait(self, *, check: bool, timeout: int) -> object:
-        """Return or raise the configured result after recording wait options."""
+        """记录等待选项后返回或抛出配置结果。"""
 
         assert check is False
         assert timeout == 30
@@ -42,21 +42,21 @@ class FakeCommandProcess:
         return self.outcome
 
     def close(self) -> None:
-        """Record closure of the local SSH exec channel."""
+        """记录本地 SSH exec 通道关闭。"""
 
         self.closed = True
         if self.cleanup_failure == "close":
             raise RuntimeError("close failed")
 
     def terminate(self) -> None:
-        """Record the explicit remote termination sent before channel close."""
+        """记录通道关闭前发送的显式远程终止。"""
 
         self.terminated = True
         if self.cleanup_failure == "terminate":
             raise RuntimeError("terminate failed")
 
     async def wait_closed(self) -> None:
-        """Record completion of local channel cleanup."""
+        """记录本地通道清理完成。"""
 
         self.wait_closed_called = True
         if self.cleanup_failure == "wait_closed":
@@ -66,7 +66,7 @@ class FakeCommandProcess:
 
 @dataclass(slots=True)
 class FakeCommandConnection:
-    """Return one fixed process and record exact non-PTY dispatch calls."""
+    """返回固定进程并记录精确非 PTY 派发调用。"""
 
     process: FakeCommandProcess
     create_gate: asyncio.Event | None = None
@@ -80,14 +80,14 @@ class FakeCommandConnection:
     )
 
     def __post_init__(self) -> None:
-        """Initialize an empty dispatch record."""
+        """初始化空派发记录。"""
 
         self.calls.clear()
 
     async def create_process(
         self, command: str, **options: object
     ) -> FakeCommandProcess:
-        """Record the raw command and binary encoding option."""
+        """记录原始命令和二进制编码选项。"""
 
         self.calls.append((command, options))
         self.create_started.set()
@@ -96,10 +96,10 @@ class FakeCommandConnection:
         return self.process
 
     def close(self) -> None:
-        """Satisfy the SSH registry connection ownership contract."""
+        """满足 SSH 注册表的连接所有权契约。"""
 
     async def wait_closed(self) -> None:
-        """Satisfy the SSH registry connection ownership contract."""
+        """满足 SSH 注册表的连接所有权契约。"""
 
 
 def _completed(
@@ -109,7 +109,7 @@ def _completed(
     exit_status: int | None = 0,
     exit_signal: tuple[str, bool, str, str] | None = None,
 ) -> SimpleNamespace:
-    """Build the subset of AsyncSSH completed-process data consumed by executor."""
+    """构建执行器使用的 AsyncSSH 完成进程数据子集。"""
 
     return SimpleNamespace(
         stdout=stdout,
@@ -120,7 +120,7 @@ def _completed(
 
 
 def _clock(*values: float) -> Any:
-    """Return a deterministic monotonic clock over the supplied values."""
+    """根据给定值返回确定性单调时钟。"""
 
     iterator: Iterator[float] = iter(values)
     return lambda: next(iterator)
@@ -131,7 +131,7 @@ def _registered(
     *,
     create_gate: asyncio.Event | None = None,
 ) -> tuple[SshSessionRegistry, UUID, FakeCommandConnection]:
-    """Register one fake live SSH owner and return its stable session identity."""
+    """注册活动 SSH 管理者替身并返回稳定会话标识。"""
 
     sessions = SshSessionRegistry()
     connection = FakeCommandConnection(process, create_gate=create_gate)
@@ -146,7 +146,7 @@ def _registered(
 
 
 def test_missing_session_does_not_create_process() -> None:
-    """Fail before dispatch when the frozen SSH session is unavailable."""
+    """冻结 SSH 会话不可用时在派发前失败。"""
 
     async def scenario() -> None:
         sessions, _session_id, connection = _registered(
@@ -165,7 +165,7 @@ def test_missing_session_does_not_create_process() -> None:
 
 
 def test_pre_cancelled_turn_does_not_create_process() -> None:
-    """Observe cancellation before the SSH dispatch boundary and execute nothing."""
+    """在 SSH 派发边界前观察取消，不执行任何命令。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(_completed())
@@ -186,7 +186,7 @@ def test_pre_cancelled_turn_does_not_create_process() -> None:
 
 
 def test_selected_session_owns_process_and_nonzero_exit_is_completed() -> None:
-    """Use only the selected owner and treat nonzero remote exit as determined."""
+    """只使用选定管理者，并将远程非零退出视为已确定结果。"""
 
     async def scenario() -> None:
         waiting = asyncio.Event()
@@ -229,7 +229,7 @@ def test_selected_session_owns_process_and_nonzero_exit_is_completed() -> None:
 
 
 def test_timeout_returns_partial_bytes_without_retry() -> None:
-    """Return strict partial output after one timed-out dispatch and close channel."""
+    """单次派发超时后返回严格部分输出并关闭通道。"""
 
     async def scenario() -> None:
         timeout = asyncssh.TimeoutError(
@@ -263,7 +263,7 @@ def test_timeout_returns_partial_bytes_without_retry() -> None:
 
 
 def test_cancel_closes_and_unregisters_process() -> None:
-    """Raise stable cancellation only after closing and unregistering the channel."""
+    """关闭并注销通道后才抛出稳定取消错误。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(asyncio.Event())
@@ -291,7 +291,7 @@ def test_cancel_closes_and_unregisters_process() -> None:
 
 
 def test_invalid_utf8_returns_explicit_failure_without_replacement_text() -> None:
-    """Reject non-UTF-8 output instead of silently replacing bytes."""
+    """拒绝非 UTF-8 输出，不静默替换字节。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(_completed(stdout=b"valid\xffinvalid"))
@@ -309,7 +309,7 @@ def test_invalid_utf8_returns_explicit_failure_without_replacement_text() -> Non
 
 
 def test_disconnect_after_dispatch_returns_unknown_result_without_retry() -> None:
-    """Classify a transport loss once without replaying an ambiguous command."""
+    """只分类一次传输丢失，不重放结果不明确的命令。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(asyncssh.DisconnectError(10, "lost"))
@@ -333,7 +333,7 @@ def test_disconnect_after_dispatch_returns_unknown_result_without_retry() -> Non
 
 
 def test_unexpected_wait_failure_closes_and_unregisters_process() -> None:
-    """Clean up an owned channel before mapping an unexpected wait failure."""
+    """映射意外等待失败前清理拥有的通道。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(RuntimeError("wait failed"))
@@ -354,7 +354,7 @@ def test_unexpected_wait_failure_closes_and_unregisters_process() -> None:
 
 
 def test_outer_task_cancellation_closes_and_unregisters_process() -> None:
-    """Retain ownership until cleanup when the executor coroutine is cancelled."""
+    """执行器协程取消时保留所有权直到完成清理。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(asyncio.Event())
@@ -380,7 +380,7 @@ def test_outer_task_cancellation_closes_and_unregisters_process() -> None:
 
 
 def test_outer_cancellation_during_dispatch_waits_for_and_closes_process() -> None:
-    """Retain ownership when exec dispatch precedes delayed process-handle delivery."""
+    """exec 派发先于延迟进程句柄返回时仍保留所有权。"""
 
     async def scenario() -> None:
         create_gate = asyncio.Event()
@@ -421,7 +421,7 @@ def test_outer_cancellation_during_dispatch_waits_for_and_closes_process() -> No
 def test_cleanup_failure_attempts_all_phases_and_preserves_ownership_until_closed(
     cleanup_failure: str,
 ) -> None:
-    """Attempt every cleanup phase and retain ownership until closure is confirmed."""
+    """尝试每个清理阶段，确认关闭前始终保留所有权。"""
 
     async def scenario() -> None:
         process = FakeCommandProcess(

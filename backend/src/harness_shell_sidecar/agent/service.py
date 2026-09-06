@@ -1,4 +1,4 @@
-"""Top-level Agent turn lifecycle and per-conversation serialization."""
+"""顶层 Agent 轮次生命周期与按会话串行执行。"""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from pydantic import SecretStr
 from harness_shell_sidecar.runtime.models import MAX_JSON_BODY_BYTES
 from .api_configs import ApiConfigRepository
 from .context import ContextService
+from .context_budget import ContextBudget
 from .contracts import (
     AgentRun,
     AgentRunStatus,
@@ -41,6 +42,10 @@ from .tools import CommandSafetyReviewer
 
 _PUBLIC_RUN_FAILURE_CODES = frozenset(
     {
+        "CONTEXT_TOKENIZER_UNAVAILABLE",
+        "CONTEXT_BUDGET_EXCEEDED",
+        "CONTEXT_COMPACTION_FAILED",
+        "CONTEXT_SUMMARY_INVALID",
         "AGENT_CANCELLED",
         "AGENT_RESPONSE_TOO_LARGE",
         "MODEL_NETWORK_TIMEOUT",
@@ -59,26 +64,26 @@ LOGGER = logging.getLogger("harness_shell_sidecar.agent.service")
 
 
 class AgentServiceError(RuntimeError):
-    """Expose a stable failure which occurs before a durable Run can start."""
+    """暴露持久化 Run 启动前发生的稳定失败。"""
 
     def __init__(self, error_code: str, message: str) -> None:
-        """Store the public code and one reviewed non-sensitive failure reason."""
+        """保存公开错误码与已审查的非敏感失败原因。"""
 
         super().__init__(f"{error_code}: {message}")
-        self.error_code = error_code  # Stable handler-facing failure code.
-        self.safe_message = message  # Reviewed detail without secret material.
+        self.error_code = error_code  # 提供给 handler 的稳定失败错误码。
+        self.safe_message = message  # 经过审查且不含秘密材料的详情。
 
 
 @dataclass(slots=True)
 class _ConversationLockEntry:
-    """Track one conversation lock and every current holder or waiter."""
+    """跟踪一个会话锁及其所有持有者和等待者。"""
 
     lock: asyncio.Lock
     users: int = 0
 
 
 class AgentService:
-    """Validate a turn, serialize its conversation, and own graph lifecycle mapping."""
+    """校验轮次、串行化所属会话，并负责图生命周期映射。"""
 
     def __init__(
         self,
@@ -88,11 +93,12 @@ class AgentService:
         gateway: ModelInvoker,
         context: ContextService,
         session_is_available: Callable[[UUID], bool],
+        *, budget: ContextBudget | None = None,
     ) -> None:
-        """Build one reusable graph from long-lived non-secret runtime collaborators."""
+        """利用长期非秘密运行时协作者构建可复用图。"""
 
-        self._api_configs = api_configs  # Provider configuration authority.
-        self._conversations = conversations  # History and Run authority.
+        self._api_configs = api_configs  # Provider 配置的权威来源。
+        self._conversations = conversations  # 历史和 Run 的权威来源。
         self._session_is_available = session_is_available
         self._conversation_locks: dict[UUID, _ConversationLockEntry] = {}
         dependencies = AgentGraphDependencies(
@@ -101,8 +107,9 @@ class AgentService:
             gateway=gateway,
             reviewer=CommandSafetyReviewer(),
             executor=executor,
+            budget=budget,
         )
-        self._graph = build_agent_graph(dependencies)  # Compiled without checkpointer.
+        self._graph = build_agent_graph(dependencies)  # 编译时不使用 checkpointer。
 
     async def run_turn(
         self,
@@ -113,8 +120,9 @@ class AgentService:
         expected_config: ModelApiConfig | None,
         event_sink: AgentTurnEventSink,
     ) -> AgentTurnResult:
-        """Run one turn while publishing lifecycle around durable Run states."""
+        """执行一轮，并围绕持久化 Run 状态发布生命周期事件。"""
 
+        # 1. 创建持久化状态前先验证取消、Provider 配置与活动 SSH 会话。
         self._validate_run_authorities(request, expected_config, cancelled)
 
         conversation_id = request.conversation_id
@@ -126,6 +134,7 @@ class AgentService:
                 "the requested conversation does not exist",
             )
 
+        # 2. 按会话串行执行；取得锁后再次复核权威状态，再创建 RUNNING Run。
         async with self._conversation_lock(conversation_id):
             config = self._validate_run_authorities(
                 request,
@@ -162,6 +171,7 @@ class AgentService:
                     },
                 },
             )
+            # 3. 分开构造图状态与短生命周期调用上下文，秘密不进入图状态。
             initial_state: AgentGraphState = {
                 "agent_run_id": run.agent_run_id,
                 "conversation_id": conversation_id,
@@ -169,6 +179,8 @@ class AgentService:
                 "api_config_id": request.api_config_id,
                 "messages": [],
                 "model_messages": [],
+                "records": [],
+                "summary": None,
                 "react_iteration": 0,
                 "run_status": AgentRunStatus.RUNNING,
                 "last_error_code": None,
@@ -181,6 +193,7 @@ class AgentService:
                 text_sink=event_sink,
             )
             try:
+                # 4. Run 已持久化后发布 started，再运行图和最终文本一致性检查。
                 await event_sink.started(run)
                 state = await self._graph.ainvoke(
                     initial_state,
@@ -207,8 +220,9 @@ class AgentService:
                     _log_terminal_run(finished, config, started_ns)
                     await event_sink.completed(finished)
                     return _result_from_run(finished, final_text=final_text)
+            # 5. 异常和取消路径先持久化终态；协程取消继续向外传播。
             except asyncio.CancelledError:
-                # A dispatcher shutdown still requires a durable terminal Run.
+                # 即使 dispatcher 正在关闭，也必须持久化 Run 终态。
                 finished = self._finish_if_running(
                     run,
                     AgentRunStatus.CANCELLED,
@@ -255,6 +269,7 @@ class AgentService:
                 await event_sink.failed(finished, failure_message)
                 return _result_from_run(finished, final_text=None)
 
+            # 6. 图自行进入终态时重新读取权威记录，再发布匹配的终止事件。
             finished = self._conversations.get_run(run.agent_run_id)
             if finished is None or finished.status is AgentRunStatus.RUNNING:
                 raise RuntimeError("Agent graph returned without a durable terminal Run")
@@ -278,7 +293,7 @@ class AgentService:
         expected_config: ModelApiConfig | None,
         cancelled: asyncio.Event,
     ) -> ModelApiConfig:
-        """Recheck cancellation, the full config snapshot, and live Session authority."""
+        """重新检查取消、完整配置快照和活动 Session 权威状态。"""
 
         if cancelled.is_set():
             raise AgentServiceError(
@@ -313,7 +328,7 @@ class AgentService:
         self,
         conversation_id: UUID,
     ) -> AsyncIterator[None]:
-        """Serialize a conversation and remove its lock after the final user exits."""
+        """串行化同一会话，最后一个使用者退出后移除锁。"""
 
         entry = self._conversation_locks.get(conversation_id)
         if entry is None:
@@ -340,7 +355,7 @@ class AgentService:
         status: AgentRunStatus,
         error_code: str,
     ) -> AgentRun:
-        """Apply one failure transition unless a graph node already reached terminal state."""
+        """除非图节点已进入终态，否则执行一次失败转换。"""
 
         current = self._conversations.get_run(original_run.agent_run_id)
         if current is None:
@@ -359,7 +374,7 @@ def _log_terminal_run(
     config: ModelApiConfig,
     started_ns: int,
 ) -> None:
-    """Emit exactly one lifecycle event for a known durable terminal Run."""
+    """为已知的持久化终态 Run 发出且仅发出一次生命周期事件。"""
 
     event = {
         AgentRunStatus.COMPLETED: "agent_run_completed",
@@ -425,7 +440,7 @@ def _log_terminal_run(
 
 
 def _final_text(state: dict[str, Any]) -> str:
-    """Extract final text from string or standard Responses content blocks."""
+    """从字符串或标准 Responses 内容块提取最终文本。"""
 
     messages = state.get("messages")
     if not isinstance(messages, list) or not messages:
@@ -437,7 +452,7 @@ def _final_text(state: dict[str, Any]) -> str:
 
 
 def _result_from_run(run: AgentRun, *, final_text: str | None) -> AgentTurnResult:
-    """Project one durable Run snapshot into the bounded internal result."""
+    """将持久化 Run 快照投影为有界内部结果。"""
 
     return AgentTurnResult(
         conversation_id=run.conversation_id,
@@ -455,7 +470,7 @@ def _require_agent_result_fits(
     *,
     react_iteration: int,
 ) -> None:
-    """Keep the pre-SSE complete-result logical byte budget unchanged."""
+    """保持引入 SSE 前完整结果的逻辑字节预算不变。"""
 
     result = AgentTurnResult(
         conversation_id=run.conversation_id,

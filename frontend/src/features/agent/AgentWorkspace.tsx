@@ -145,7 +145,7 @@ export function AgentWorkspace({
 
       <div
         ref={messageListRef}
-        className="agent-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm"
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm"
       >
         {tab.messages.length === 0 ? (
           <p className="grid min-h-32 place-content-center text-center text-ink-dim">

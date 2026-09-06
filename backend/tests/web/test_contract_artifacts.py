@@ -1,4 +1,4 @@
-"""Validate the frozen HTTP and runtime WebSocket contract artifacts."""
+"""验证冻结的 HTTP 和 Runtime WebSocket 契约产物。"""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ EXPECTED_LIMITS = {
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    """Load one UTF-8 contract artifact as a JSON object."""
+    """将 UTF-8 契约产物加载为 JSON 对象。"""
 
     value = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
@@ -109,7 +109,7 @@ def load_json(path: Path) -> dict[str, Any]:
 def _parse_fixture_frames(
     wire: str,
 ) -> list[tuple[str, int, dict[str, object]]]:
-    """Parse well-framed fixture events before testing one semantic violation."""
+    """测试单个语义违规前先解析分帧正确的 fixture 事件。"""
 
     frames: list[tuple[str, int, dict[str, object]]] = []
     assert wire.endswith("\n\n")
@@ -132,7 +132,7 @@ def _parse_fixture_frames(
 
 
 def test_frozen_openapi_has_exact_http_operations() -> None:
-    """Reject missing, extra, or generic RPC HTTP operations."""
+    """拒绝缺失、多余或 generic RPC HTTP 操作。"""
 
     document = load_json(HTTP_ROOT / "openapi-v1.json")
     operations = {
@@ -148,7 +148,7 @@ def test_frozen_openapi_has_exact_http_operations() -> None:
 
 
 def test_credential_encryption_fixture_freezes_browser_wire_parameters() -> None:
-    """Keep React and Python aligned on the exact hybrid envelope parameters."""
+    """保持 React 与 Python 的混合加密信封参数精确一致。"""
 
     fixture = load_json(HTTP_ROOT / "fixtures/credential-encryption-v1.json")
 
@@ -172,7 +172,7 @@ def test_credential_encryption_fixture_freezes_browser_wire_parameters() -> None
 
 
 def test_each_operation_has_request_correlation_and_problem_details() -> None:
-    """Require the shared request ID and typed error boundary on every operation."""
+    """每个操作都要求共享请求 ID 和 typed 错误边界。"""
 
     document = load_json(HTTP_ROOT / "openapi-v1.json")
     for path, item in document["paths"].items():
@@ -190,7 +190,7 @@ def test_each_operation_has_request_correlation_and_problem_details() -> None:
 
 
 def test_agent_turn_contract_has_only_sse_success() -> None:
-    """Expose the strict event union without an obsolete JSON success model."""
+    """暴露严格事件联合，不包含过时 JSON 成功模型。"""
 
     document = build_openapi_document()
     operation = document["paths"]["/v1/agent/turns"]["post"]
@@ -218,7 +218,7 @@ def test_agent_turn_contract_has_only_sse_success() -> None:
 
 
 def test_agent_sse_fixtures_freeze_valid_and_invalid_sequences() -> None:
-    """Keep cross-language framing and state-machine cases deterministic."""
+    """保持跨语言分帧与状态机案例确定性。"""
 
     valid = load_json(HTTP_ROOT / "fixtures/agent/valid-http-v1.json")
     stream = next(case for case in valid["cases"] if case["name"] == "agent-turn-sse")
@@ -281,7 +281,7 @@ def test_agent_sse_fixtures_freeze_valid_and_invalid_sequences() -> None:
 
 
 def test_websocket_union_and_limits_are_exact() -> None:
-    """Freeze the realtime union and all cross-language byte/time limits."""
+    """冻结实时消息联合及全部跨语言字节和时间限制。"""
 
     websocket = load_json(HTTP_ROOT / "runtime-websocket-v1.schema.json")
     assert set(websocket["$defs"]["message_type"]["enum"]) == EXPECTED_WEBSOCKET_TYPES
@@ -291,7 +291,7 @@ def test_websocket_union_and_limits_are_exact() -> None:
 
 
 def test_invalid_fixtures_name_the_expected_stable_error() -> None:
-    """Require every invalid cross-language case to state its expected error code."""
+    """要求每个非法跨语言案例声明预期错误码。"""
 
     paths = [
         HTTP_ROOT / "fixtures/runtime-invalid-v1.json",
@@ -305,7 +305,7 @@ def test_invalid_fixtures_name_the_expected_stable_error() -> None:
 
 
 def test_http_artifacts_do_not_reintroduce_the_old_transport() -> None:
-    """Keep old framing and generic method wrappers out of the frozen artifacts."""
+    """冻结产物不包含旧分帧和 generic method 包装。"""
 
     forbidden = ("FrameEnvelope", "Content-Length", '"/v1/rpc"', '"method":')
     paths = list(HTTP_ROOT.rglob("*.json"))

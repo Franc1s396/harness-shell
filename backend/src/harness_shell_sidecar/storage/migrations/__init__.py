@@ -1,2 +1,2 @@
-"""Embedded SQLite migrations."""
+"""内嵌 SQLite schema 脚本。"""
 

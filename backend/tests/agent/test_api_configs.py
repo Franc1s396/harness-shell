@@ -10,6 +10,34 @@ from harness_shell_sidecar.agent.contracts import ApiType
 from .conftest import AgentStorage, valid_api_config_input
 
 
+def test_context_budget_fields_round_trip(agent_storage: AgentStorage) -> None:
+    value = valid_api_config_input()
+    created = agent_storage.api_configs.create(value)
+    assert (created.context_window_size, created.context_compaction_threshold_ratio,
+            created.max_output_tokens) == (128000, 0.75, 8192)
+    payload = value.model_dump()
+    payload.update(context_window_size=64000,
+                   context_compaction_threshold_ratio=0.5, max_output_tokens=4096)
+    updated = agent_storage.api_configs.update(
+        created.api_config_id, type(value).model_validate(payload))
+    assert agent_storage.api_configs.get(created.api_config_id) == updated
+    assert updated.max_output_tokens == 4096
+
+
+@pytest.mark.parametrize("changes", [
+    {"context_window_size": True}, {"context_window_size": 0},
+    {"max_output_tokens": 128000}, {"max_output_tokens": 1.5},
+    {"context_compaction_threshold_ratio": float("nan")},
+    {"context_compaction_threshold_ratio": 0.99},
+    {"context_compaction_threshold_ratio": 0},
+])
+def test_budget_config_rejects_invalid_values(changes: dict[str, object]) -> None:
+    from pydantic import ValidationError
+    value = valid_api_config_input()
+    with pytest.raises(ValidationError):
+        type(value).model_validate({**value.model_dump(), **changes})
+
+
 def test_api_config_repository_round_trips_crud(agent_storage: AgentStorage) -> None:
     created = agent_storage.api_configs.create(valid_api_config_input())
 

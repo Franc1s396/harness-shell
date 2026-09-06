@@ -50,7 +50,7 @@ from harness_shell_sidecar.web.lifespan import RuntimeOwnerError
 def test_code_bearing_exception_requires_a_specific_safe_message(
     error_type: Callable[[str, str], Exception],
 ) -> None:
-    """Expose both the stable code and the reviewed failure reason."""
+    """同时暴露稳定错误码和已审查失败原因。"""
 
     try:
         error = error_type("TEST_FAILURE", "the tested boundary rejected its input")

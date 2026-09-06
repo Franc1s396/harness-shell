@@ -12,6 +12,9 @@ const current: ModelApiConfig = {
   api_config_id: "config-1",
   display_name: "Production",
   api_type: "RESPONSES",
+  context_window_size: 128000,
+  context_compaction_threshold_ratio: 0.75,
+  max_output_tokens: 8192,
   base_url: "https://api.example/v1",
   model: "gpt-5",
   api_key_secret_ref: "credential-old",
@@ -22,6 +25,9 @@ const current: ModelApiConfig = {
 
 const draft = {
   displayName: "Production",
+  contextWindowSize: "128000",
+  contextCompactionThresholdPercent: "75",
+  maxOutputTokens: "8192",
   apiType: "RESPONSES" as const,
   baseUrl: "https://api.example/v1",
   model: "gpt-5",
@@ -46,6 +52,10 @@ describe("provider config actions", () => {
       kind: "success",
       value: current,
     });
+    expect(mock.createModelApiConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ context_window_size: 128000,
+        context_compaction_threshold_ratio: 0.75, max_output_tokens: 8192 }), "secret",
+    );
     expect(mock.createModelApiConfig).toHaveBeenCalledWith(
       expect.not.objectContaining({ api_key_secret_ref: expect.anything() }),
       "secret",

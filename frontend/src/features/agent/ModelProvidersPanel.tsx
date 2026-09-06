@@ -55,7 +55,7 @@ export function ModelProvidersPanel(props: ModelProvidersPanelProps) {
       await props.onDelete(pendingDelete);
       setPendingDelete(null);
     } catch {
-      // The controlled parent exposes the structured mutation failure.
+      // 结构化变更失败由受控父组件展示。
     } finally {
       setBusy(false);
     }

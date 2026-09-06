@@ -11,7 +11,7 @@ from harness_shell_sidecar.runtime.request_context import RequestContext
 
 
 def test_dispatcher_passes_only_request_context_and_params() -> None:
-    """Keep protocol envelopes outside the application dispatcher contract."""
+    """协议信封不进入应用 dispatcher 契约。"""
 
     async def scenario() -> None:
         observed: list[tuple[UUID, Mapping[str, object]]] = []
@@ -36,7 +36,7 @@ def test_dispatcher_passes_only_request_context_and_params() -> None:
 
 
 def test_dispatcher_executes_non_json_application_work_under_same_owner() -> None:
-    """Keep raw binary work inside duplicate, capacity, and cancellation ownership."""
+    """原始二进制工作仍受重复请求、容量和取消所有权约束。"""
 
     async def scenario() -> None:
         request_id = uuid4()
@@ -124,7 +124,7 @@ def test_dispatcher_rejects_unknown_duplicate_and_over_capacity() -> None:
 
 
 def test_dispatcher_capacity_defaults_to_sixteen() -> None:
-    """Reject request seventeen while sixteen handlers remain active."""
+    """十六个 handler 仍活动时拒绝第十七个请求。"""
 
     async def scenario() -> None:
         release = asyncio.Event()

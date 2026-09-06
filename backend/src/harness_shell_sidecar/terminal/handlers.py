@@ -1,4 +1,4 @@
-"""Validated Sidecar handlers for interactive PTY channels."""
+"""交互式 PTY 通道的已校验 Sidecar handler。"""
 
 from __future__ import annotations
 

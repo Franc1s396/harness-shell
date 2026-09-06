@@ -17,7 +17,7 @@ FastAPI ASGI lifespan 从 `RuntimeSettings` 创建唯一 `RuntimeResources`，�
 
 - `web/`：Uvicorn、lifespan、typed HTTP/WebSocket gateway、Agent SSE encoder/session/startup barrier、Problem Details 与 OpenAPI export。
 - `runtime/`：settings、resources、dispatcher、request context 与 Desktop control pipe。
-- `storage/`：schema-v6-only plaintext database 与 generic plaintext records。
+- `storage/`：schema-v7-only plaintext database 与 generic plaintext records。
 - `credentials/`：request envelope 解封、kind-checked plaintext credential repository、temporary secret cleanup；不提供独立 credential mutation route。
 - `ssh/`、`terminal/`：SSH/ProxyJump/Host Key/PTY owner。
 - `manual_sftp/`：remote-only listing、mutation、temporary/commit/abort/recovery；不得读取或写入本地用户文件。
@@ -25,15 +25,33 @@ FastAPI ASGI lifespan 从 `RuntimeSettings` 创建唯一 `RuntimeResources`，�
 
 `ModelGateway` 使用显式 `ModelApiConfig.api_type` 在官方 `openai==3.6.0` SDK 的 `AsyncOpenAI.responses.create(stream=True)` 与 `AsyncOpenAI.chat.completions.create(stream=True)` 之间选择。两种 API 各自拥有 request mapper 和 typed stream parser，最终统一返回 `langchain-core` `AIMessage`；禁止自动探测、协议 fallback 和 SDK 内部 retry。每次 invocation 独占一个 client，每次 attempt 独占一个 stream，并在成功、失败和取消时关闭。Responses replay items 按严格 JSON 语义校验，只有 `api_config_id` 相同时回放。
 
-Chat Completions 与 Responses 接收采用类似 Open WebUI 的宽松聚合规则：SDK 对象转为普通字段映射，不做全字段 Schema 复验。Chat 只消费第一个 choice，忽略空 choices / usage / 未识别元数据；不要求 finish_reason、下标或重复终止标记满足严格状态机。Responses 按 SSE 到达顺序聚合，忽略未知事件和未消费的元数据；item 身份优先、下标其次，允许缺少序号、下标、冗余 name、status 和部分生命周期事件。done 更新已收集字段，非空最终 output 替换累积 output，空最终 output 保留累积值；不再比较 delta/done/final 的逐字段相等性。正常 EOF 结束聚合，重复完成与完成后元数据不报协议错误；明确 Provider error / response.failed 和传输异常仍传播。
+Chat Completions 与 Responses 接收采用类似 Open WebUI 的宽松聚合规则：SDK 对象转为普通字段映射，不做全字段 Schema 复验。Chat 只消费第一个 choice，忽略空 choices / 未识别元数据，并在空 choices chunk 中独立提取有效 usage；不要求 finish_reason、下标或重复终止标记满足严格状态机。Responses 按 SSE 到达顺序聚合，忽略未知事件和未消费的元数据；item 身份优先、下标其次，允许缺少序号、下标、冗余 name、status 和部分生命周期事件。done 更新已收集字段，非空最终 output 替换累积 output，空最终 output 保留累积值；不再比较 delta/done/final 的逐字段相等性。正常 EOF 结束聚合，重复完成与完成后元数据不报协议错误；明确 Provider error / response.failed 和传输异常仍传播。
 
 每次模型调用先缓冲聚合内容，再发送最终纯文本答案，首字因此延后；最终答案按有界片段发送，保持现有只追加 Agent SSE 协议。文本与工具调用可以共存并保存到上下文，但工具调用轮的文字不提前发布。尚未发布的草稿在网络超时重试时丢弃，publisher 的异常身份与取消传播不变。工具参数允许 JSON 对象、JSON 字符串和安全解析的 Python literal 字典，并统一规范为 JSON；不能解析为对象或缺少函数名仍失败，不执行猜测的命令。工具名、参数字段和命令安全由现有 execute_command / Agent graph 边界检查。Responses 本地 Replay 仍只保存支持的 message / reasoning / function_call，按严格本地 JSON Schema 和 api_config_id 校验；不将未知 hosted-tool 元数据转成可执行命令。
 
+## Agent 上下文工程
+
+`RuntimeResources` 在启动时创建 `AgentContextPolicy` 和本地 tokenizer/`ContextBudget`；graph 借用同一数据库创建 `ContextSummaryRepository` 与 `ContextCompactor`。`context_models.py` 定义序号记录、摘要、预算来源和安全错误；`context.py` 负责修复与有效投影；`context_budget.py` 负责估算和预算；`context_summaries.py` 负责短事务；`context_compaction.py` 负责一次有界摘要流程。
+
+调用链固定为 `load_context → compact_context → prepare_model_context → call_model`；工具执行后仅回到 `prepare_model_context`。新 HumanMessage 入库后只检查一次压缩。按 Human 边界保留最近 3 个完整历史轮次及当前用户轮，修复 ToolMessage 归属其前一历史轮；未摘要的历史不会按固定轮数丢弃。模型投影为 canonical System Prompt、可选的带历史数据标记的摘要 HumanMessage、覆盖边界后的完整消息。
+
+每个 Provider 保存 `context_window_size=128000`、`context_compaction_threshold_ratio=0.75`、`max_output_tokens=8192`，本轮沿用冻结配置。达到 `floor(window * ratio)` 触发；输入上限是 `window - max_output_tokens`，等号允许。主模型和摘要分别通过 Chat `max_completion_tokens` / Responses `max_output_tokens` 实际预留输出。轮内超预算以 `CONTEXT_BUDGET_EXCEEDED` 结束，不进行摘要。
+
+主模型响应保存规范化 usage 及 `harness_context_anchor`。从最新有效消息向前匹配 Provider/config/input 静态指纹与摘要 revision，使用 input+output+其后新增消息的映射估算，不重复计算锚点回复。没有兼容 usage 时估算 System、摘要、当前有效历史和工具定义的实际协议映射；本地 `o200k_base` 仅为估算，不声称各 Provider 精确一致。摘要自身的 usage 不进入主对话锚点。
+
+摘要复用本轮 Provider/model/key，走独立 `summarize_once`，无工具、无 UI sink。每次实际请求整体 60 秒，最多 3 次，失败间隔 1/2 秒且可取消；不复用主模型超时重试。摘要只包含有用历史，剔除 usage/anchor/opaque replay。摘要输入先验预算、候选投影再次验预算，通过后 CAS revision 并原子替换唯一摘要；历史消息不变。第三次失败以 `CONTEXT_COMPACTION_FAILED` 终止当前轮，下一轮可重新尝试。取消、预算、数据库错误直接传播；已提交摘要在随后主调用失败时保留。
+
+工具 envelope schema 2 的 `stdout`、`stderr` 分别仅保留首部 6000 个 Unicode code points，由 backend policy 控制。`stdout_truncation` / `stderr_truncation` 包含 original/retained/omitted 字符数和 truncated，字符串不混入裁剪提示。裁剪后的同一 envelope 用于数据库和模型；模型需继续查询后续输出。此限制发生在命令输出收集后，不是远程读取内存上限。
+
+本地资源 loader 只使用固定位置及 `o200k_base`，校验 ranks SHA-256 与固定样本；启动失败为 `CONTEXT_TOKENIZER_UNAVAILABLE`，不得运行时下载、借用 cache 或换 encoding。资源准备和 packaged 验证命令见 [Testing Guide](testing.md)。
+
 ## 存储
 
-`RuntimeDatabase.open_plaintext` 只接受不存在的新数据库或 exact schema v6。旧 schema、未知对象、约束不匹配或 self-check 失败必须在修改现有文件前退出。没有旧版本 sequential migration、兼容读取或自动备份。
+`RuntimeDatabase.open_plaintext` 只接受不存在的新数据库或 exact schema v7。旧 schema、未知对象、约束不匹配或 self-check 失败必须在修改现有文件前退出。没有旧版本 sequential migration、兼容读取或自动备份。
 
-schema v6 的 `runtime_records.payload` 与 credential records 是 plaintext。不要通过命名、注释或文档暗示 at-rest encryption。新增持久化内容时必须明确字段、nullability、删除、敏感性、schema self-check 和测试；没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
+`agent_context_summaries` 每会话至多一条，保存 revision、covered_through_sequence、summary_text、source_run_id 和时间戳；读取校验真实历史/工具边界，损坏以 `CONTEXT_SUMMARY_INVALID` 失败。conversation 外键级联删除摘要；不回写或替换 `agent_messages`。
+
+schema v7 的 `runtime_records.payload` 与 credential records 是 plaintext。不要通过命名、注释或文档暗示 at-rest encryption。新增持久化内容时必须明确字段、nullability、删除、敏感性、schema self-check 和测试；没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
 
 ## Protocol 约束
 
@@ -42,7 +60,7 @@ schema v6 的 `runtime_records.payload` 与 credential records 是 plaintext。�
 - Agent SSE 固定 frame 65,536 bytes、body 4,194,304 bytes、terminal reserve 65,536 bytes；producer awaited put，不 drop/merge/truncate。完整 Agent result 的 1,048,576-byte 逻辑预算继续生效。
 - Manual SFTP chunk 固定最大 262,144 bytes，使用 raw `application/octet-stream` 和 exact offset/operation identity。
 - WebSocket inbound/outbound queue capacity 固定且不 drop/merge；只有 strict ping 刷新 heartbeat。
-- credential、command、model response body/text、stdout/stderr、SFTP bytes 和 HTTP body 不得主动进入日志或 Problem detail；Provider failure 日志只允许 stable metadata。
+- credential、command、model response body/text、stdout/stderr、SFTP bytes 和 HTTP body 不得主动进入日志或 Problem detail；Provider failure 日志显式字段只允许 stable metadata，异常 traceback 遵循 Python Style Guide。
 - Connection 与 Provider handler 必须在同一 `RuntimeDatabase` 事务中维护业务记录及其拥有的 credential；更新省略 envelope 时保留现有引用，删除业务记录时同步删除 credential。
 - 未知字段、stale profile/session、duplicate owner、取消和 cleanup failure 都显式失败，不重放远程 mutation。
 
@@ -51,7 +69,7 @@ schema v6 的 `runtime_records.payload` 与 credential records 是 plaintext。�
 - stderr console 格式固定为 `yyyy-MM-dd HH:mm:ss.SSS | LEVEL | reqId | thread | logger | message`，timestamp 使用设备本地系统时间，stdout 保持为空；请求外日志的 `reqId` 列为空。源码 `serve` 模式使用 ANSI 为 timestamp、level、thread 与 logger 分级着色；`desktop` 模式保持无 ANSI 的纯文本，并由 Launcher 原样写入独立 Backend 轮转日志。
 - HTTP access middleware 在 response 完成后直接调用标准 Logger；除 `GET /v1/runtime/state` 轮询接口不打印 access log 外，每个请求只记录 method、route template、实际返回 status 和 duration。它不记录 raw path、query、headers 或 payload；无法匹配 route 时使用 `<unmatched>`。
 - HTTP `2xx/3xx` 使用 INFO，`4xx` 使用 WARNING，`5xx` 使用 ERROR。Uvicorn native access log 关闭，原生启动细节在 WARNING threshold，避免和应用日志重复。
-- Agent Run start/terminal lifecycle 保留 INFO 或 ERROR；node start/completion 与 route decision 属于 DEBUG。Provider、node 和 unexpected HTTP failure 使用 ERROR。
+- Agent Run start/terminal lifecycle 保留 INFO 或 ERROR；node start/completion 与 route decision 属于 DEBUG。Provider、node 和 unexpected HTTP failure 使用 ERROR；捕获异常时的日志调用及 traceback 规则遵循 [Python Style Guide](python-style.md#异常与失败传播)。
 - 具有稳定 error code 的领域异常必须同时携带每个 raise point 的具体、经过安全审查的 `safe_message`，不得只用 error code 作为异常文本；已知异常的外部 Problem/SSE 原样使用该 `safe_message`，不得再按 error code 替换。未知异常仍使用固定安全内容，禁止复制任意异常文本。
 
 ## 验证

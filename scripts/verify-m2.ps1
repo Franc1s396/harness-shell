@@ -55,7 +55,7 @@ try {
     }
 }
 
-Write-Output '[5/5] Plaintext schema-v6 evidence and generated-file scan'
+Write-Output '[5/5] Plaintext schema-v7 evidence and generated-file scan'
 & $pythonExe (Join-Path $workspaceRoot 'tests\ssh_lab\check-runtime-evidence.py') $evidenceRoot
 if ($LASTEXITCODE -ne 0) { throw 'Runtime database evidence is incomplete' }
 $tracked = @(& git.exe -c safe.directory='E:/codeSoftware/code/harness-shell' -C $workspaceRoot ls-files)
@@ -71,4 +71,4 @@ if ($forbiddenTracked.Count -ne 0) {
     throw "Generated or secret files are tracked: $($forbiddenTracked -join ', ')"
 }
 
-Write-Output 'M2 automated gate passed: local Windows checkout and containerized OpenSSH lab against plaintext schema v6 only.'
+Write-Output 'M2 automated gate passed: local Windows checkout and containerized OpenSSH lab against plaintext schema v7 only.'

@@ -1,4 +1,4 @@
-"""No-follow manual SFTP mutations, tombstones, and recursive delete plans."""
+"""不跟随链接的手动 SFTP 变更、墓碑目录与递归删除计划。"""
 
 from __future__ import annotations
 
@@ -42,44 +42,44 @@ MUTATION_REQUEST_TIMEOUT_SECONDS = 15
 
 @dataclass(frozen=True, slots=True)
 class _ScannedEntry:
-    """Pair canonical projected manifest metadata with the actual remote path."""
+    """将规范投影清单元数据与实际远程路径配对。"""
 
-    #: Canonical entry used for hashing and plaintext persistence.
+    #: 用于哈希和明文持久化的规范条目。
     manifest: DeleteManifestEntry
-    #: Actual path used only by the current in-memory operation.
+    #: 仅由当前内存操作使用的实际路径。
     actual_path: str
 
 
 @dataclass(frozen=True, slots=True)
 class _ManifestScan:
-    """Complete no-follow scan and its deterministic digest/counts."""
+    """保存完整的不跟随链接扫描结果及确定性摘要和计数。"""
 
-    #: Entries ordered by canonical UTF-8 path bytes.
+    #: 按规范 UTF-8 路径字节排序的条目。
     entries: tuple[_ScannedEntry, ...]
-    #: SHA-256 of sorted compact JSON Lines records.
+    #: 排序后的紧凑 JSON Lines 记录的 SHA-256。
     sha256: str
-    #: Regular file count.
+    #: 普通文件数量。
     file_count: int
-    #: Directory count including root.
+    #: 包含根目录的目录数量。
     directory_count: int
-    #: Symbolic-link count without targets.
+    #: 不计算链接目标的符号链接数量。
     symlink_count: int
-    #: Sum of known regular-file sizes.
+    #: 已知普通文件大小之和。
     total_byte_count: int
 
 
 @dataclass(slots=True)
 class _DeletePlanState:
-    """Keep the non-persisted live SSH binding required to execute one plan."""
+    """保留执行计划所需的非持久化活动 SSH 绑定。"""
 
-    #: Live SSH session selected during preflight; never persisted.
+    #: 预检时选择的活动 SSH 会话，不持久化。
     ssh_session_id: UUID
-    #: Encrypted canonical plan record without a live session ID.
+    #: 不含活动会话 ID 的明文规范计划记录。
     record: DeletePlanRecord
 
 
 class MutationManager:
-    """Own strict single-dispatch mutations and one-shot recursive-delete plans."""
+    """负责严格单次派发变更和一次性递归删除计划。"""
 
     def __init__(
         self,
@@ -87,7 +87,7 @@ class MutationManager:
         operations: ManualSftpOperationStore,
         event_listener: Callable[[dict], Awaitable[None]],
     ) -> None:
-        """Bind channel, plaintext state, and safe progress projection owners."""
+        """绑定通道、明文状态和安全进展投影管理者。"""
 
         self._channels = channels
         self._operations = operations
@@ -102,8 +102,9 @@ class MutationManager:
         parent_path: str,
         name: str,
     ) -> OperationTerminalProjection:
-        """Create one absent child directory exactly once."""
+        """对不存在的子目录仅执行一次创建。"""
 
+        # 1. 校验单个目录名和新操作标识，打开所选会话的独立通道。
         target_path = join_remote_path(parent_path, validate_basename(name))
         self._require_new_operation(operation_id)
         lease = await self._channels.open(ssh_session_id)
@@ -112,8 +113,9 @@ class MutationManager:
                 raise ManualSftpError(
                     "SFTP_TARGET_EXISTS", "The remote directory already exists."
                 )
-            # A target-exists result proves no mutation was attempted, so persist intent only
-            # after this deterministic precondition succeeds.
+            # 目标已存在可证明尚未尝试变更，因此只有确定性的前置条件
+            # 检查成功后才持久化操作意图。
+            # 2. 已确认目标不存在后持久化意图，再执行唯一一次 mkdir。
             record = self._operation_record(
                 operation_id, "mkdir", lease, target_path, None, None
             )
@@ -140,6 +142,7 @@ class MutationManager:
                 ) from exc
             except Exception as exc:
                 return await self._mutation_unknown(record, lease, exc)
+            # 3. 已确认成功后持久化回执；派发后不确定失败进入恢复状态。
             receipt = _terminal(
                 operation_id, "succeeded", None, "The remote directory was created."
             )
@@ -164,8 +167,9 @@ class MutationManager:
         source_snapshot: TransferSnapshot | None = None,
         target_snapshot: TransferSnapshot | None = None,
     ) -> OperationTerminalProjection:
-        """Revalidate both names and issue one atomic rename without fallback."""
+        """复核两个名称并执行一次原子重命名，不降级。"""
 
+        # 1. 校验路径和新操作标识，并读取两端当前快照。
         source = validate_remote_path(source_path)
         target = validate_remote_path(target_path)
         self._require_new_operation(operation_id)
@@ -193,6 +197,7 @@ class MutationManager:
                 raise ManualSftpError(
                     "SFTP_TARGET_EXISTS", "The remote rename target already exists."
                 )
+            # 2. 快照匹配后检查文件系统身份，拒绝已知跨文件系统重命名。
             source_fsid = await _filesystem_id(lease.client, source)
             target_fsid = await _filesystem_id(
                 lease.client, posixpath.dirname(target) or "/"
@@ -206,6 +211,7 @@ class MutationManager:
                     "SFTP_CROSS_DEVICE_MOVE_UNSUPPORTED",
                     "Cross-device remote moves are not supported.",
                 )
+            # 3. 持久化操作意图，选择协议支持的原子标志后只派发一次。
             record = self._operation_record(
                 operation_id,
                 "rename",
@@ -215,9 +221,9 @@ class MutationManager:
                 observed_target,
             )
             self._operations.put(record)
-            # On v3, any non-zero flag selects OpenSSH posix-rename and can overwrite an
-            # entry created after the absent-target snapshot. Use standard no-clobber
-            # rename for absent targets; v5+ has explicit atomic no-overwrite flags.
+            # SFTP v3 中任意非零标志都会选择 OpenSSH posix-rename，可能覆盖
+            # 在目标不存在快照之后新建的条目；此时应使用标准的不覆盖重命名。
+            # SFTP v5 及以上版本才有显式的原子且不覆盖标志。
             flags = (
                 FXR_ATOMIC | FXR_OVERWRITE
                 if observed_target.exists
@@ -282,6 +288,8 @@ class MutationManager:
                 ) from exc
             except Exception as exc:
                 return await self._mutation_unknown(record, lease, exc)
+            # 4. 确定成功后持久化终态，派发后的不确定失败交给恢复流程。
+            # 4. 确定成功才写成功回执；不确定结果保留恢复记录，不重试。
             receipt = _terminal(
                 operation_id, "succeeded", None, "The remote entry was renamed."
             )
@@ -302,12 +310,14 @@ class MutationManager:
         path: str,
         expected_snapshot: TransferSnapshot,
     ) -> OperationTerminalProjection:
-        """Remove one unchanged file/link or one proven-empty directory."""
+        """删除未改变的文件或链接，或已证实为空的目录。"""
 
+        # 1. 校验目标路径和新操作标识，取得独立通道。
         remote_path = validate_remote_path(path)
         self._require_new_operation(operation_id)
         lease = await self._channels.open(ssh_session_id)
         try:
+            # 2. 复核完整快照；目录还需证明为空，避免记录尚未可执行的意图。
             current = await _snapshot(
                 lease.client, remote_path, include_hash=expected_snapshot.entry_type == "file"
             )
@@ -332,8 +342,9 @@ class MutationManager:
                     close = getattr(iterator, "aclose", None)
                     if close is not None:
                         await close()
-            # Directory emptiness is a deterministic pre-dispatch check. Only persist intent
-            # after it succeeds, immediately before the one remove/rmdir call.
+            # 目录为空是派发前的确定性检查；检查通过后，
+            # 紧邻唯一一次 remove/rmdir 调用之前才持久化意图。
+            # 3. 前置检查通过后持久化意图，再按类型仅删除一次。
             record = self._operation_record(
                 operation_id, "remove", lease, remote_path, None, expected_snapshot
             )
@@ -376,12 +387,14 @@ class MutationManager:
         *,
         operation_id: UUID,
     ) -> DeletePlanSummary:
-        """Build a complete plan under the caller-selected durable identity."""
+        """按调用方选择的持久化标识构建完整计划。"""
 
+        # 1. 校验根路径和全新操作标识，使用独立通道执行只读预检。
         root_path = validate_remote_path(path)
         self._require_new_operation(operation_id)
         lease = await self._channels.open(ssh_session_id)
         try:
+            # 2. 完整扫描且不跟随链接，冻结清单哈希、数量和根快照。
             scan = await _scan_manifest(lease.client, root_path, root_path)
             if not scan.entries or scan.entries[0].manifest.entry_type != "directory":
                 raise ManualSftpError(
@@ -406,6 +419,7 @@ class MutationManager:
                 manifest_sha256=scan.sha256,
                 complete=True,
             )
+            # 3. 确定同目录墓碑路径，并持久化完整一次性计划和准备记录。
             tombstone_path = posixpath.join(
                 posixpath.dirname(root_path) or "/",
                 f".harness-shell-delete-{operation_id}.tombstone",
@@ -450,6 +464,7 @@ class MutationManager:
                     created_at=created_at,
                 )
             )
+            # 4. 只在内存保存执行所需活动会话绑定，然后返回供用户确认的摘要。
             self._delete_plans[delete_plan_id] = _DeletePlanState(
                 ssh_session_id, plan_record
             )
@@ -465,8 +480,9 @@ class MutationManager:
     async def delete_execute(
         self, delete_plan_id: UUID
     ) -> OperationTerminalProjection:
-        """Consume one plan, isolate by atomic tombstone, rehash, then delete bottom-up."""
+        """消费计划，原子重命名为墓碑目录隔离，重新校验哈希后自底向上删除。"""
 
+        # 1. 同时检查持久化消费状态和本次进程的活动绑定，禁止重放旧计划。
         state = self._delete_plans.get(delete_plan_id)
         persisted = self._operations.get_delete_plan(delete_plan_id)
         if persisted is None:
@@ -489,6 +505,7 @@ class MutationManager:
         lease = await self._channels.open(state.ssh_session_id)
         tombstone_isolated = False
         try:
+            # 2. 复核根快照，再以原子重命名隔离到墓碑路径。
             current_root = await _snapshot(
                 lease.client, record.root_path, include_hash=False
             )
@@ -556,6 +573,7 @@ class MutationManager:
                     "SFTP_TOMBSTONE_CLEANUP_REQUIRED",
                     "The isolated tombstone could not be rescanned.",
                 ) from exc
+            # 3. 隔离后重新扫描并比较完整清单哈希，变化时停止并要求恢复。
             if rescanned.sha256 != record.summary.manifest_sha256:
                 receipt = _terminal(
                     record.operation_id,
@@ -570,6 +588,7 @@ class MutationManager:
             await self._emit(
                 record, lease, "deleting", 0, len(rescanned.entries)
             )
+            # 4. 按深度自底向上删除；逐项操作受无进展超时约束。
             ordered = sorted(
                 rescanned.entries,
                 key=lambda item: (
@@ -621,6 +640,7 @@ class MutationManager:
                 )
                 self._finalize_delete_plan(record, receipt, "cleanup_required")
                 return receipt
+            # 5. 确认墓碑路径已消失后，持久化成功回执并消费一次性计划。
             receipt = _terminal(
                 record.operation_id,
                 "succeeded",
@@ -671,12 +691,12 @@ class MutationManager:
             await lease.close()
 
     async def close_all(self) -> None:
-        """Discard only non-replayable live bindings; plaintext records remain."""
+        """仅丢弃不可回放的活动绑定；保留明文记录。"""
 
         self._delete_plans.clear()
 
     def _require_new_operation(self, operation_id: UUID) -> None:
-        """Forbid reusing any persisted operation identity."""
+        """禁止复用任何已持久化的操作标识。"""
 
         if self._operations.get(operation_id) is not None:
             raise ManualSftpError(
@@ -693,7 +713,7 @@ class MutationManager:
         temp_path: str | None,
         snapshot: TransferSnapshot | None,
     ) -> RemoteOperationRecord:
-        """Build one plaintext preparing record before dispatching a mutation."""
+        """派发变更前构建明文准备状态记录。"""
 
         return RemoteOperationRecord(
             operation_id=operation_id,
@@ -720,7 +740,7 @@ class MutationManager:
         state: str,
         receipt: OperationTerminalProjection,
     ) -> None:
-        """Persist a trustworthy terminal receipt before returning it."""
+        """返回可信终态回执前先持久化。"""
 
         self._operations.put(
             record.model_copy(update={"state": state, "terminal_receipt": receipt})
@@ -732,7 +752,7 @@ class MutationManager:
         error_code: str,
         message: str,
     ) -> ManualSftpError:
-        """Persist one known non-mutating failure and return its public error."""
+        """持久化已知未发生变更的失败并返回公开错误。"""
 
         receipt = _terminal(record.operation_id, "failed", error_code, message)
         self._put_terminal(record, "failed", receipt)
@@ -741,7 +761,7 @@ class MutationManager:
     async def _mutation_unknown(
         self, record: RemoteOperationRecord, _lease: SftpChannelLease, exc: Exception
     ) -> OperationTerminalProjection:
-        """Persist uncertainty after a mutation dispatch and never retry it."""
+        """变更派发后持久化不确定状态，绝不重试该变更。"""
 
         receipt = _terminal(
             record.operation_id,
@@ -760,7 +780,7 @@ class MutationManager:
     async def _delete_unknown(
         self, record: DeletePlanRecord, _lease: SftpChannelLease, exc: Exception
     ) -> OperationTerminalProjection:
-        """Persist uncertain tombstone rename without replaying the old operation."""
+        """持久化墓碑重命名的不确定状态，不回放旧操作。"""
 
         receipt = _terminal(
             record.operation_id,
@@ -782,7 +802,7 @@ class MutationManager:
         error_code: str,
         message: str,
     ) -> ManualSftpError:
-        """Durably require recovery after a known or unknown cleanup failure."""
+        """已知或未知清理失败后，持久化需要恢复的状态。"""
 
         receipt = _terminal(
             record.operation_id,
@@ -804,7 +824,7 @@ class MutationManager:
         receipt: OperationTerminalProjection,
         state: str,
     ) -> None:
-        """Persist both operation receipt and consumed one-shot plan."""
+        """同时持久化操作回执和已消费的一次性计划。"""
 
         operation = self._operations.get(record.operation_id)
         if operation is None:
@@ -825,7 +845,7 @@ class MutationManager:
         completed: int,
         total: int,
     ) -> None:
-        """Emit only the approved safe recursive-delete progress shape."""
+        """仅发出批准的安全递归删除进展结构。"""
 
         projection = MutationProgressProjection(
             operation_id=record.operation_id,
@@ -849,8 +869,9 @@ class MutationManager:
 async def _scan_manifest(
     client: Any, actual_root: str, projected_root: str
 ) -> _ManifestScan:
-    """Build a complete sorted UTF-8 JSONL manifest without following links."""
+    """构建完整有序的 UTF-8 JSONL 清单，不跟随链接。"""
 
+    # 1. 收集实际路径与规范投影条目，递归过程始终不跟随符号链接。
     scanned: list[_ScannedEntry] = []
 
     async def visit(actual_path: str, projected_path: str) -> None:
@@ -913,10 +934,12 @@ async def _scan_manifest(
             if close is not None:
                 await close()
 
+    # 2. 完整遍历后按 UTF-8 路径字节排序，消除服务器枚举顺序差异。
     await visit(validate_remote_path(actual_root), validate_remote_path(projected_root))
     ordered = tuple(
         sorted(scanned, key=lambda item: item.manifest.path.encode("utf-8"))
     )
+    # 3. 对规范 JSONL 计算哈希并汇总数量，供执行前后比较。
     digest = hashlib.sha256()
     for item in ordered:
         encoded = json.dumps(
@@ -945,7 +968,7 @@ async def _scan_manifest(
 
 
 async def _filesystem_id(client: Any, path: str) -> int | None:
-    """Read an OpenSSH statvfs filesystem ID when the server advertises it."""
+    """服务器声明支持时读取 OpenSSH statvfs 文件系统 ID。"""
 
     try:
         attributes = await _mutation_request(
@@ -963,7 +986,7 @@ async def _filesystem_id(client: Any, path: str) -> int | None:
 
 
 async def _mutation_request(awaitable: Any) -> Any:
-    """Apply the fixed single-request deadline without retrying a mutation."""
+    """应用固定单请求截止时间，不重试变更。"""
 
     try:
         async with asyncio.timeout(MUTATION_REQUEST_TIMEOUT_SECONDS):
@@ -976,7 +999,7 @@ async def _mutation_request(awaitable: Any) -> Any:
 
 
 async def _recursive_request(awaitable: Any) -> Any:
-    """Apply the recursive-delete no-progress window to one remote step."""
+    """将递归删除的无进展超时窗口应用到远程步骤。"""
 
     try:
         async with asyncio.timeout(NO_PROGRESS_TIMEOUT_SECONDS):
@@ -989,7 +1012,7 @@ async def _recursive_request(awaitable: Any) -> Any:
 
 
 def _decode_name(value: Any) -> str:
-    """Decode one filename/link target as strict UTF-8 without replacement."""
+    """严格按 UTF-8 解码文件名或链接目标，不替换字符。"""
 
     try:
         if isinstance(value, bytes):
@@ -1008,7 +1031,7 @@ def _decode_name(value: Any) -> str:
 
 
 def _manifest_snapshot(entry: DeleteManifestEntry) -> TransferSnapshot:
-    """Project one manifest entry into the canonical mutation snapshot shape."""
+    """将清单条目投影为规范变更快照结构。"""
 
     return TransferSnapshot(
         path=entry.path,
@@ -1028,7 +1051,7 @@ def _terminal(
     *,
     recovery_id: UUID | None = None,
 ) -> OperationTerminalProjection:
-    """Build a strict safe mutation terminal receipt."""
+    """构建严格安全的变更终态回执。"""
 
     return OperationTerminalProjection(
         operation_id=operation_id,
@@ -1042,7 +1065,7 @@ def _terminal(
 
 
 def _utc_now() -> str:
-    """Return a stable RFC 3339 UTC timestamp for plaintext records."""
+    """为明文记录返回稳定的 RFC 3339 UTC 时间戳。"""
 
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"

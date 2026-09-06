@@ -1,4 +1,4 @@
-//! Fixed persistent logging policy owned by the Tauri Core process.
+//! Tauri Core 进程拥有的固定持久化日志策略。
 
 use tauri::{plugin::TauriPlugin, Runtime};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -7,12 +7,12 @@ pub const MAX_LOG_FILE_SIZE_BYTES: u128 = 10 * 1024 * 1024;
 pub const ARCHIVED_LOG_FILE_COUNT: usize = 4;
 pub const LOG_FILE_NAME: &str = "harness-shell";
 
-/// Return the configured timestamp clock for every Tauri log target.
+/// 返回所有 Tauri 日志目标配置的时间戳时钟。
 fn log_timezone_strategy() -> TimezoneStrategy {
     TimezoneStrategy::UseLocal
 }
 
-/// Build the mandatory terminal and application-log-directory targets.
+/// 构建必需的终端和应用日志目录目标。
 pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
     tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -24,7 +24,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             }),
         ])
         .max_file_size(MAX_LOG_FILE_SIZE_BYTES)
-        // KeepSome counts archives; the active file is additional.
+        // KeepSome 统计归档数量；活动文件另计。
         .rotation_strategy(RotationStrategy::KeepSome(ARCHIVED_LOG_FILE_COUNT))
         .timezone_strategy(log_timezone_strategy())
         .build()

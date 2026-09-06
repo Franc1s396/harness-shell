@@ -1,4 +1,4 @@
-"""Strict contracts for interactive SSH PTY sessions."""
+"""交互式 SSH PTY 会话的严格契约。"""
 
 from __future__ import annotations
 

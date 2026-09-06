@@ -1,4 +1,4 @@
-"""SQLite repositories for M2 connection profiles and host keys."""
+"""M2 连接配置与 Host Key 的 SQLite 仓库。"""
 
 from __future__ import annotations
 
@@ -64,6 +64,7 @@ class ConnectionRepository:
     ) -> ConnectionProfile:
         """以完整新配置替换已有连接，并保留创建时间。"""
 
+        # 1. 读取当前版本并检查安全整数上限，拒绝无效目标或版本溢出。
         current = self.get(connection_id)
         if current is None:
             raise ConnectionRepositoryError(
@@ -74,6 +75,7 @@ class ConnectionRepository:
                 "CONNECTION_VERSION_EXHAUSTED",
                 "connection profile version is exhausted",
             )
+        # 2. 校验跳板引用，再以当前版本作为条件执行更新。
         self._validate_proxy(value.proxy_jump_id, connection_id)
         cursor = self._database.execute(
             """
@@ -100,6 +102,7 @@ class ConnectionRepository:
                 current.version,
             ),
         )
+        # 3. 写入数量和递增后的版本都必须符合预期，否则暴露并发冲突。
         if cursor.rowcount != 1:
             raise ConnectionRepositoryError(
                 "CONNECTION_PERSISTENCE_FAILED",

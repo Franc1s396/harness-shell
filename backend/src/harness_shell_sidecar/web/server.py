@@ -1,4 +1,4 @@
-"""Pre-bound loopback Uvicorn process entry for the private Python backend."""
+"""Python 内部后端预绑定 loopback 的 Uvicorn 进程入口。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ LOOPBACK_HOST = "127.0.0.1"
 
 
 class _LoopbackServer(uvicorn.Server):
-    """Publish readiness only after Uvicorn lifespan and startup both succeed."""
+    """Uvicorn lifespan 和启动均成功后才发布就绪。"""
 
     def __init__(
         self,
@@ -32,14 +32,14 @@ class _LoopbackServer(uvicorn.Server):
         actual_port: int,
         ready_callback: Callable[[int], None] | None = None,
     ) -> None:
-        """Retain the pre-bound port and optional one-shot ready callback."""
+        """保留预绑定端口及可选的一次性就绪回调。"""
 
         super().__init__(config)
         self._actual_port = actual_port
         self._ready_callback = ready_callback
 
     async def startup(self, sockets: list[socket.socket] | None = None) -> None:
-        """Bind first, then publish the allowlisted host and port."""
+        """先绑定，再发布允许的 host 和端口。"""
 
         await super().startup(sockets=sockets)
         if self.started:
@@ -53,7 +53,7 @@ class _LoopbackServer(uvicorn.Server):
 
 
 def build_config(*, port: int, app) -> uvicorn.Config:
-    """Build the only accepted private-loopback Uvicorn configuration."""
+    """构建唯一允许的内部 loopback Uvicorn 配置。"""
 
     if not 0 <= port <= 65_535:
         raise ValueError("port must be between 0 and 65535")
@@ -77,7 +77,7 @@ def build_config(*, port: int, app) -> uvicorn.Config:
 
 
 def _prebind_listener(port: int) -> tuple[socket.socket, int]:
-    """Bind and listen before Uvicorn so port ownership never has a race gap."""
+    """在 Uvicorn 启动前绑定并监听，消除端口所有权竞态空窗。"""
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -96,8 +96,9 @@ def _run_server(
     data_dir: Path,
     desktop_control: DesktopControl | None = None,
 ) -> int:
-    """Run one autonomous Runtime on an already-owned loopback listener."""
+    """在已拥有的 loopback 监听器上运行自主初始化的 Runtime。"""
 
+    # 1. 构建固定配置并预绑定监听器，先取得端口所有权。
     settings = RuntimeSettings.from_data_dir(data_dir)
     app = create_app(settings=settings)
     listener, actual_port = _prebind_listener(port)
@@ -105,7 +106,7 @@ def _run_server(
     control_error: list[BaseException] = []
 
     def publish_ready(bound_port: int) -> None:
-        """Publish the only desktop readiness frame after Uvicorn startup."""
+        """Uvicorn 启动后发布唯一桌面就绪帧。"""
 
         if desktop_control is not None:
             desktop_control.publish_ready(
@@ -113,16 +114,18 @@ def _run_server(
                 port=bound_port,
             )
 
+    # 2. 就绪发布交给 Uvicorn 启动回调，避免资源未就绪即通知 Launcher。
     server = _LoopbackServer(
         build_config(port=port, app=app),
         actual_port=actual_port,
         ready_callback=publish_ready if desktop_control is not None else None,
     )
+    # 3. 桌面模式独占控制管道线程，把父进程信号转换为关闭请求。
     watcher: threading.Thread | None = None
     if desktop_control is not None:
 
         def watch_control_pipe() -> None:
-            """Convert the strict parent control signal into Uvicorn draining."""
+            """将严格父进程控制信号转换为 Uvicorn 排空关闭。"""
 
             try:
                 desktop_control.wait_for_shutdown()
@@ -139,6 +142,7 @@ def _run_server(
         watcher.start()
 
     try:
+        # 4. 使用已绑定监听器运行；退出时关闭监听器并检查控制线程错误。
         server.run(sockets=[listener])
     finally:
         listener.close()
@@ -150,7 +154,7 @@ def _run_server(
 
 
 def serve(*, port: int, data_dir: Path) -> int:
-    """Run development mode on one explicit nonzero loopback port."""
+    """在显式非零 loopback 端口上运行开发模式。"""
 
     if not 1 <= port <= 65_535:
         raise ValueError("serve port must be between 1 and 65535")
@@ -164,7 +168,7 @@ def desktop(
     control_read_handle: int,
     ready_write_handle: int,
 ) -> int:
-    """Run packaged desktop mode with dynamic port and inherited controls."""
+    """使用动态端口和继承控制句柄运行打包版桌面模式。"""
 
     if port != 0:
         raise ValueError("desktop port must be 0")

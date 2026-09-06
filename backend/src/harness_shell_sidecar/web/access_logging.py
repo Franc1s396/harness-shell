@@ -1,4 +1,4 @@
-"""HTTP access logging with bounded route and request correlation fields."""
+"""具有有界路由与请求关联字段的 HTTP 访问日志。"""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ AsgiApp = Callable[[MutableMapping[str, Any], Receive, Send], Awaitable[None]]
 
 
 class HttpAccessLogMiddleware:
-    """Emit one completion record for each HTTP request without logging payloads."""
+    """每个 HTTP 请求发出一条完成记录，不记录载荷。"""
 
     def __init__(self, app: AsgiApp) -> None:
-        """Wrap the downstream ASGI application without changing its lifecycle."""
+        """包装下游 ASGI 应用，不改变其生命周期。"""
 
-        self._app = app  # Borrowed downstream ASGI application.
+        self._app = app  # 借用的下游 ASGI 应用。
 
     async def __call__(
         self,
@@ -32,12 +32,14 @@ class HttpAccessLogMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        """Capture response status and log the normalized route after completion."""
+        """捕获响应状态，并在完成后记录规范路由。"""
 
+        # 1. 非 HTTP 流量直接透传；HTTP 请求才建立关联上下文。
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
 
+        # 2. 绑定请求 ID 并开始计时，发送包装器捕获真实响应状态。
         request_id = _request_id(scope)
         state = scope.setdefault("state", {})
         state["request_id"] = request_id
@@ -46,7 +48,7 @@ class HttpAccessLogMiddleware:
         status_code = 500
 
         async def capture_status(message: AsgiMessage) -> None:
-            """Remember the exact HTTP status while forwarding the ASGI message."""
+            """转发 ASGI 消息时记住精确 HTTP 状态。"""
 
             nonlocal status_code
             if message["type"] == "http.response.start":
@@ -55,6 +57,7 @@ class HttpAccessLogMiddleware:
 
         try:
             await self._app(scope, receive, capture_status)
+        # 3. 请求结束后记录允许的路由与状态信息，并恢复外层关联上下文。
         finally:
             duration_ms = (time.monotonic_ns() - started) // 1_000_000
             route = scope.get("route")
@@ -81,7 +84,7 @@ class HttpAccessLogMiddleware:
 
 
 def _request_id(scope: MutableMapping[str, Any]) -> UUID:
-    """Return the canonical request header or generate one for rejected requests."""
+    """返回标准请求头标识，或为被拒绝请求生成标识。"""
 
     for raw_name, raw_value in scope.get("headers", ()):
         if raw_name.lower() != b"x-request-id":

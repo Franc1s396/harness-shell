@@ -1,4 +1,4 @@
-"""Strict application contract tests for manual SFTP operations."""
+"""手动 SFTP 操作的严格应用契约测试。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ FRESH_OPERATION_ID = UUID("00000000-0000-4000-8000-000000000225")
 
 
 class FakeService:
-    """Capture validated calls without opening a remote channel."""
+    """捕获已校验调用，不打开远程通道。"""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []
@@ -81,7 +81,7 @@ class FakeService:
         )
 
     def list_recoveries(self) -> tuple[RecoverySummary, ...]:
-        """Return one remote-only recovery summary."""
+        """返回仅含远程状态的恢复摘要。"""
 
         return (
             RecoverySummary(
@@ -121,7 +121,7 @@ class FakeService:
 
 
 class RetainedStateFailureService(FakeService):
-    """Expose one persisted remote uncertainty through the handler boundary."""
+    """通过 handler 边界暴露持久化远程不确定状态。"""
 
     async def open(self, *args, **kwargs):
         raise ManualSftpError(
@@ -132,7 +132,7 @@ class RetainedStateFailureService(FakeService):
 
 
 def test_binary_application_keeps_upload_and_download_bytes_unencoded() -> None:
-    """Keep Base64 entirely inside the temporary stdio adapter closures."""
+    """验证二进制分块应用边界不承担传输编码。"""
 
     async def scenario() -> None:
         service = FakeService()

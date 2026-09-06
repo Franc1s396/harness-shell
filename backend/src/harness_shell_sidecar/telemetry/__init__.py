@@ -1,4 +1,4 @@
-"""Human-readable stderr logging interfaces."""
+"""人类可读的 stderr 日志接口。"""
 
 from .logging import (
     ConsoleLogFormatter,

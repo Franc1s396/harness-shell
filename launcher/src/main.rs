@@ -1,4 +1,4 @@
-// Prevent an additional console window for the installed Launcher.
+// 防止已安装 Launcher 出现额外控制台窗口。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::os::windows::ffi::OsStrExt;
@@ -22,7 +22,7 @@ fn main() {
 fn show_error(message: &str) {
     let title = wide("Harness Shell startup error");
     let message = wide(message);
-    // Only the bounded `LauncherError` display text reaches this native dialog.
+    // 只有有界 LauncherError 显示文本能进入原生对话框。
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),

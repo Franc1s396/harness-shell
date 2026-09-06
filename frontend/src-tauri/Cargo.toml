@@ -5,12 +5,12 @@ description = "Windows desktop client for Harness Shell"
 authors = []
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# 更多键及其定义参见 https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+# `_lib` 后缀用于保持库名称唯一，
+# 避免与二进制名称冲突。
+# 此问题似乎仅出现在 Windows，参见 https://github.com/rust-lang/cargo/issues/8519
 name = "harness_shell_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 

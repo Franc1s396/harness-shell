@@ -1,4 +1,4 @@
-"""Deterministic cross-language HTTP and Runtime WebSocket contract export."""
+"""确定性跨语言 HTTP 与 Runtime WebSocket 契约导出。"""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def _add_model_schema(
     schemas: dict[str, object],
     model: type[BaseModel],
 ) -> str:
-    """Merge one Pydantic model and its definitions into OpenAPI components."""
+    """将 Pydantic 模型及其定义合并到 OpenAPI components。"""
 
     schema = model.model_json_schema(
         ref_template="#/components/schemas/{model}",
@@ -130,7 +130,7 @@ def _add_model_schema(
 
 
 def _success_headers() -> dict[str, object]:
-    """Describe the correlation header present on every successful response."""
+    """描述每个成功响应都包含的关联请求头。"""
 
     return {
         "X-Request-ID": {
@@ -141,8 +141,9 @@ def _success_headers() -> dict[str, object]:
 
 
 def build_openapi_document() -> dict[str, object]:
-    """Generate the strict HTTP document from the actual FastAPI application."""
+    """从实际 FastAPI 应用生成严格 HTTP 文档。"""
 
+    # 1. 从真实应用模型生成基础 OpenAPI，再加入共享关联和错误定义。
     settings = RuntimeSettings.from_data_dir(Path("C:/harness-shell-contract"))
     document = create_app(settings=settings).openapi()
     components = document.setdefault("components", {})
@@ -178,6 +179,7 @@ def build_openapi_document() -> dict[str, object]:
         }
     }
 
+    # 2. 遍历固定路由，统一请求 ID、响应头和 typed 失败契约。
     for path, item in document["paths"].items():
         for method, operation in item.items():
             if method not in _HTTP_METHODS:
@@ -215,6 +217,7 @@ def build_openapi_document() -> dict[str, object]:
                     },
                 }
 
+    # 3. 显式描述 SFTP 原始二进制上传与下载，不使用 JSON 或 Base64 包裹。
     upload = document["paths"][
         "/v1/sftp/uploads/{operation_id}/chunks/{sequence}"
     ]["put"]
@@ -256,6 +259,7 @@ def build_openapi_document() -> dict[str, object]:
         "X-Chunk-EOF": {"schema": {"type": "boolean"}},
     }
 
+    # 4. 单独声明 Agent SSE 事件、协商头及流式响应限制。
     event_names = [
         _add_model_schema(schemas, model)
         for model in (
@@ -303,6 +307,7 @@ def build_openapi_document() -> dict[str, object]:
         },
     }
 
+    # 5. 排序并移除未使用的默认校验模型，保证产物可确定性比较。
     document["paths"] = dict(sorted(document["paths"].items()))
     schemas.pop("HTTPValidationError", None)
     schemas.pop("ValidationError", None)
@@ -310,7 +315,7 @@ def build_openapi_document() -> dict[str, object]:
 
 
 def build_websocket_schema() -> dict[str, object]:
-    """Generate the strict nine-message WebSocket union from Pydantic models."""
+    """从 Pydantic 模型生成严格的九类 WebSocket 消息联合。"""
 
     schema = TypeAdapter(_WebSocketMessage).json_schema(
         ref_template="#/$defs/{model}",
@@ -341,7 +346,7 @@ def build_websocket_schema() -> dict[str, object]:
 
 
 def canonical_json_bytes(value: object) -> bytes:
-    """Serialize one artifact deterministically as UTF-8 with a final newline."""
+    """以 UTF-8 确定性序列化产物，并保留末尾换行。"""
 
     return (
         json.dumps(

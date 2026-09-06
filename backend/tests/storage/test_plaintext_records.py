@@ -9,7 +9,7 @@ from harness_shell_sidecar.storage import RuntimeDatabase
 
 
 class _PlaintextStore(Protocol):
-    """Describe the public store operations exercised by this contract test."""
+    """描述本契约测试覆盖的公开存储操作。"""
 
     def put(self, record: object) -> None: ...
 
@@ -21,7 +21,7 @@ class _PlaintextStore(Protocol):
 
 
 def load_plaintext_types() -> tuple[type, type]:
-    """Load the target public types so a missing implementation is a RED failure."""
+    """加载目标公开类型，使缺失实现明确触发测试失败。"""
 
     try:
         from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore
@@ -31,7 +31,7 @@ def load_plaintext_types() -> tuple[type, type]:
 
 
 def open_store(tmp_path: Path) -> tuple[RuntimeDatabase, _PlaintextStore]:
-    """Open a fresh schema-v6 database and its plaintext record owner."""
+    """打开全新数据库及其明文记录管理者。"""
 
     _, plaintext_store = load_plaintext_types()
     database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")

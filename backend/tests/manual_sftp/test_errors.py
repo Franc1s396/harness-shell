@@ -1,4 +1,4 @@
-"""Stable mapping for deterministic AsyncSSH SFTP status responses."""
+"""确定性 AsyncSSH SFTP 状态响应的稳定映射。"""
 
 from __future__ import annotations
 

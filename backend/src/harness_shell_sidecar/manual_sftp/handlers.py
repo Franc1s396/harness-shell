@@ -1,4 +1,4 @@
-"""Strict transport-independent handlers for manual SFTP domain operations."""
+"""手动 SFTP 领域操作的严格、独立于传输的 handler。"""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from .models import (
 
 
 class _ManualSftpServiceProtocol(Protocol):
-    """Minimal service interface consumed by the browse handlers."""
+    """浏览 handler 使用的最小服务接口。"""
 
     async def open(self, ssh_session_id: UUID): ...
     async def list_begin(self, ssh_session_id: UUID, path: str): ...
@@ -64,44 +64,44 @@ class _ManualSftpServiceProtocol(Protocol):
 
 
 class _StrictParams(BaseModel):
-    """Reject unknown fields and coercion in manual SFTP requests."""
+    """拒绝手动 SFTP 请求中的未知字段和类型强制转换。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class _SessionParams(_StrictParams):
-    """Select one explicit live SSH session."""
+    """选择显式指定的活动 SSH 会话。"""
 
     ssh_session_id: UUID
 
 
 class _SessionPathParams(_SessionParams):
-    """Select one absolute remote path on a live SSH session."""
+    """选择活动 SSH 会话上的远程绝对路径。"""
 
     path: str
 
 
 class _ListingNextParams(_StrictParams):
-    """Continue one listing at its exact next sequence."""
+    """以精确的下一序号继续目录列表。"""
 
     listing_id: UUID
     sequence: ChunkSequence
 
 
 class _ListingCloseParams(_StrictParams):
-    """Select one listing cursor for explicit close."""
+    """选择要显式关闭的列表游标。"""
 
     listing_id: UUID
 
 
 class _OperationParams(_StrictParams):
-    """Select one transfer operation by stable identity."""
+    """通过稳定标识选择传输操作。"""
 
     operation_id: UUID
 
 
 class _UploadBeginParams(_SessionPathParams):
-    """Begin an upload from React File metadata and a remote target snapshot."""
+    """根据 React File 元数据和远程目标快照开始上传。"""
 
     operation_id: UUID
     source_sha256: Sha256Hex
@@ -110,13 +110,13 @@ class _UploadBeginParams(_SessionPathParams):
 
 
 class _DownloadBeginParams(_SessionPathParams):
-    """Begin a pull-based download from one remote path."""
+    """从远程路径开始拉取式下载。"""
 
     operation_id: UUID
 
 
 class _MkdirParams(_SessionParams):
-    """Create one basename under one validated parent path."""
+    """在已校验父路径下创建单个名称。"""
 
     operation_id: UUID
     parent_path: str
@@ -124,7 +124,7 @@ class _MkdirParams(_SessionParams):
 
 
 class _RenameParams(_SessionParams):
-    """Carry canonical snapshots for one atomic remote rename."""
+    """携带原子远程重命名所需的规范快照。"""
 
     operation_id: UUID
     source_path: str
@@ -135,36 +135,36 @@ class _RenameParams(_SessionParams):
 
 
 class _RemoveParams(_SessionPathParams):
-    """Remove one entry only when its canonical snapshot still matches."""
+    """仅在规范快照仍匹配时删除条目。"""
 
     operation_id: UUID
     expected_snapshot: TransferSnapshot
 
 
 class _DeleteExecuteParams(_StrictParams):
-    """Consume one durable plaintext recursive-delete plan."""
+    """消费一个持久化明文递归删除计划。"""
 
     delete_plan_id: UUID
 
 
 class _DeletePreflightParams(_SessionPathParams):
-    """Build one delete plan under the caller-selected durable identity."""
+    """按调用方选择的持久化标识构建删除计划。"""
 
     operation_id: UUID
 
 
 class _RecoveryParams(_StrictParams):
-    """Select one remote-only recovery record."""
+    """选择仅包含远程状态的恢复记录。"""
 
     recovery_id: UUID
 
 
 class _RecoveryListParams(_StrictParams):
-    """Require an empty object for recovery listing."""
+    """恢复列表请求必须为空对象。"""
 
 
 class _RecoveryExecuteParams(_RecoveryParams):
-    """Select one allowlisted new recovery action."""
+    """选择允许列表内的新恢复操作。"""
 
     operation_id: UUID
     action: Literal[
@@ -177,10 +177,10 @@ class _RecoveryExecuteParams(_RecoveryParams):
 
 
 class ManualSftpApplication:
-    """Expose binary SFTP chunks without choosing a wire encoding."""
+    """暴露二进制 SFTP 分块，不选择传输编码。"""
 
     def __init__(self, service: _ManualSftpServiceProtocol) -> None:
-        """Bind the application boundary to the sole SFTP domain owner."""
+        """将应用边界绑定到唯一 SFTP 领域管理者。"""
 
         self._service = service
 
@@ -193,7 +193,7 @@ class ManualSftpApplication:
         offset: int,
         chunk: bytes,
     ) -> UploadChunkAck:
-        """Accept one bounded binary chunk for the owned upload operation."""
+        """为拥有的上传操作接收一个有界二进制分块。"""
 
         context.require_active()
         return await self._service.upload_chunk(
@@ -211,7 +211,7 @@ class ManualSftpApplication:
         sequence: int,
         offset: int,
     ) -> DownloadChunk:
-        """Return one raw bounded binary chunk from the owned download."""
+        """从拥有的下载操作返回一个原始有界二进制分块。"""
 
         context.require_active()
         return await self._service.download_chunk(
@@ -224,7 +224,7 @@ class ManualSftpApplication:
 def register_manual_sftp_handlers(
     dispatcher: RequestDispatcher, service: _ManualSftpServiceProtocol
 ) -> None:
-    """Register typed JSON SFTP operations on the shared dispatcher."""
+    """在共享 dispatcher 上注册 typed JSON SFTP 操作。"""
 
     async def open_context(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -524,7 +524,7 @@ def register_manual_sftp_handlers(
 
 
 def _params(raw_params: Mapping[str, object], model: type[BaseModel]):
-    """Parse one strict params object without Python-side coercion."""
+    """解析严格参数对象，不做 Python 端强制转换。"""
 
     if not isinstance(raw_params, Mapping):
         raise DispatchError(
@@ -539,7 +539,7 @@ def _params(raw_params: Mapping[str, object], model: type[BaseModel]):
 
 
 def _dispatch_error(error: ManualSftpError) -> DispatchError:
-    """Map a bounded domain error without exposing its internal exception."""
+    """映射有界领域错误，不暴露内部异常。"""
 
     details = (
         {"operation_state": error.operation_state}

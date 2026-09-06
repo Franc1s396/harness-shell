@@ -23,7 +23,7 @@ use crate::error::LauncherError;
 
 pub const READY_FRAME_MAX_JSON_BYTES: usize = 4_096;
 
-/// Strict readiness payload emitted once by the Backend after it is listening.
+/// Backend 开始监听后仅发出一次的严格就绪载荷。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ReadyFrame {
@@ -46,7 +46,7 @@ impl ReadyFrame {
     }
 }
 
-/// Two one-way anonymous pipes with only the two Backend ends inheritable.
+/// 两条单向匿名管道，仅允许继承 Backend 使用的两端。
 pub struct ControlPipes {
     control_write: Option<OwnedHandle>,
     ready_read: Option<OwnedHandle>,
@@ -109,7 +109,7 @@ impl ControlPipes {
         (control as usize, ready as usize)
     }
 
-    /// Close the parent copies immediately after the Backend process is created.
+    /// Backend 进程创建后立即关闭父进程副本。
     pub fn close_backend_ends(&mut self) {
         self.backend_control_read.take();
         self.backend_ready_write.take();

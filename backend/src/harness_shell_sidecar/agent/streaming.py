@@ -1,4 +1,4 @@
-"""Strict public events and non-persisted sinks for one Agent turn stream."""
+"""单个 Agent 轮次流的严格公开事件和非持久化接收端。"""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ SafeFailureMessage = Annotated[
 
 
 class _AgentTurnEventBase(BaseModel):
-    """Carry immutable request and durable Run correlation on every event."""
+    """每个事件携带不可变请求标识及持久化 Run 关联。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -48,7 +48,7 @@ class _AgentTurnEventBase(BaseModel):
 
 
 class AgentTurnStartedEvent(_AgentTurnEventBase):
-    """Open a stream only after its durable Run is in RUNNING state."""
+    """持久化 Run 进入 RUNNING 后才开启流。"""
 
     type: Literal["agent.turn.started"] = Field(
         default="agent.turn.started",
@@ -65,7 +65,7 @@ class AgentTurnStartedEvent(_AgentTurnEventBase):
 
 
 class AgentTurnTextDeltaEvent(_AgentTurnEventBase):
-    """Carry one exact non-empty piece of final visible model text."""
+    """携带一段精确非空的模型最终可见文本。"""
 
     type: Literal["agent.turn.text_delta"] = Field(
         default="agent.turn.text_delta",
@@ -77,7 +77,7 @@ class AgentTurnTextDeltaEvent(_AgentTurnEventBase):
 
 
 class AgentTurnCompletedEvent(_AgentTurnEventBase):
-    """Close a stream after the full message and successful Run are durable."""
+    """完整消息与成功 Run 均持久化后关闭流。"""
 
     type: Literal["agent.turn.completed"] = Field(
         default="agent.turn.completed",
@@ -97,7 +97,7 @@ class AgentTurnCompletedEvent(_AgentTurnEventBase):
 
 
 class AgentTurnFailedEvent(_AgentTurnEventBase):
-    """Close a stream after a failed, limited, or cancelled Run is durable."""
+    """失败、受限或取消 Run 持久化后关闭流。"""
 
     type: Literal["agent.turn.failed"] = Field(
         default="agent.turn.failed",
@@ -127,27 +127,27 @@ AgentTurnStreamEvent: TypeAlias = Annotated[
 
 
 class AgentTextDeltaSink(Protocol):
-    """Receive exact visible text from one Provider invocation."""
+    """接收一次 Provider 调用的精确可见文本。"""
 
     async def text_delta(self, delta: str) -> None:
-        """Publish one non-empty exact visible-text delta."""
+        """发布一段精确非空的可见文本增量。"""
 
 
 class AgentTurnEventSink(AgentTextDeltaSink, Protocol):
-    """Receive lifecycle events for one durable Agent Run."""
+    """接收一个持久化 Agent Run 的生命周期事件。"""
 
     @property
     def streamed_text(self) -> str:
-        """Return the exact concatenation of emitted visible deltas."""
+        """返回已发布可见增量的精确拼接结果。"""
 
     async def started(self, run: AgentRun) -> None:
-        """Publish the first event only after the durable Run exists."""
+        """持久化 Run 已存在后才发布首个事件。"""
 
     async def completed(self, run: AgentRun) -> None:
-        """Publish success only after the Run and final message are durable."""
+        """Run 和最终消息持久化后才发布成功事件。"""
 
     async def failed(self, run: AgentRun, message: str) -> None:
-        """Publish one reviewed message after the Run is durably terminal."""
+        """Run 终态持久化后发布经过审查的消息。"""
 
 
 __all__ = [

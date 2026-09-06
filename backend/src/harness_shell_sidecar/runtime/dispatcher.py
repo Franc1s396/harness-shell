@@ -1,4 +1,4 @@
-"""Bounded transport-independent dispatcher for application requests."""
+"""有界且独立于传输的应用请求 dispatcher。"""
 
 from __future__ import annotations
 
@@ -100,8 +100,9 @@ class RequestDispatcher:
         request_id: UUID,
         work: ApplicationWork[ResultT],
     ) -> ResultT:
-        """Own one typed application call under shared capacity and cancellation."""
+        """在共享容量和取消约束下管理一个 typed 应用调用。"""
 
+        # 1. 派发前拒绝关闭状态、重复请求 ID 和超过共享容量的请求。
         if self._closing:
             raise DispatchError("RUNTIME_STOPPING", "runtime is stopping")
         if request_id in self._active:
@@ -113,6 +114,7 @@ class RequestDispatcher:
                 "REQUEST_CAPACITY_EXCEEDED", "active request capacity is exhausted"
             )
 
+        # 2. 将当前任务和唯一取消事件登记为请求所有者，再执行应用工作。
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("dispatcher requires an asyncio task")
@@ -126,16 +128,19 @@ class RequestDispatcher:
             raise DispatchError(
                 "REQUEST_CANCELLED", "request was cancelled"
             ) from exc
+        # 3. 无论返回、失败还是取消，都释放请求 ID 和容量。
         finally:
             self._active.pop(request_id, None)
 
     async def close(self) -> None:
         """拒绝新请求、取消全部活动请求并等待其任务收敛。"""
 
+        # 1. 先拒绝新请求，并给所有活动请求设置协作式取消信号。
         self._closing = True
         active = list(self._active.values())
         for request in active:
             request.cancelled.set()
+        # 2. 等待其他请求任务自行收敛；排除当前任务，避免等待自身。
         current = asyncio.current_task()
         tasks = [request.task for request in active if request.task is not current]
         if tasks:

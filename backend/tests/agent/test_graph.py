@@ -38,7 +38,7 @@ from .fakes import (
 
 @dataclass(slots=True)
 class RecordingExecutor:
-    """Record graph dispatches and return deterministic command envelopes."""
+    """记录图派发并返回确定性命令信封。"""
 
     before_execute: Callable[[], None] | None = None
     failure: Exception | None = None
@@ -51,33 +51,18 @@ class RecordingExecutor:
         command: str,
         _cancelled: asyncio.Event,
     ) -> CommandToolEnvelope:
-        """Observe persistence ordering, then return or raise one fixed outcome."""
+        """观察持久化顺序，再返回或抛出固定结果。"""
 
         if self.before_execute is not None:
             self.before_execute()
         self.calls.append((ssh_session_id, command))
         if self.failure is not None:
             raise self.failure
-        return CommandToolEnvelope(
-            ok=True,
-            code="COMMAND_COMPLETED",
-            message="Remote command finished.",
-            result=CommandExecutionResult(
-                command=command,
-                exit_code=0,
-                exit_signal=None,
-                stdout=(
-                    self.stdout
-                    if self.stdout is not None
-                    else "/home/test\n"
-                    if command == "pwd"
-                    else "ok\n"
-                ),
-                stderr="",
-                timed_out=False,
-                duration_ms=1,
-            ),
-        )
+        from harness_shell_sidecar.agent.executor import _envelope_from_bytes
+        output = self.stdout if self.stdout is not None else "/home/test\n" if command == "pwd" else "ok\n"
+        return _envelope_from_bytes(command=command, stdout=output.encode(), stderr=b"",
+            exit_code=0, exit_signal=None, timed_out=False, duration_ms=1)
+
 
 
 def _service(
@@ -85,7 +70,7 @@ def _service(
     model: FakeModelSequence,
     executor: RecordingExecutor,
 ) -> tuple[AgentService, AgentTurnInput]:
-    """Build a real repository/graph service around deterministic model and SSH fakes."""
+    """围绕确定性模型和 SSH 替身构建真实仓库与图服务。"""
 
     config = agent_storage.api_configs.create(valid_api_config_input())
     context = ContextService(agent_storage.conversations)
@@ -113,7 +98,7 @@ async def _run_turn(
     api_key: str = "key",
     event_sink: RecordingTurnSink | None = None,
 ) -> AgentTurnResult:
-    """Run through the service with the exact handler-observed config snapshot."""
+    """使用 handler 观察到的精确配置快照运行服务。"""
 
     config = agent_storage.api_configs.get(turn.api_config_id)
     assert config is not None
@@ -129,7 +114,7 @@ async def _run_turn(
 def test_tool_result_returns_to_model_before_final_answer(
     agent_storage: AgentStorage,
 ) -> None:
-    """Route a paired ToolMessage back through trim_context before final text."""
+    """将配对 ToolMessage 路由回上下文投影后再生成最终文本。"""
 
     async def scenario() -> None:
         model = FakeModelSequence()
@@ -162,7 +147,7 @@ def test_model_only_turn_logs_exact_node_pairs_and_route(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Expose the real successful node order without serializing graph state."""
+    """暴露真实成功节点顺序，不序列化图状态。"""
 
     async def scenario() -> None:
         model = FakeModelSequence([AIMessage(content="done")])
@@ -183,8 +168,10 @@ def test_model_only_turn_logs_exact_node_pairs_and_route(
         ] == [
             ("agent_node_started", "load_context"),
             ("agent_node_completed", "load_context"),
-            ("agent_node_started", "trim_context"),
-            ("agent_node_completed", "trim_context"),
+            ("agent_node_started", "compact_context"),
+            ("agent_node_completed", "compact_context"),
+            ("agent_node_started", "prepare_model_context"),
+            ("agent_node_completed", "prepare_model_context"),
             ("agent_node_started", "call_model"),
             ("agent_node_completed", "call_model"),
             ("agent_node_started", "return_response"),
@@ -209,7 +196,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Keep every Graph record limited to IDs, node metadata, and routes."""
+    """将每条图日志限制为 ID、节点元数据和路由。"""
 
     async def scenario() -> None:
         user_marker = "graph-user-message-marker-1f4b"
@@ -259,11 +246,11 @@ def test_graph_logs_no_message_command_output_or_provider_key(
     asyncio.run(scenario())
 
 
-def test_execute_tool_failure_logs_only_safe_metadata_and_preserves_result(
+def test_execute_tool_failure_logs_traceback_and_preserves_result(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Log only safe node metadata and retain the existing failure mapping."""
+    """异常日志保留节点元数据和 traceback，保留现有失败映射。"""
 
     async def scenario() -> None:
         marker = "graph-executor-failure-marker-6e9a"
@@ -290,8 +277,11 @@ def test_execute_tool_failure_logs_only_safe_metadata_and_preserves_result(
         ]
         assert len(failed) == 1
         assert failed[0].harness_fields["node"] == "execute_tool"
+        assert failed[0].exc_info is not None
+        assert failed[0].exc_info[1] is executor.failure
         encoded = ConsoleLogFormatter().format(failed[0])
-        assert marker not in encoded
+        assert f"RuntimeError: {marker}" in encoded
+        assert "Traceback (most recent call last):" in encoded
         assert "error_code=SIDECAR_RUNTIME_FAILED" in encoded
 
     asyncio.run(scenario())
@@ -301,7 +291,7 @@ def test_provider_failure_body_is_absent_from_full_graph_logs(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Keep secrets and Provider or remote content out of the full graph path."""
+    """完整图路径不得泄露秘密、Provider 内容或远程内容。"""
 
     async def scenario() -> None:
         api_key_marker = "provider-key-marker-01"
@@ -358,7 +348,7 @@ def test_provider_failure_body_is_absent_from_full_graph_logs(
 def test_ai_tool_call_is_persisted_before_executor_dispatch(
     agent_storage: AgentStorage,
 ) -> None:
-    """Make the durable AI tool decision visible before any remote side effect."""
+    """远程副作用发生前确保已持久化的 AI 工具决策可见。"""
 
     async def scenario() -> None:
         model = FakeModelSequence(
@@ -373,7 +363,7 @@ def test_ai_tool_call_is_persisted_before_executor_dispatch(
         observed: list[str] = []
 
         def inspect_history() -> None:
-            """Read persisted metadata at the exact executor call boundary."""
+            """在执行器调用边界精确读取持久化元数据。"""
 
             rows = agent_storage.database.execute(
                 "SELECT message_type FROM agent_messages ORDER BY sequence"
@@ -393,7 +383,7 @@ def test_ai_tool_call_is_persisted_before_executor_dispatch(
 def test_regex_rejection_is_persisted_and_returned_to_model(
     agent_storage: AgentStorage,
 ) -> None:
-    """Return the fixed safety rejection as a paired ToolMessage without SSH."""
+    """不调用 SSH，将固定安全拒绝作为配对 ToolMessage 返回。"""
 
     async def scenario() -> None:
         model = FakeModelSequence(
@@ -423,7 +413,7 @@ def test_regex_rejection_is_persisted_and_returned_to_model(
 def test_multiple_tool_calls_execute_none_and_each_gets_paired_error(
     agent_storage: AgentStorage,
 ) -> None:
-    """Count one loop while rejecting every call in a parallel model response."""
+    """只计一次循环，同时拒绝并行模型响应中的每个调用。"""
 
     async def scenario() -> None:
         model = FakeModelSequence(
@@ -462,7 +452,7 @@ def test_multiple_tool_calls_execute_none_and_each_gets_paired_error(
 def test_unknown_tool_is_not_executed(
     agent_storage: AgentStorage,
 ) -> None:
-    """Pair an unknown tool call with an error while preserving the loop protocol."""
+    """为未知工具调用配对错误，并保留循环协议。"""
 
     async def scenario() -> None:
         unknown = make_tool_call("call-unknown", "pwd")
@@ -487,7 +477,7 @@ def test_unknown_tool_is_not_executed(
 def test_128_completed_iterations_may_return_a_final_answer(
     agent_storage: AgentStorage,
 ) -> None:
-    """Allow the model to finish after exactly 128 completed tool loops."""
+    """允许模型在恰好完成 128 次工具循环后结束。"""
 
     async def scenario() -> None:
         calls = [
@@ -515,7 +505,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Stop at the business limit without relying on LangGraph recursion limits."""
+    """在业务上限处停止，不依赖 LangGraph 递归限制。"""
 
     async def scenario() -> None:
         model = FakeModelSequence(
@@ -580,7 +570,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
 
 
 def test_compiled_graph_has_no_checkpointer(agent_storage: AgentStorage) -> None:
-    """Keep SQLite conversation storage as the sole recovery authority."""
+    """保持 SQLite 对话存储为唯一恢复权威。"""
 
     model = FakeModelSequence()
     dependencies = AgentGraphDependencies(
@@ -603,7 +593,7 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Scan durable rows, builder diagnostics, and logs after a turn."""
+    """一轮结束后扫描持久化行、构建器诊断和日志。"""
 
     async def scenario() -> None:
         sentinel = "provider-key-sentinel-full-turn-71d4"
@@ -637,4 +627,92 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
         assert sentinel not in diagnostics
         assert str(builder.kwargs["api_key"]) == "**********"
 
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("main_fails", [False, True])
+@pytest.mark.parametrize("tool_loop", [False, True])
+def test_compaction_streams_only_main_answer_and_preserves_history(agent_storage: AgentStorage, main_fails: bool, tool_loop: bool) -> None:
+    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_shell_sidecar.agent.contracts import AgentRunStatus
+    from uuid import uuid4
+    async def scenario() -> None:
+        outcomes = [AIMessage(content="HISTORY SUMMARY ONLY")]
+        if tool_loop:
+            outcomes.append(AIMessage(content="", tool_calls=[make_tool_call("post-summary", "pwd")]))
+        outcomes.append(RuntimeError("provider failure") if main_fails else AIMessage(content="final answer"))
+        model = FakeModelSequence(outcomes)
+        service, turn = _service(agent_storage, model, RecordingExecutor())
+        config = agent_storage.api_configs.get(turn.api_config_id)
+        value = valid_api_config_input().model_copy(update={
+            "api_key_credential_id": config.api_key_credential_id,
+            "context_compaction_threshold_ratio": 0.01})
+        agent_storage.api_configs.update(config.api_config_id, value)
+        repo = agent_storage.conversations
+        conversation = repo.create_conversation()
+        for i in range(4):
+            run = repo.start_run(conversation, turn.ssh_session_id, config.api_config_id)
+            repo.append_messages_atomic(run.agent_run_id, conversation,
+                [HumanMessage(content="historical data " * 500), AIMessage(content=f"answer {i}")])
+            repo.finish_run(run.agent_run_id, AgentRunStatus.COMPLETED, None)
+        before = repo.load_messages(conversation)
+        sink = RecordingTurnSink()
+        result = await _run_turn(agent_storage, service,
+            turn.model_copy(update={"conversation_id": conversation}), event_sink=sink)
+        assert result.status == (AgentRunStatus.FAILED if main_fails else AgentRunStatus.COMPLETED)
+        assert sink.streamed_text == ("" if main_fails else "final answer")
+        assert model.calls == (3 if tool_loop else 2)
+        assert repo.load_messages(conversation)[:len(before)] == before
+        summary = ContextSummaryRepository(agent_storage.database).load(conversation)
+        assert summary.covered_through_sequence == 2
+        assert "HISTORY SUMMARY ONLY" in str(model.message_calls[1])
+    from langchain_core.messages import HumanMessage
+    asyncio.run(scenario())
+
+
+def test_tool_prefix_is_identical_in_database_and_model(agent_storage: AgentStorage) -> None:
+    async def scenario() -> None:
+        model = FakeModelSequence([AIMessage(content="", tool_calls=[make_tool_call("clip", "pwd")]), AIMessage(content="done")])
+        service, turn = _service(agent_storage, model, RecordingExecutor(stdout="x" * 6000 + "OMITTED_SUFFIX"))
+        result = await _run_turn(agent_storage, service, turn)
+        history = agent_storage.conversations.load_messages(result.conversation_id)
+        tool = next(message for message in history if message.type == "tool")
+        payload = json.loads(tool.content)
+        assert payload["result"]["stdout"] == "x" * 6000
+        assert payload["result"]["stdout_truncation"]["omitted_chars"] == 14
+        sent = next(message for message in model.message_calls[1] if message["role"] == "tool")
+        assert sent["content"] == tool.content
+        assert "OMITTED_SUFFIX" not in str(history)
+    asyncio.run(scenario())
+
+
+def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_storage: AgentStorage) -> None:
+    from collections.abc import Sequence
+    from harness_shell_sidecar.agent.context_budget import ContextBudget
+    from harness_shell_sidecar.agent.context_models import AgentContextPolicy, ContextMessage, ContextSummary, TokenEstimate
+    from harness_shell_sidecar.agent.contracts import ModelApiConfig
+    from harness_shell_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
+
+    class ToolOverflowBudget(ContextBudget):
+        """模拟大型工具结果，不制造巨大测试载荷。"""
+        def estimate(self, config: ModelApiConfig, records: Sequence[ContextMessage],
+                     summary: ContextSummary | None) -> TokenEstimate:
+            """仅工具后的投影超过实际默认预算。"""
+            return TokenEstimate(120000 if any(r.message.type == "tool" for r in records) else 500,
+                                 "TOKENIZER_ESTIMATE")
+
+    async def scenario() -> None:
+        """覆盖真实图边和持久化终态失败。"""
+        model = FakeModelSequence([AIMessage(content="", tool_calls=[make_tool_call("one", "pwd")])])
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        budget = ToolOverflowBudget(load_local_encoding(tokenizer_resource_dir(), "o200k_base"), AgentContextPolicy())
+        service = AgentService(agent_storage.api_configs, agent_storage.conversations, RecordingExecutor(),
+            ModelGateway(client_builder=RecordingSequenceClientBuilder(model)),
+            ContextService(agent_storage.conversations), lambda _: True, budget=budget)
+        turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
+        result = await _run_turn(agent_storage, service, turn)
+        assert result.status is AgentRunStatus.FAILED
+        assert result.error_code == "CONTEXT_BUDGET_EXCEEDED"
+        assert model.calls == 1
+        assert agent_storage.database.execute("SELECT count(*) FROM agent_context_summaries").fetchone() == (0,)
     asyncio.run(scenario())

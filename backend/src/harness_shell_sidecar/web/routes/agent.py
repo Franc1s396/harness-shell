@@ -1,4 +1,4 @@
-"""Typed HTTP routes for Provider configuration and streaming Agent turns."""
+"""Provider 配置和流式 Agent 轮次的 typed HTTP 路由。"""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ async def list_api_configs(
     request_id: CorrelationId,
     owner: Owner,
 ) -> AgentApiConfigListResponse:
-    """Return all non-secret Provider configurations."""
+    """返回全部非秘密 Provider 配置。"""
 
     result = await dispatch_application(
         owner, request_id, "agent.api_configs.list", {}
@@ -71,7 +71,7 @@ async def create_api_config(
     request_id: CorrelationId,
     owner: Owner,
 ) -> AgentApiConfigResponse:
-    """Persist one Provider configuration with its encrypted API key."""
+    """持久化 Provider 配置及其加密传输的 API Key。"""
 
     value = validate_json_model(payload, ModelApiConfigCreateRequest, request_id)
     result = await dispatch_application(
@@ -98,7 +98,7 @@ async def update_api_config(
     request_id: CorrelationId,
     owner: Owner,
 ) -> AgentApiConfigResponse:
-    """Replace one complete non-secret Provider configuration."""
+    """替换完整非秘密 Provider 配置。"""
 
     value = validate_json_model(payload, ModelApiConfigUpdateRequest, request_id)
     params = value.model_dump(mode="json")
@@ -123,7 +123,7 @@ async def delete_api_config(
     request_id: CorrelationId,
     owner: Owner,
 ) -> DeleteResponse:
-    """Delete Provider metadata and its owned credential atomically."""
+    """原子删除 Provider 元数据及其拥有的凭据。"""
 
     result = await dispatch_application(
         owner,
@@ -142,8 +142,9 @@ async def run_agent_turn(
     owner: Owner,
     accept: Annotated[str | None, Header()] = None,
 ) -> StreamingResponse:
-    """Start one Agent SSE response only after its durable Run exists."""
+    """持久化 Run 已存在后才启动 Agent SSE 响应。"""
 
+    # 1. 先要求客户端明确协商 SSE，协商失败仍返回普通 Problem。
     if accept is None or accept.strip().lower() != "text/event-stream":
         raise HttpProblem(
             build_problem(
@@ -154,6 +155,7 @@ async def run_agent_turn(
                 message="Accept must be text/event-stream",
             )
         )
+    # 2. 校验请求和就绪资源，创建绑定共享 dispatcher 的流会话。
     value = validate_json_model(payload, AgentTurnRequest, request_id)
     resources = require_ready_resources(owner, request_id)
     session = AgentTurnStreamSession(
@@ -163,9 +165,11 @@ async def run_agent_turn(
         params=value.model_dump(mode="json"),
     )
     try:
+        # 3. 等待 started 启动屏障，持久化启动前失败映射为 HTTP 错误。
         await session.start()
     except DispatchError as error:
         raise dispatch_error_problem(request_id, error) from None
+    # 4. 启动成功后返回 SSE 正文，后续终态由同一流发布。
     return StreamingResponse(
         session.body(),
         status_code=200,

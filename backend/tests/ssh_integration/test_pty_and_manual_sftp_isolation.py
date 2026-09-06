@@ -22,7 +22,7 @@ def test_pty_and_manual_sftp_use_isolated_child_channels(
         pty_output = asyncio.Event()
 
         async def collect_pty(payload: dict) -> None:
-            """Capture only typed PTY events and wake after visible output."""
+            """只捕获 typed PTY 事件，并在可见输出后唤醒。"""
 
             pty_events.append(payload)
             _write_event_evidence(payload)
@@ -71,7 +71,7 @@ def test_pty_and_manual_sftp_use_isolated_child_channels(
             await pty.close(pty_session.pty_session_id)
 
     async def bounded_scenario() -> None:
-        """Fail the channel-isolation scenario instead of allowing an unbounded hang."""
+        """通道隔离场景超时则失败，不允许无限挂起。"""
 
         try:
             async with asyncio.timeout(30):

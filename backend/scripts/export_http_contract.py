@@ -1,4 +1,4 @@
-"""Check or explicitly regenerate deterministic HTTP/WebSocket artifacts."""
+"""检查或显式重新生成确定性的 HTTP/WebSocket 契约产物。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ ARTIFACTS = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build an explicit non-ambiguous contract export CLI."""
+    """构建行为明确、无歧义的契约导出命令行入口。"""
 
     parser = argparse.ArgumentParser(allow_abbrev=False)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Check reviewed bytes, write explicitly, or print deterministic combined JSON."""
+    """校验已审查的字节、显式写入文件，或输出确定性的合并 JSON。"""
 
     args = build_parser().parse_args(argv)
     generated = {path: canonical_json_bytes(builder()) for path, builder in ARTIFACTS.items()}

@@ -1,4 +1,4 @@
-"""Verify the Python-owned diagnostics directory HTTP boundary."""
+"""验证 Python 诊断目录的 HTTP 边界。"""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from harness_shell_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:
-    """Create one valid request correlation header."""
+    """创建合法请求关联头。"""
 
     return {"X-Request-ID": str(uuid4())}
 
 
 def test_log_directory_reports_only_availability(tmp_path: Path) -> None:
-    """Do not expose the Python-owned absolute log path to React."""
+    """不向 React 暴露 Python 拥有的日志绝对路径。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime").resolve())
     settings.log_dir.mkdir(parents=True)
@@ -35,7 +35,7 @@ def test_log_directory_reports_only_availability(tmp_path: Path) -> None:
 
 
 def test_open_log_directory_uses_fixed_runtime_path(tmp_path: Path) -> None:
-    """Only the settings-derived directory may reach the OS opener."""
+    """只有配置派生目录能够传到操作系统打开入口。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime").resolve())
     settings.log_dir.mkdir(parents=True)
@@ -53,12 +53,12 @@ def test_open_log_directory_uses_fixed_runtime_path(tmp_path: Path) -> None:
 
 
 def test_open_log_directory_rejects_missing_fixed_path(tmp_path: Path) -> None:
-    """A missing fixed directory is an explicit diagnostics failure."""
+    """固定目录缺失属于显式诊断失败。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime").resolve())
     with TestClient(create_app(settings=settings)) as client:
-        # Autonomous startup creates the fixed directory. Removing the empty
-        # directory after startup models the real external-deletion failure.
+        # 自主启动会创建固定目录；启动后删除空目录，
+        # 用来模拟真实的外部删除失败。
         settings.log_dir.rmdir()
         response = client.post(
             "/v1/diagnostics/log-directory/open",
@@ -70,13 +70,13 @@ def test_open_log_directory_rejects_missing_fixed_path(tmp_path: Path) -> None:
 
 
 def test_open_log_directory_reports_os_start_failure(tmp_path: Path) -> None:
-    """Keep Explorer launch errors stable without exposing the absolute path."""
+    """保持 Explorer 启动错误稳定，不暴露绝对路径。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime").resolve())
     settings.log_dir.mkdir(parents=True)
 
     def fail_open(_path: Path) -> None:
-        """Simulate one bounded OS process-start failure."""
+        """模拟有界操作系统进程启动失败。"""
 
         raise OSError("test marker must not cross the HTTP boundary")
 
@@ -94,7 +94,7 @@ def test_open_log_directory_reports_os_start_failure(tmp_path: Path) -> None:
 
 
 def test_cors_allows_only_the_two_fixed_react_origins(tmp_path: Path) -> None:
-    """Reject arbitrary origins while exposing the direct-client headers."""
+    """拒绝任意 origin，同时暴露直接客户端所需请求头。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime").resolve())
     with TestClient(create_app(settings=settings)) as client:

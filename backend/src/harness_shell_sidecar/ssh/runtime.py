@@ -1,4 +1,4 @@
-"""Direct AsyncSSH connection lifecycle with fail-closed Host Key checks."""
+"""具有严格 Host Key 失败检查的直连 AsyncSSH 生命周期。"""
 
 from __future__ import annotations
 
@@ -90,6 +90,7 @@ class SshRuntime:
     ) -> ConnectionStatus:
         """通过专用 Client 截获 Profile 端点的 Host Key 并生成安全状态。"""
 
+        # 1. 禁用认证材料和默认 known_hosts，使用候选捕获回调检查主机身份。
         options = {
             "username": profile.username,
             "client_factory": lambda: InspectHostKeyClient(
@@ -101,8 +102,10 @@ class SshRuntime:
             "password": None,
             "preferred_auth": [],
         }
+        # 2. 有已验证跳板时复用隧道，目标检查仍受独立超时约束。
         if tunnel is not None:
             options["tunnel"] = tunnel
+        # 3. 尝试握手并按捕获结果返回候选；异常只映射为安全状态。
         try:
             connection = await self._connector(
                 profile.host, profile.port, **options
@@ -165,6 +168,7 @@ class SshRuntime:
     ) -> ConnectionStatus:
         """验证配置快照与 Host Key 后，在最多两次尝试内建立 SSH 会话。"""
 
+        # 1. 获取目标配置并检查调用方冻结版本，网络 I/O 前拒绝陈旧配置。
         correlation_id = uuid4()
         profile = self._profile(connection_id, correlation_id)
         if (
@@ -179,6 +183,7 @@ class SshRuntime:
                 remote_state="not_contacted",
                 correlation_id=correlation_id,
             )
+        # 2. 有跳板时走单层 ProxyJump；直连尚未信任 Host Key 时只检查候选。
         if profile.proxy_jump_id is not None:
             jump = self._proxy_profile(
                 profile,
@@ -202,6 +207,7 @@ class SshRuntime:
         if active_host_key is None:
             return await self._inspect_profile(profile, correlation_id)
 
+        # 3. 已有可信 Host Key 后才构造认证选项并发布连接中状态。
         auth_options = build_auth_options(
             auth_kind=profile.auth_kind,
             password=password,
@@ -211,6 +217,7 @@ class SshRuntime:
         await self._emit(
             self._status(connection_id, "CONNECTING", correlation_id)
         )
+        # 4. 按现有有界连接策略建立并校验连接，成功后登记会话所有权。
         for attempt in (1, 2):
             try:
                 connection = await self._open_verified(
@@ -270,6 +277,7 @@ class SshRuntime:
     ) -> ConnectionStatus:
         """验证跳板和目标两个端点后建立单层 ProxyJump 会话。"""
 
+        # 1. 优先确认跳板 Host Key，未信任时只返回跳板候选。
         active_jump_key = self._repository.active_host_key(jump.connection_id)
         if active_jump_key is None:
             return await self._inspect_profile(jump, correlation_id)
@@ -280,6 +288,7 @@ class SshRuntime:
             private_key=jump_private_key,
             passphrase=jump_passphrase,
         )
+        # 2. 目标未信任时仅通过已验证跳板检查目标，并关闭临时跳板连接。
         active_target_key = self._repository.active_host_key(profile.connection_id)
         if active_target_key is None:
             jump_connection = await self._open_verified(
@@ -296,6 +305,7 @@ class SshRuntime:
             finally:
                 await self._close_connection(jump_connection)
 
+        # 3. 两端均有可信 Host Key 后构造目标认证，开始完整连接链。
         target_auth = build_auth_options(
             auth_kind=profile.auth_kind,
             password=password,
@@ -306,6 +316,7 @@ class SshRuntime:
             self._status(profile.connection_id, "CONNECTING", correlation_id)
         )
 
+        # 4. 每次尝试独立拥有跳板和目标连接；成功移交注册表，失败清理。
         for attempt in (1, 2):
             jump_connection = None
             try:
@@ -470,6 +481,7 @@ class SshRuntime:
     ):
         """仅用精确匹配的 Host Key 和显式认证选项打开 AsyncSSH 连接。"""
 
+        # 1. 将预期 Host Key 与显式认证选项绑定到同一次握手。
         options = {
             "username": profile.username,
             "client_factory": lambda: VerifiedHostKeyClient(
@@ -481,8 +493,10 @@ class SshRuntime:
             "known_hosts": empty_known_hosts(),
             **auth_options,
         }
+        # 2. 可选跳板只作为本次连接隧道，不改变目标身份校验。
         if tunnel is not None:
             options["tunnel"] = tunnel
+        # 3. 连接成功才移交所有权；拒绝或失败按现有安全错误边界传播。
         try:
             return await self._connector(profile.host, profile.port, **options)
         except HostKeyMismatch as mismatch:

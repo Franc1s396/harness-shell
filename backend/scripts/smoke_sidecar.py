@@ -1,4 +1,4 @@
-"""Validate the autonomous desktop Sidecar pipe and HTTP/WebSocket lifecycle."""
+"""验证自主启动的桌面 Sidecar 管道及 HTTP/WebSocket 生命周期。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def request_json(
     *,
     expected_status: int,
 ) -> tuple[dict[str, object], bytes]:
-    """Issue one correlated private HTTP request and validate its response."""
+    """发送一个带关联标识的内部 HTTP 请求并校验响应。"""
 
     request_id = uuid4()
     connection = http.client.HTTPConnection(
@@ -66,7 +66,7 @@ def request_json(
 
 
 def wait_ready(port: int) -> bytes:
-    """Poll autonomous readiness within the fixed startup deadline."""
+    """在固定启动期限内轮询自主初始化状态。"""
 
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
@@ -86,7 +86,7 @@ def wait_ready(port: int) -> bytes:
 
 
 def drain_pipe(pipe, capture: bytearray, lock: threading.Lock) -> None:
-    """Drain a child pipe so bounded diagnostics cannot block shutdown."""
+    """持续排空子进程管道，避免诊断输出阻塞关闭。"""
 
     while chunk := pipe.read(4_096):
         with lock:
@@ -96,7 +96,7 @@ def drain_pipe(pipe, capture: bytearray, lock: threading.Lock) -> None:
 
 
 def read_exact(fd: int, length: int) -> bytes:
-    """Read exactly one byte count or fail on premature pipe EOF."""
+    """读取指定数量的字节；管道提前 EOF 时明确失败。"""
 
     chunks: list[bytes] = []
     remaining = length
@@ -110,7 +110,7 @@ def read_exact(fd: int, length: int) -> bytes:
 
 
 def read_ready_payload(fd: int) -> bytes:
-    """Read one bounded length-prefixed ready payload."""
+    """读取一个带长度前缀且大小有界的就绪载荷。"""
 
     (payload_length,) = struct.unpack(">I", read_exact(fd, 4))
     if not 1 <= payload_length <= 4_096:
@@ -119,9 +119,16 @@ def read_ready_payload(fd: int) -> bytes:
 
 
 def child_command(extraction_dir: Path) -> tuple[list[str], dict[str, str]]:
-    """Build a source or packaged desktop command without secret environment data."""
+    """构造源码或打包版桌面命令，不携带秘密环境数据。"""
 
     environment = os.environ.copy()
+    # 打包后的子进程不得借用开发者缓存或外部网络。
+    for key in ("http_proxy", "https_proxy", "all_proxy", "no_proxy", "ALL_PROXY"):
+        environment.pop(key, None)
+    environment.update(TIKTOKEN_CACHE_DIR=str(extraction_dir / "empty-token-cache"),
+        DATA_GYM_CACHE_DIR=str(extraction_dir / "empty-data-cache"),
+        HTTP_PROXY="http://127.0.0.1:1", HTTPS_PROXY="http://127.0.0.1:1",
+        NO_PROXY="127.0.0.1,localhost")
     if len(sys.argv) > 1:
         executable = Path(sys.argv[1]).resolve(strict=True)
         command = [str(executable)]
@@ -146,7 +153,7 @@ def child_command(extraction_dir: Path) -> tuple[list[str], dict[str, str]]:
 
 
 def main() -> int:
-    """Run ready-pipe, HTTP, WebSocket, and control-byte shutdown checks."""
+    """检查就绪管道、HTTP、WebSocket 和控制字节触发的关闭。"""
 
     if sys.platform != "win32":
         raise RuntimeError("desktop Sidecar smoke requires Windows HANDLEs")
@@ -201,7 +208,7 @@ def main() -> int:
         ready_result: queue.Queue[bytes | BaseException] = queue.Queue(maxsize=1)
 
         def read_ready() -> None:
-            """Move the blocking pipe read behind the smoke deadline."""
+            """让阻塞管道读取受冒烟检查的截止时间约束。"""
 
             try:
                 ready_result.put(read_ready_payload(ready_read_fd))

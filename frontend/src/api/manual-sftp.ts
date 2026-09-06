@@ -578,8 +578,8 @@ export const subscribeManualSftpEvents = async (
     } else if (message.type === "runtime.disconnected") {
       onProtocolError(new ManualSftpProtocolError(message.errorCode));
     }
-    // Transfer byte progress is now owned by the browser coordinator. It does
-    // not invent remote acknowledgements from a WebSocket observation channel.
+    // 传输字节进度现由浏览器协调器负责，
+    // 不根据 WebSocket 观察通道虚构远程确认。
     void onTransfer;
   }),
 );

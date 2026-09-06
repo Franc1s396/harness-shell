@@ -36,7 +36,7 @@ from .fakes import (
 
 
 def _config(api_type: ApiType) -> ModelApiConfig:
-    """Build one enabled non-secret model config for gateway tests."""
+    """为网关测试构建已启用的非秘密模型配置。"""
 
     now = datetime.now(UTC)
     return ModelApiConfig(
@@ -53,13 +53,13 @@ def _config(api_type: ApiType) -> ModelApiConfig:
 
 
 def responses_config() -> ModelApiConfig:
-    """Build a config which explicitly selects the Responses API."""
+    """构建显式选择 Responses API 的配置。"""
 
     return _config(ApiType.RESPONSES)
 
 
 def chat_config() -> ModelApiConfig:
-    """Build a config which explicitly selects Chat Completions."""
+    """构建显式选择 Chat Completions 的配置。"""
 
     return _config(ApiType.CHAT_COMPLETIONS)
 
@@ -70,7 +70,7 @@ async def _invoke(
     cancelled: asyncio.Event | None = None,
     sink: RecordingTextSink | None = None,
 ) -> AIMessage:
-    """Invoke the gateway with one stable HumanMessage input."""
+    """使用稳定 HumanMessage 输入调用网关。"""
 
     return await gateway.invoke(
         config,
@@ -82,32 +82,32 @@ async def _invoke(
 
 
 class RecordingTextSink:
-    """Record exact visible deltas without adding transport behavior."""
+    """记录精确可见增量，不增加传输行为。"""
 
     def __init__(self) -> None:
-        """Create one empty per-invocation delta list."""
+        """为每次调用创建空增量列表。"""
 
-        self.deltas: list[str] = []  # Exact visible chunks in Provider order.
+        self.deltas: list[str] = []  # 按 Provider 顺序排列的精确可见分块。
 
     async def text_delta(self, delta: str) -> None:
-        """Append one exact visible Provider delta."""
+        """追加精确可见 Provider 增量。"""
 
         self.deltas.append(delta)
 
 
 def test_text_sink_limit_failure_propagates_without_model_error_mapping() -> None:
-    """Let the stream owner durably map its own response-size failure."""
+    """让流管理者持久化映射自身响应大小失败。"""
 
     class StreamLimitError(RuntimeError):
-        """Represent the later publisher's stable limit failure contract."""
+        """表示后续发布器的稳定限制失败契约。"""
 
         error_code = "AGENT_RESPONSE_TOO_LARGE"
 
     class FailingSink(RecordingTextSink):
-        """Fail when the first visible delta reaches the stream boundary."""
+        """首个可见增量到达流边界时失败。"""
 
         async def text_delta(self, delta: str) -> None:
-            """Reject the delta without changing its error identity."""
+            """拒绝增量，但不改变其错误身份。"""
 
             raise StreamLimitError(delta)
 
@@ -133,7 +133,7 @@ def test_text_sink_limit_failure_propagates_without_model_error_mapping() -> Non
 def test_network_timeout_retries_five_times_then_fails(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Attempt exactly once plus five deterministic timeout retries."""
+    """初次尝试后恰好执行五次确定性超时重试。"""
 
     async def scenario() -> None:
         failure = openai.APITimeoutError(request=httpx.Request("POST", "https://provider.example/v1/responses"))
@@ -142,7 +142,7 @@ def test_network_timeout_retries_five_times_then_fails(
         delays: list[float] = []
 
         async def record_sleep(delay: float) -> None:
-            """Record retry delays without wall-clock waiting."""
+            """记录重试延时，不等待真实时钟。"""
 
             delays.append(delay)
 
@@ -174,7 +174,7 @@ def test_network_timeout_retries_five_times_then_fails(
 
 
 def test_timeout_in_cause_chain_retries_then_succeeds() -> None:
-    """Classify timeouts only by type while traversing the explicit cause chain."""
+    """遍历显式原因链时仅按类型识别超时。"""
 
     async def scenario() -> None:
         wrapped = RuntimeError("provider wrapper")
@@ -200,7 +200,7 @@ def _status_error(
     body: object | None = None,
     request_id: str | None = None,
 ) -> Exception:
-    """Build an OpenAI status exception without a live HTTP request."""
+    """无需真实 HTTP 请求即可构建 OpenAI 状态异常。"""
 
     response = httpx.Response(
         status,
@@ -213,7 +213,7 @@ def _status_error(
 def test_provider_failure_logs_safe_metadata_without_response_body(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Keep Provider response text out of stderr while retaining stable metadata."""
+    """Provider 响应文本不进入 stderr，同时保留稳定元数据。"""
 
     async def scenario() -> None:
         failure = _status_error(
@@ -261,7 +261,7 @@ def test_provider_failure_logs_safe_metadata_without_response_body(
 
 
 def _schema_error() -> ValidationError:
-    """Build a representative local schema validation failure."""
+    """构建有代表性的本地 schema 校验失败。"""
 
     try:
         ExecuteCommandArguments(command=7)  # type: ignore[arg-type]
@@ -282,7 +282,7 @@ def _schema_error() -> ValidationError:
     ids=["authentication", "rate-limit", "server-5xx", "schema", "unknown"],
 )
 def test_non_timeout_failures_do_not_retry(failure: Exception) -> None:
-    """Fail once for every non-timeout category, including provider status errors."""
+    """每种非超时类别仅失败一次，包括 Provider 状态错误。"""
 
     async def scenario() -> None:
         model = FakeModelSequence([failure])
@@ -301,7 +301,7 @@ def test_non_timeout_failures_do_not_retry(failure: Exception) -> None:
 
 
 def test_unrecognized_metadata_does_not_retry() -> None:
-    """Ignore non-output metadata without retrying the provider."""
+    """忽略非输出元数据，不重试 Provider。"""
 
     async def scenario() -> None:
         model = FakeModelSequence([HumanMessage(content="wrong type")])
@@ -318,7 +318,7 @@ def test_unrecognized_metadata_does_not_retry() -> None:
 
 
 def test_cancellation_stops_an_active_model_request() -> None:
-    """Cancel and await the in-flight model task without starting another attempt."""
+    """取消并等待进行中的模型任务，不发起下一次尝试。"""
 
     async def scenario() -> None:
         blocker = asyncio.Event()
@@ -342,13 +342,13 @@ def test_cancellation_stops_an_active_model_request() -> None:
 
 
 def test_cancellation_stops_retry_backoff_before_next_attempt() -> None:
-    """Interrupt a timeout backoff without dispatching the next model request."""
+    """中断超时退避，不派发下一个模型请求。"""
 
     async def scenario() -> None:
         sleeping = asyncio.Event()
 
         async def blocking_sleep(_delay: float) -> None:
-            """Block the first retry until cancellation wins the race."""
+            """阻塞首次重试，直到取消先完成。"""
 
             await sleeping.wait()
 
@@ -375,7 +375,7 @@ def test_cancellation_stops_retry_backoff_before_next_attempt() -> None:
 
 
 def test_outer_task_cancellation_stops_active_model_operation() -> None:
-    """Propagate caller cancellation into the provider task before returning."""
+    """返回前将调用方取消传播到 Provider 任务。"""
 
     async def scenario() -> None:
         model = CancellationAwareModel()
@@ -399,7 +399,7 @@ def test_outer_task_cancellation_stops_active_model_operation() -> None:
 
 
 def test_outer_task_cancellation_stops_retry_sleep() -> None:
-    """Propagate caller cancellation into a timeout backoff task before returning."""
+    """返回前将调用方取消传播到超时退避任务。"""
 
     async def scenario() -> None:
         sleeping = asyncio.Event()
@@ -407,7 +407,7 @@ def test_outer_task_cancellation_stops_retry_sleep() -> None:
         release = asyncio.Event()
 
         async def blocking_sleep(_delay: float) -> None:
-            """Expose the retry sleeper lifecycle to the cancellation assertion."""
+            """向取消断言暴露重试等待任务的生命周期。"""
 
             sleeping.set()
             try:
@@ -482,7 +482,7 @@ def test_unsupported_history_is_rejected(kind: str) -> None:
 
 
 def test_fake_openai_client_records_resource_and_close_lifecycle() -> None:
-    """Expose the exact client ownership contract used by gateway tests."""
+    """暴露网关测试使用的精确客户端所有权契约。"""
 
     async def scenario() -> None:
         from .fakes import FakeOpenAIClient
@@ -586,7 +586,7 @@ def test_responses_stream_captures_ordered_replay(tool: bool) -> None:
 
 @pytest.mark.parametrize("omit", ["reasoning_status", "argument_name", "metadata", "all"])
 def test_responses_accepts_sparse_provider_events(omit: str) -> None:
-    """Optional wire metadata must not prevent a complete tool call and replay."""
+    """可选传输元数据不得阻止完整工具调用和回放。"""
     from openai._models import construct_type
     from openai.types.responses import ResponseStreamEvent
     from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState, _serialize_responses_input
@@ -612,7 +612,7 @@ def test_responses_accepts_sparse_provider_events(omit: str) -> None:
             dict(type="response.output_item.done", sequence_number=4, output_index=1, item=call),
             dict(type="response.completed", sequence_number=5, response=terminal),
         ]
-        # Match the SDK's permissive construction used on real HTTP streams.
+        # 匹配 SDK 在真实 HTTP 流中使用的宽松构造。
         events = [construct_type(type_=ResponseStreamEvent, value=event) for event in wire]
         config = responses_config()
         sink = RecordingTextSink()
@@ -627,7 +627,7 @@ def test_responses_accepts_sparse_provider_events(omit: str) -> None:
 
 @pytest.mark.parametrize("numbering", ["missing", "repeated", "reset", "string"])
 def test_responses_uses_arrival_order_without_sequence_metadata(numbering: str) -> None:
-    """Provider sequence metadata cannot reject an otherwise complete SSE stream."""
+    """Provider 序号元数据不得导致其他方面完整的 SSE 流被拒绝。"""
     from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
     from .fakes import FakeAsyncStream, responses_events
 
@@ -685,7 +685,7 @@ def test_responses_stream_provider_variations(kind: str) -> None:
 
 @pytest.mark.parametrize("api_type", list(ApiType))
 def test_official_client_dispatch_and_ownership(api_type: ApiType) -> None:
-    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, responses_events, chat_chunk
+    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk, responses_events
     async def scenario() -> None:
         client = FakeOpenAIClient(chat_outcomes=[[chat_chunk(content="done"), chat_chunk(finish_reason="stop")]], responses_outcomes=[responses_events(AIMessage(content="done"))])
         builder = RecordingOpenAIClientBuilder([client])
@@ -704,7 +704,7 @@ def test_official_client_dispatch_and_ownership(api_type: ApiType) -> None:
         definition = tool if api_type is ApiType.RESPONSES else tool["function"]
         assert definition["name"] == "execute_command" and definition["strict"] is True
         assert definition["parameters"]["additionalProperties"] is False
-        assert set(request) == ({"model", "input", "tools", "parallel_tool_calls", "include", "stream"} if api_type is ApiType.RESPONSES else {"model", "messages", "tools", "parallel_tool_calls", "stream"})
+        assert set(request) == ({"model", "input", "tools", "parallel_tool_calls", "include", "stream", "max_output_tokens"} if api_type is ApiType.RESPONSES else {"model", "messages", "tools", "parallel_tool_calls", "stream", "max_completion_tokens", "stream_options"})
         if api_type is ApiType.RESPONSES: assert request["include"] == ["reasoning.encrypted_content"]
         assert resource.streams[0].closed and client.closed
     asyncio.run(scenario())
@@ -714,7 +714,7 @@ def test_official_client_dispatch_and_ownership(api_type: ApiType) -> None:
 @pytest.mark.parametrize("visible", [False, True])
 def test_official_timeout_retry_boundary(api_type: ApiType, visible: bool) -> None:
     import httpx2
-    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, responses_events, response_event, chat_chunk
+    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk, responses_events, response_event, chat_chunk
     async def scenario() -> None:
         failure = openai.APITimeoutError(request=httpx2.Request("POST", "https://provider.example/v1/responses"))
         if api_type is ApiType.RESPONSES:
@@ -727,7 +727,7 @@ def test_official_timeout_retry_boundary(api_type: ApiType, visible: bool) -> No
         client = FakeOpenAIClient(chat_outcomes=outcomes, responses_outcomes=outcomes)
         sink = RecordingTextSink()
         gateway = ModelGateway(client_builder=RecordingOpenAIClientBuilder([client]), sleep=instant_sleep)
-        # No buffered draft has been published, so either attempt can retry.
+        # 缓冲草稿尚未发布，因此两次尝试均可重试。
         assert (await _invoke(gateway, _config(api_type), sink=sink)).content == "done"
         assert sink.deltas == ["done"]
         resource = client.responses if api_type is ApiType.RESPONSES else client.chat.completions
@@ -756,11 +756,11 @@ def test_official_cleanup_preserves_first_failure(earlier: bool) -> None:
         client = FakeOpenAIClient(chat_outcomes=[], responses_outcomes=[])
         stream = FakeAsyncStream([failure] if earlier else [chat_chunk(finish_reason="stop")])
         async def broken_close() -> None:
-            """Inject a stream cleanup failure after marking closure."""
+            """标记关闭后注入流清理失败。"""
             stream.closed = True
             raise close_failure
         async def create(**kwargs: object):
-            """Return the owned stream for cleanup fault injection."""
+            """返回拥有的流，用于注入清理故障。"""
             return stream
         stream.close = broken_close
         client.chat.completions.create = create
@@ -772,12 +772,12 @@ def test_official_cleanup_preserves_first_failure(earlier: bool) -> None:
 
 
 def test_official_standalone_client_close_failure_is_visible() -> None:
-    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk
+    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk, chat_chunk
     async def scenario() -> None:
         client = FakeOpenAIClient(chat_outcomes=[[chat_chunk(finish_reason="stop")]], responses_outcomes=[])
         failure = RuntimeError("client-close")
         async def close() -> None:
-            """Raise a standalone cleanup error after a successful request."""
+            """请求成功后抛出独立清理错误。"""
             raise failure
         client.close = close
         with pytest.raises(RuntimeError) as raised:
@@ -793,7 +793,7 @@ def test_responses_lifecycle_split_text_and_arguments() -> None:
         output = dict(type="message", id="msg-0", role="assistant", status="completed", content=[dict(type="output_text", text=" hello\nworld ", annotations=[], logprobs=[])])
         events = []
         def add(kind: str, **fields: object) -> None:
-            """Assign strictly increasing sequence numbers to literal lifecycle fixtures."""
+            """为字面生命周期 fixture 分配严格递增序号。"""
             events.append(response_event(kind, len(events), **fields))
         add("response.created", response=response_body([], "in_progress"))
         add("response.in_progress", response=response_body([], "in_progress"))
@@ -843,13 +843,13 @@ def test_replay_rejects_semantically_invalid_fields_across_configs(field: str, v
 
 
 def test_sink_failure_identity_is_preserved_for_any_exception() -> None:
-    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk
+    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk, chat_chunk
     async def scenario() -> None:
         failure = RuntimeError("sink-owned-failure")
         class FailingSink(RecordingTextSink):
-            """Represent a publisher failure unrelated to Provider transport."""
+            """表示与 Provider 传输无关的发布器失败。"""
             async def text_delta(self, delta: str) -> None:
-                """Expose the publisher's original failure object."""
+                """暴露发布器的原始失败对象。"""
                 raise failure
         client = FakeOpenAIClient(chat_outcomes=[[chat_chunk(content="x")]], responses_outcomes=[])
         with pytest.raises(RuntimeError) as raised:
@@ -862,7 +862,7 @@ def test_sink_failure_identity_is_preserved_for_any_exception() -> None:
 @pytest.mark.parametrize("responses", [False, True])
 def test_malformed_sdk_fields_do_not_warn_with_provider_content(responses: bool) -> None:
     import warnings
-    from .fakes import FakeAsyncStream, responses_events, chat_chunk
+    from .fakes import FakeAsyncStream, responses_events
     from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _parse_chat_completions_stream, _InvocationState
     async def scenario() -> None:
         if responses:
@@ -906,7 +906,7 @@ def test_responses_split_tool_arguments_and_message_phase_replay() -> None:
 @pytest.mark.parametrize("api_type", list(ApiType))
 @pytest.mark.parametrize("outer", [False, True])
 def test_official_cancellation_closes_stream_and_client(api_type: ApiType, outer: bool) -> None:
-    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder
+    from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk
     async def scenario() -> None:
         blocker = asyncio.Event()
         client = FakeOpenAIClient(chat_outcomes=[[blocker]], responses_outcomes=[[blocker]])
@@ -919,4 +919,81 @@ def test_official_cancellation_closes_stream_and_client(api_type: ApiType, outer
         with pytest.raises(asyncio.CancelledError if outer else AgentCancelled): await task
         assert client.closed and resource.streams[0].closed
         assert resource.calls == 1
+    asyncio.run(scenario())
+
+
+from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, chat_chunk
+
+
+def test_chat_usage_survives_empty_choices_chunk() -> None:
+    client = FakeOpenAIClient(chat_outcomes=[[
+        chat_chunk(content="ok", finish_reason="stop"),
+        {"choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 12}},
+    ]], responses_outcomes=[])
+    gateway = ModelGateway(client_builder=RecordingOpenAIClientBuilder([client]))
+    message = asyncio.run(_invoke(gateway, chat_config()))
+    assert message.usage_metadata == {"input_tokens": 100, "output_tokens": 12, "total_tokens": 112}
+    assert client.chat.completions.kwargs[0]["max_completion_tokens"] == 8192
+
+
+def test_summary_request_has_no_tools_and_no_internal_retry() -> None:
+    client = FakeOpenAIClient(chat_outcomes=[[
+        chat_chunk(content="summary", finish_reason="stop"),
+    ]], responses_outcomes=[])
+    gateway = ModelGateway(client_builder=RecordingOpenAIClientBuilder([client]))
+    result = asyncio.run(gateway.summarize_once(chat_config(), SecretStr("key"),
+        [HumanMessage(content="summarize")], asyncio.Event()))
+    assert result == "summary"
+    assert "tools" not in client.chat.completions.kwargs[0]
+    assert client.closed
+
+
+def test_summary_rejects_truncated_answer() -> None:
+    client = FakeOpenAIClient(chat_outcomes=[[
+        chat_chunk(content="partial", finish_reason="length"),
+    ]], responses_outcomes=[])
+    gateway = ModelGateway(client_builder=RecordingOpenAIClientBuilder([client]))
+    with pytest.raises(ModelGatewayError):
+        asyncio.run(gateway.summarize_once(chat_config(), SecretStr("key"),
+            [HumanMessage(content="summarize")], asyncio.Event()))
+    assert client.chat.completions.calls == 1
+    assert client.closed
+
+
+
+@pytest.mark.parametrize("api_type", list(ApiType))
+def test_summary_total_deadline_closes_one_request(api_type: ApiType, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("harness_shell_sidecar.agent.model_gateway.MODEL_REQUEST_TIMEOUT_SECONDS", 0.01)
+    async def scenario() -> None:
+        """永不结束的流必须遵守整体摘要截止时间。"""
+        blocker = asyncio.Event()
+        client = FakeOpenAIClient(chat_outcomes=[[blocker]], responses_outcomes=[[blocker]])
+        gateway = ModelGateway(client_builder=RecordingOpenAIClientBuilder([client]))
+        with pytest.raises(ModelGatewayError):
+            await asyncio.wait_for(gateway.summarize_once(_config(api_type), SecretStr("key"),
+                [HumanMessage(content="summarize")], asyncio.Event()), timeout=0.2)
+        resource = client.responses if api_type is ApiType.RESPONSES else client.chat.completions
+        assert resource.calls == 1
+        assert resource.streams[0].closed and client.closed
+    asyncio.run(scenario())
+
+
+def test_responses_usage_and_summary_request() -> None:
+    from .fakes import responses_events
+    async def scenario() -> None:
+        """为两个网关接口使用具体的已完成 Responses 事件。"""
+        events = responses_events(AIMessage(content="answer"))
+        terminal = events[-1].model_dump(mode="python")
+        terminal["response"]["usage"] = {"input_tokens": 200, "output_tokens": 0}
+        events[-1] = terminal
+        client = FakeOpenAIClient(chat_outcomes=[], responses_outcomes=[events])
+        message = await _invoke(ModelGateway(client_builder=RecordingOpenAIClientBuilder([client])), responses_config())
+        assert message.usage_metadata == {"input_tokens": 200, "output_tokens": 0, "total_tokens": 200}
+        summary_client = FakeOpenAIClient(chat_outcomes=[], responses_outcomes=[events])
+        summary = await ModelGateway(client_builder=RecordingOpenAIClientBuilder([summary_client])).summarize_once(
+            responses_config(), SecretStr("key"), [HumanMessage(content="summarize")], asyncio.Event())
+        assert summary == "answer"
+        assert "tools" not in summary_client.responses.kwargs[0]
+        assert summary_client.responses.kwargs[0]["max_output_tokens"] == 8192
+        assert summary_client.closed
     asyncio.run(scenario())

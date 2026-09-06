@@ -1,4 +1,4 @@
-"""User-operated manual SFTP browse, transfer, mutation, and recovery service."""
+"""用户手动 SFTP 浏览、传输、变更和恢复服务。"""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ MAX_JS_SAFE_INTEGER = 2**53 - 1
 
 
 class ManualSftpService:
-    """Own all user-operated SFTP channels, cursors, operations, and recovery state."""
+    """拥有全部手动 SFTP 通道、游标、操作和恢复状态。"""
 
     def __init__(
         self,
@@ -52,7 +52,7 @@ class ManualSftpService:
         records: PlaintextRecordStore,
         event_listener: Callable[[dict], Awaitable[None]],
     ) -> None:
-        """Create read owners while retaining collaborators for later operation stages."""
+        """创建读取资源管理者，并保留后续阶段需要的协作者。"""
 
         self._channels = SftpChannelFactory(ssh_sessions)
         self._listings = ListingManager(self._channels)
@@ -69,7 +69,7 @@ class ManualSftpService:
         )
 
     async def open(self, ssh_session_id: UUID) -> ManualSftpContext:
-        """Resolve the home directory on one explicitly bound live SSH session."""
+        """在显式绑定的活动 SSH 会话上解析主目录。"""
 
         lease = await self._channels.open(ssh_session_id)
         try:
@@ -97,22 +97,22 @@ class ManualSftpService:
             await lease.close()
 
     async def list_begin(self, ssh_session_id: UUID, path: str) -> ListingBatch:
-        """Start a bounded directory listing."""
+        """开始有界目录列表。"""
 
         return await self._listings.begin(ssh_session_id, path)
 
     async def list_next(self, listing_id: UUID, sequence: int) -> ListingBatch:
-        """Continue an active directory listing at its exact next sequence."""
+        """按精确下一序号继续活动目录列表。"""
 
         return await self._listings.next(listing_id, sequence)
 
     async def list_close(self, listing_id: UUID) -> None:
-        """Close one listing cursor explicitly."""
+        """显式关闭列表游标。"""
 
         await self._listings.close(listing_id)
 
     async def lstat(self, ssh_session_id: UUID, path: str) -> RemoteEntry:
-        """Read metadata without following symbolic links."""
+        """读取元数据，不跟随符号链接。"""
 
         remote_path = validate_remote_path(path)
         lease = await self._channels.open(ssh_session_id)
@@ -135,7 +135,7 @@ class ManualSftpService:
             await lease.close()
 
     async def readlink(self, ssh_session_id: UUID, path: str) -> RemoteEntry:
-        """Return explicit link text while retaining no-follow link metadata."""
+        """返回显式链接文本，同时保留不跟随链接的元数据。"""
 
         remote_path = validate_remote_path(path)
         lease = await self._channels.open(ssh_session_id)
@@ -171,8 +171,9 @@ class ManualSftpService:
         *,
         cancelled: asyncio.Event | None = None,
     ) -> RemoteFileHash:
-        """Hash one regular file and reject any metadata change seen before return."""
+        """计算普通文件哈希；返回前发现元数据变化则拒绝。"""
 
+        # 1. 校验路径并冻结普通文件快照，拒绝目录或链接作为哈希源。
         remote_path = validate_remote_path(path)
         lease = await self._channels.open(ssh_session_id)
         try:
@@ -183,6 +184,7 @@ class ManualSftpService:
                     "SFTP_NOT_A_REGULAR_FILE",
                     "The selected remote entry is not a regular file.",
                 )
+            # 2. 分块读取并累计哈希，每次读取检查取消和无进展超时。
             digest = hashlib.sha256()
             byte_count = 0
             async with await lease.client.open(remote_path.encode("utf-8"), "rb") as file:
@@ -210,6 +212,7 @@ class ManualSftpService:
                         )
                     digest.update(chunk)
             _require_active(cancelled)
+            # 3. 完整读取后复核元数据和字节数，只有源未变才返回哈希。
             final = await self._snapshot(lease, remote_path)
             if final != initial or (
                 initial.size is not None and byte_count != initial.size
@@ -235,7 +238,7 @@ class ManualSftpService:
     async def upload_preflight(
         self, ssh_session_id: UUID, path: str
     ) -> TransferSnapshot:
-        """Freeze one remote upload target before user overwrite confirmation."""
+        """在用户确认覆盖前冻结远程上传目标。"""
 
         return await self._uploads.preflight(ssh_session_id, path)
 
@@ -249,7 +252,7 @@ class ManualSftpService:
         source_byte_count: int,
         target_snapshot: TransferSnapshot,
     ) -> UploadReady:
-        """Begin an upload from privileged Rust-owned frozen source metadata."""
+        """根据 React 提供的冻结源文件元数据开始上传。"""
 
         return await self._uploads.begin(
             operation_id=operation_id,
@@ -268,7 +271,7 @@ class ManualSftpService:
         offset: int,
         chunk: bytes,
     ) -> UploadChunkAck:
-        """Write one exact upload chunk."""
+        """写入一个精确上传分块。"""
 
         return await self._uploads.write_chunk(
             operation_id=operation_id,
@@ -280,21 +283,21 @@ class ManualSftpService:
     async def upload_finish(
         self, operation_id: UUID
     ) -> OperationTerminalProjection:
-        """Verify and atomically commit one upload."""
+        """验证并原子提交上传。"""
 
         return await self._uploads.finish(operation_id)
 
     async def upload_abort(
         self, operation_id: UUID
     ) -> OperationTerminalProjection:
-        """Cancel one active upload and remove its remote temp."""
+        """取消活动上传并删除远程临时文件。"""
 
         return await self._uploads.abort(operation_id)
 
     async def download_begin(
         self, *, operation_id: UUID, ssh_session_id: UUID, path: str
     ) -> DownloadReady:
-        """Freeze and open one remote download source."""
+        """冻结并打开远程下载源。"""
 
         return await self._downloads.begin(
             operation_id=operation_id,
@@ -305,7 +308,7 @@ class ManualSftpService:
     async def download_chunk(
         self, operation_id: UUID, *, sequence: int, offset: int
     ) -> DownloadChunk:
-        """Pull one sequential remote download chunk."""
+        """拉取一个顺序远程下载分块。"""
 
         return await self._downloads.read_chunk(
             operation_id, sequence=sequence, offset=offset
@@ -314,14 +317,14 @@ class ManualSftpService:
     async def download_finish(
         self, operation_id: UUID
     ) -> OperationTerminalProjection:
-        """Verify one fully pulled remote source."""
+        """验证已完整拉取的远程源文件。"""
 
         return await self._downloads.finish(operation_id)
 
     async def download_abort(
         self, operation_id: UUID
     ) -> OperationTerminalProjection:
-        """Cancel one active remote download read."""
+        """取消活动远程下载读取。"""
 
         return await self._downloads.abort(operation_id)
 
@@ -333,7 +336,7 @@ class ManualSftpService:
         parent_path: str,
         name: str,
     ) -> OperationTerminalProjection:
-        """Create one user-requested remote directory."""
+        """创建用户请求的远程目录。"""
 
         return await self._mutations.mkdir(
             operation_id=operation_id,
@@ -353,7 +356,7 @@ class ManualSftpService:
         source_snapshot: TransferSnapshot | None,
         target_snapshot: TransferSnapshot | None,
     ) -> OperationTerminalProjection:
-        """Atomically rename one unchanged remote entry."""
+        """原子重命名未改变的远程条目。"""
 
         return await self._mutations.rename(
             operation_id=operation_id,
@@ -373,7 +376,7 @@ class ManualSftpService:
         path: str,
         expected_snapshot: TransferSnapshot,
     ) -> OperationTerminalProjection:
-        """Remove one unchanged file/link or empty directory."""
+        """删除未改变的文件、链接或空目录。"""
 
         return await self._mutations.remove(
             operation_id=operation_id,
@@ -385,7 +388,7 @@ class ManualSftpService:
     async def delete_preflight(
         self, operation_id: UUID, ssh_session_id: UUID, path: str
     ) -> DeletePlanSummary:
-        """Build one complete plaintext no-follow recursive-delete plan."""
+        """构建完整明文、不跟随链接的递归删除计划。"""
 
         return await self._mutations.delete_preflight(
             ssh_session_id, path, operation_id=operation_id
@@ -394,29 +397,29 @@ class ManualSftpService:
     async def delete_execute(
         self, delete_plan_id: UUID
     ) -> OperationTerminalProjection:
-        """Consume one recursive-delete plan at most once."""
+        """最多消费一次递归删除计划。"""
 
         return await self._mutations.delete_execute(delete_plan_id)
 
     def list_recoveries(self) -> tuple[RecoverySummary, ...]:
-        """Return non-terminal remote-only recovery summaries."""
+        """返回仅含远程状态的非终态恢复摘要。"""
 
         return self._recovery.list()
 
     async def recovery_inspect(self, recovery_id: UUID):
-        """Perform read-only reconciliation for one recovery record."""
+        """对恢复记录执行只读核对。"""
 
         return await self._recovery.inspect(recovery_id)
 
     async def recovery_execute(
         self, recovery_id: UUID, action: str, operation_id: UUID
     ):
-        """Execute a recovery action with a React-selected fresh operation identity."""
+        """使用 React 选择的新操作标识执行恢复操作。"""
 
         return await self._recovery.execute(recovery_id, action, operation_id)
 
     async def close_all(self) -> None:
-        """Close listing and transfer owners before the parent SSH registry."""
+        """先关闭列表和传输管理者，再关闭父级 SSH 注册表。"""
 
         first_error: BaseException | None = None
         for owner in (
@@ -438,7 +441,7 @@ class ManualSftpService:
     async def _snapshot(
         lease: SftpChannelLease, remote_path: str
     ) -> TransferSnapshot:
-        """Capture strict no-follow metadata for compare-before-return checks."""
+        """捕获严格的不跟随链接元数据，用于返回前比较。"""
 
         try:
             async with asyncio.timeout(METADATA_TIMEOUT_SECONDS):
@@ -459,7 +462,7 @@ class ManualSftpService:
 
 
 def _decode_remote_text(value: Any) -> str:
-    """Decode a public AsyncSSH byte result as strict UTF-8."""
+    """严格按 UTF-8 解码 AsyncSSH 公共接口的字节结果。"""
 
     try:
         if isinstance(value, bytes):
@@ -477,13 +480,13 @@ def _decode_remote_text(value: Any) -> str:
 
 
 def _decode_remote_path(value: Any) -> str:
-    """Decode and validate one absolute remote path response."""
+    """解码并校验远程绝对路径响应。"""
 
     return validate_remote_path(_decode_remote_text(value))
 
 
 def _require_active(cancelled: asyncio.Event | None) -> None:
-    """Stop cooperative work at defined boundaries after cancellation."""
+    """取消后在定义好的边界停止协作式工作。"""
 
     if cancelled is not None and cancelled.is_set():
         raise ManualSftpError(

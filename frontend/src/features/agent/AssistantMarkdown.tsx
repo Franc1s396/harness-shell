@@ -5,7 +5,7 @@ export type AssistantMarkdownProps = {
   text: string;
 };
 
-/** Renders untrusted model text as Markdown without enabling raw HTML. */
+/** 将不可信模型文本渲染为 Markdown，不启用原始 HTML。 */
 export function AssistantMarkdown({ text }: AssistantMarkdownProps) {
   return (
     <div className="agent-markdown min-w-0 max-w-full break-words">

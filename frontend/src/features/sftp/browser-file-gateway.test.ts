@@ -113,7 +113,7 @@ describe("BrowserFileGateway", () => {
 
     const consume = async () => {
       for await (const _chunk of readFileChunks(unsafeFile)) {
-        // The invalid size must fail before iteration produces any data.
+        // 非法大小必须在迭代产出任何数据前失败。
       }
     };
 

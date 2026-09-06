@@ -9,7 +9,7 @@ from harness_shell_sidecar.telemetry import configure_stderr_logging
 
 
 def _parts(line: str) -> list[str]:
-    """Split one console record into the six configured columns."""
+    """将控制台记录拆为配置的六列。"""
 
     return line.rstrip("\n").split(" | ", maxsplit=5)
 

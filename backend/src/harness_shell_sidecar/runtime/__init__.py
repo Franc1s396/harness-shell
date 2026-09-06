@@ -1,4 +1,4 @@
-"""Public Sidecar runtime API."""
+"""Sidecar 运行时公共 API。"""
 
 from .dispatcher import DispatchError, RequestDispatcher
 from .models import (

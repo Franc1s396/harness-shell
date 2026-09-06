@@ -1,4 +1,4 @@
-"""Configure human-readable stderr logging with request correlation."""
+"""配置带请求关联的人类可读 stderr 日志。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ _ANSI_CYAN = "\x1b[36m"
 
 
 def _level_color(level: int) -> str:
-    """Return the ANSI foreground color for one standard logging level."""
+    """返回标准日志级别对应的 ANSI 前景色。"""
 
     if level >= logging.ERROR:
         return _ANSI_RED
@@ -35,19 +35,19 @@ def _level_color(level: int) -> str:
 
 
 class ConsoleLogFormatter(logging.Formatter):
-    """Render one SLF4J-style console line without filtering its message."""
+    """渲染 SLF4J 风格的控制台行，不过滤消息内容。"""
 
-    # Enables ANSI sequences only for explicitly selected interactive consoles.
+    # 仅为显式选择的交互式控制台启用 ANSI 序列。
     _colorize: bool
 
     def __init__(self, *, colorize: bool = False) -> None:
-        """Create a formatter that optionally emits ANSI console colors."""
+        """创建可选输出 ANSI 控制台颜色的格式器。"""
 
         super().__init__()
         self._colorize = colorize
 
     def format(self, record: logging.LogRecord) -> str:
-        """Return timestamp, level, request, thread, logger, and message columns."""
+        """返回时间戳、级别、请求、线程、logger 和消息列。"""
 
         timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
         timestamp = f"{timestamp}.{int(record.msecs):03d}"
@@ -85,7 +85,7 @@ def configure_stderr_logging(
     level: int = logging.INFO,
     colorize: bool = False,
 ) -> None:
-    """Install the process-wide stderr logger with optional ANSI colors."""
+    """安装进程级 stderr logger，可选启用 ANSI 颜色。"""
 
     target = stream if stream is not None else sys.stderr
     if stream is None and hasattr(target, "reconfigure"):
@@ -96,12 +96,12 @@ def configure_stderr_logging(
 
 
 def bind_request_id(request_id: UUID) -> Token[str]:
-    """Bind one validated HTTP request ID to the current async context."""
+    """将已校验 HTTP 请求 ID 绑定到当前异步上下文。"""
 
     return _CURRENT_REQUEST_ID.set(str(request_id))
 
 
 def reset_request_id(token: Token[str]) -> None:
-    """Restore the request correlation value owned by the outer context."""
+    """恢复外层上下文拥有的请求关联值。"""
 
     _CURRENT_REQUEST_ID.reset(token)

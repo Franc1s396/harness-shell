@@ -1,4 +1,4 @@
-"""Typed HTTP routes for persisted SSH connection profiles."""
+"""持久化 SSH 连接配置的 typed HTTP 路由。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ async def list_connections(
     request_id: CorrelationId,
     owner: Owner,
 ) -> ConnectionListResponse:
-    """Return all persisted profiles through the shared application handler."""
+    """通过共享应用 handler 返回全部持久化配置。"""
 
     result = await dispatch_application(owner, request_id, "connections.list", {})
     connections = [
@@ -61,7 +61,7 @@ async def create_connection(
     request_id: CorrelationId,
     owner: Owner,
 ) -> ConnectionResponse:
-    """Validate and persist one complete connection profile."""
+    """校验并持久化完整连接配置。"""
 
     value = validate_json_model(payload, ConnectionCreateRequest, request_id)
     result = await dispatch_application(
@@ -88,7 +88,7 @@ async def update_connection(
     request_id: CorrelationId,
     owner: Owner,
 ) -> ConnectionResponse:
-    """Replace one complete connection profile while preserving its identity."""
+    """替换完整连接配置，同时保留其标识。"""
 
     value = validate_json_model(payload, ConnectionUpdateRequest, request_id)
     params = value.model_dump(mode="json")
@@ -113,7 +113,7 @@ async def delete_connection(
     request_id: CorrelationId,
     owner: Owner,
 ) -> DeleteResponse:
-    """Delete one profile only when its domain ownership gates allow it."""
+    """仅在领域所有权门禁允许时删除配置。"""
 
     result = await dispatch_application(
         owner,

@@ -22,7 +22,7 @@ export type AgentProviderDialogProps = AgentProviderDialogBaseProps &
   );
 
 export type ProviderFormErrors = Partial<
-  Record<"displayName" | "apiType" | "baseUrl" | "model" | "apiKey", string>
+  Record<"displayName" | "apiType" | "baseUrl" | "model" | "apiKey" | "contextWindowSize" | "contextCompactionThresholdPercent" | "maxOutputTokens", string>
 >;
 
 export const validateProviderDraft = (
@@ -54,12 +54,29 @@ export const validateProviderDraft = (
   if (mode === "create" && apiKey.length === 0) {
     errors.apiKey = "REQUIRED";
   }
+  const windowSize = Number(draft.contextWindowSize);
+  const percent = Number(draft.contextCompactionThresholdPercent);
+  const maxOutput = Number(draft.maxOutputTokens);
+  if (!draft.contextWindowSize.trim() || !Number.isSafeInteger(windowSize) || windowSize <= 0) {
+    errors.contextWindowSize = "INVALID";
+  }
+  if (!draft.maxOutputTokens.trim() || !Number.isSafeInteger(maxOutput) || maxOutput <= 0 || maxOutput >= windowSize) {
+    errors.maxOutputTokens = "INVALID";
+  }
+  if (!draft.contextCompactionThresholdPercent.trim() || !Number.isFinite(percent) || percent <= 0 || percent >= 100
+      || Math.floor(windowSize * (percent / 100)) < 1
+      || Math.floor(windowSize * (percent / 100)) > windowSize - maxOutput) {
+    errors.contextCompactionThresholdPercent = "INVALID";
+  }
   return errors;
 };
 
 const createDraft = (config: ModelApiConfig | null): ProviderDraft =>
   config
     ? {
+        contextWindowSize: String(config.context_window_size),
+        contextCompactionThresholdPercent: String(config.context_compaction_threshold_ratio * 100),
+        maxOutputTokens: String(config.max_output_tokens),
         displayName: config.display_name,
         apiType: config.api_type,
         baseUrl: config.base_url,
@@ -67,6 +84,9 @@ const createDraft = (config: ModelApiConfig | null): ProviderDraft =>
         enabled: config.enabled,
       }
     : {
+        contextWindowSize: "128000",
+        contextCompactionThresholdPercent: "75",
+        maxOutputTokens: "8192",
         displayName: "",
         apiType: "RESPONSES",
         baseUrl: "",
@@ -117,7 +137,7 @@ export function AgentProviderDialog(props: AgentProviderDialogProps) {
     try {
       await props.onSubmit(normalizedDraft, apiKey);
     } catch {
-      // The controlled parent exposes the structured mutation failure.
+      // 结构化变更失败由受控父组件展示。
     } finally {
       setApiKey("");
     }
@@ -159,6 +179,16 @@ export function AgentProviderDialog(props: AgentProviderDialogProps) {
             }
           />
         </FormField>
+        {(["contextWindowSize", "contextCompactionThresholdPercent", "maxOutputTokens"] as const).map((field) => (
+          <FormField key={field} id={`provider-${field}`}
+            label={t(`settings.modelProviders.${field}`)} error={validationMessage(errors[field])}>
+            <input type="number" step={field === "contextCompactionThresholdPercent" ? "any" : "1"}
+              className="rounded border border-line bg-input px-3 py-2 text-ink"
+              value={draft[field]} disabled={props.busy}
+              onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))} />
+          </FormField>
+        ))}
+        <p className="text-xs text-ink-dim">{t("settings.modelProviders.contextBudgetHelp")}</p>
         <FormField id="provider-api-type" label={t("settings.modelProviders.apiType")}>
           <select
             className="rounded border border-line bg-input px-3 py-2 text-ink"

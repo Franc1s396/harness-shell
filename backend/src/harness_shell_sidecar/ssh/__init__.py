@@ -1,4 +1,4 @@
-"""Public direct SSH runtime API."""
+"""公开直连 SSH 运行时 API。"""
 
 from .errors import ConnectionStatus, SshRuntimeError
 from .runtime import SshRuntime

@@ -1,4 +1,4 @@
-"""Strict inherited-pipe control protocol for the packaged desktop Runtime."""
+"""打包版桌面 Runtime 的严格继承管道控制协议。"""
 
 from __future__ import annotations
 
@@ -19,25 +19,25 @@ GRACEFUL_SHUTDOWN_BYTE = b"\x01"
 
 
 class DesktopControlProtocolError(RuntimeError):
-    """Report a strict ready/control pipe protocol violation."""
+    """报告严格就绪或控制管道的协议违规。"""
 
 
 @dataclass(frozen=True, slots=True)
 class DesktopReadyFrame:
-    """Validated readiness data published exactly once to the Launcher."""
+    """向 Launcher 仅发布一次的已校验就绪数据。"""
 
-    #: Protocol version understood by both the Launcher and Sidecar.
+    #: Launcher 与 Sidecar 共同理解的协议版本。
     version: int
-    #: Unique identity for this Sidecar process instance.
+    #: 此 Sidecar 进程实例的唯一标识。
     instance_id: UUID
-    #: Actual loopback port selected by the pre-bound listener.
+    #: 预绑定监听器实际选中的 loopback 端口。
     port: int
 
 
 def _reject_duplicate_fields(
     pairs: list[tuple[str, object]],
 ) -> dict[str, object]:
-    """Build one JSON object while rejecting duplicate names explicitly."""
+    """构建 JSON 对象并显式拒绝重复名称。"""
 
     result: dict[str, object] = {}
     for name, value in pairs:
@@ -48,8 +48,9 @@ def _reject_duplicate_fields(
 
 
 def decode_ready_payload(payload: bytes) -> DesktopReadyFrame:
-    """Decode one bounded strict UTF-8 JSON readiness payload."""
+    """解码有界且严格的 UTF-8 JSON 就绪载荷。"""
 
+    # 1. 限制帧长度并严格解码 UTF-8 JSON，拒绝重复字段。
     if not payload or len(payload) > READY_FRAME_MAX_JSON_BYTES:
         raise ValueError("ready payload length is outside the accepted bounds")
     try:
@@ -63,6 +64,7 @@ def decode_ready_payload(payload: bytes) -> DesktopReadyFrame:
     if not isinstance(value, dict):
         raise ValueError("ready payload must be one JSON object")
 
+    # 2. 精确检查字段集合，拒绝缺失字段和未知字段。
     expected_fields = {"version", "instance_id", "port"}
     unknown_fields = set(value) - expected_fields
     if unknown_fields:
@@ -75,6 +77,7 @@ def decode_ready_payload(payload: bytes) -> DesktopReadyFrame:
             f"ready payload is missing field: {sorted(missing_fields)[0]}"
         )
 
+    # 3. 分别校验版本、非零端口和 UUID，全部通过才构建就绪对象。
     version = value["version"]
     port = value["port"]
     instance_id = value["instance_id"]
@@ -96,7 +99,7 @@ def decode_ready_payload(payload: bytes) -> DesktopReadyFrame:
 
 
 def encode_ready_frame(*, instance_id: UUID, port: int) -> bytes:
-    """Encode one canonical length-prefixed ready frame."""
+    """编码带长度前缀的规范就绪帧。"""
 
     ready = DesktopReadyFrame(
         version=READY_FRAME_VERSION,
@@ -121,14 +124,14 @@ def encode_ready_frame(*, instance_id: UUID, port: int) -> bytes:
 
 
 class DesktopControl:
-    """Own inherited pipe handles after transferring each to one Python fd."""
+    """将每个继承管道句柄转交给一个 Python fd 后管理其所有权。"""
 
     def __init__(
         self,
         control_read_handle: int,
         ready_write_handle: int,
     ) -> None:
-        """Transfer each inherited Windows handle exactly once into Python."""
+        """将每个继承 Windows 句柄仅转交 Python 一次。"""
 
         self._control_reader: BinaryIO | None = None
         self._ready_writer: BinaryIO | None = None
@@ -153,7 +156,7 @@ class DesktopControl:
             raise
 
     def publish_ready(self, *, instance_id: UUID, port: int) -> None:
-        """Write and flush exactly one ready frame, then close its pipe end."""
+        """写入并刷新且仅发送一个就绪帧，再关闭管道端。"""
 
         writer = self._ready_writer
         if writer is None or writer.closed or self._ready_published:
@@ -172,7 +175,7 @@ class DesktopControl:
         writer.close()
 
     def wait_for_shutdown(self) -> None:
-        """Block for graceful byte or EOF and reject every other control byte."""
+        """阻塞等待优雅退出字节或 EOF，拒绝其他控制字节。"""
 
         reader = self._control_reader
         if reader is None or reader.closed:
@@ -185,7 +188,7 @@ class DesktopControl:
         )
 
     def close(self) -> None:
-        """Close only the Python-owned descriptors, once each."""
+        """仅关闭 Python 拥有的描述符，且每个只关闭一次。"""
 
         for stream in (self._ready_writer, self._control_reader):
             if stream is not None and not stream.closed:

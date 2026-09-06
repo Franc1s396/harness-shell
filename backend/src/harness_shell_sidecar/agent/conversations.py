@@ -1,6 +1,8 @@
-"""Plaintext LangChain conversation history and Agent run persistence."""
+"""明文 LangChain 对话历史与 Agent Run 持久化。"""
 
 from __future__ import annotations
+
+from .context_models import ContextMessage
 
 import json
 import sqlite3
@@ -24,10 +26,10 @@ from .contracts import AgentRun, AgentRunStatus
 
 
 class ConversationRepositoryError(RuntimeError):
-    """Expose a stable persistence error without message or output plaintext."""
+    """暴露稳定持久化错误，不包含消息或输出明文。"""
 
     def __init__(self, error_code: str, message: str) -> None:
-        """Store a stable code and bounded non-sensitive diagnostic message."""
+        """保存稳定错误码与有界、非敏感诊断消息。"""
 
         super().__init__(message)
         self.error_code = error_code
@@ -35,7 +37,7 @@ class ConversationRepositoryError(RuntimeError):
 
 
 class ConversationRepository:
-    """Own Agent metadata transactions while borrowing the plaintext record store."""
+    """负责 Agent 元数据事务，借用明文记录存储。"""
 
     _database: RuntimeDatabase
     _record_store: PlaintextRecordStore
@@ -45,13 +47,13 @@ class ConversationRepository:
         database: RuntimeDatabase,
         record_store: PlaintextRecordStore,
     ) -> None:
-        """Bind runtime-owned storage collaborators without taking their cleanup."""
+        """绑定运行时拥有的存储协作者，不接管其清理责任。"""
 
         self._database = database
         self._record_store = record_store
 
     def create_conversation(self) -> UUID:
-        """Create an empty durable conversation and return its opaque identity."""
+        """创建空的持久化会话并返回不透明标识。"""
 
         conversation_id = uuid4()
         now = _utc_now()
@@ -62,7 +64,7 @@ class ConversationRepository:
         return conversation_id
 
     def conversation_exists(self, conversation_id: UUID) -> bool:
-        """Return whether one opaque conversation identity exists."""
+        """返回指定不透明会话标识是否存在。"""
 
         row = self._database.execute(
             "SELECT 1 FROM agent_conversations WHERE conversation_id = ?",
@@ -76,7 +78,7 @@ class ConversationRepository:
         ssh_session_id: UUID,
         api_config_id: UUID,
     ) -> AgentRun:
-        """Persist a new running Agent execution bound to one SSH Session and API config."""
+        """持久化绑定一个 SSH Session 和 API 配置的新运行中 Agent 执行。"""
 
         agent_run_id = uuid4()
         started_at = _utc_now()
@@ -115,7 +117,7 @@ class ConversationRepository:
         conversation_id: UUID,
         message: AnyMessage,
     ) -> int:
-        """Atomically persist and append one LangChain message, returning its sequence."""
+        """原子持久化并追加一条 LangChain 消息，返回其序号。"""
 
         return self.append_messages_atomic(
             agent_run_id,
@@ -129,11 +131,12 @@ class ConversationRepository:
         conversation_id: UUID,
         messages: Sequence[AnyMessage],
     ) -> tuple[int, ...]:
-        """Append messages and plaintext records in one transaction or roll back all."""
+        """在同一事务中追加消息与明文记录，失败则全部回滚。"""
 
         if not messages:
             return ()
         connection = self._database.connection
+        # 1. 用立即事务串行分配会话序号，消息正文和索引必须共同提交。
         connection.execute("BEGIN IMMEDIATE")
         try:
             row = connection.execute(
@@ -143,6 +146,7 @@ class ConversationRepository:
             next_sequence = int(row[0]) + 1
             sequences: list[int] = []
             now = _utc_now()
+            # 2. 逐条写入明文正文及消息元数据，按本批顺序分配连续序号。
             for offset, message in enumerate(messages):
                 sequence = next_sequence + offset
                 message_id = uuid4()
@@ -174,6 +178,7 @@ class ConversationRepository:
                     ),
                 )
                 sequences.append(sequence)
+            # 3. 更新会话时间并检查所属会话仍存在，再提交整批消息。
             updated = connection.execute(
                 "UPDATE agent_conversations SET updated_at = ? WHERE conversation_id = ?",
                 (now, str(conversation_id)),
@@ -185,12 +190,13 @@ class ConversationRepository:
                 )
             connection.execute("COMMIT")
             return tuple(sequences)
+        # 4. 任一步失败或取消都回滚整批记录，不能留下半组工具消息。
         except BaseException:
             connection.execute("ROLLBACK")
             raise
 
     def load_messages(self, conversation_id: UUID) -> list[AnyMessage]:
-        """Restore the complete ordered history for one conversation."""
+        """还原一个会话完整且有序的历史。"""
 
         rows = self._database.execute(
             """
@@ -221,8 +227,25 @@ class ConversationRepository:
             messages.append(message)
         return messages
 
+    @property
+    def database(self) -> RuntimeDatabase:
+        """向同级仓库提供借用的事务管理者。"""
+        return self._database
+
+    def load_context_messages(self, conversation_id: UUID) -> list[ContextMessage]:
+        """读取带持久化序号和实际 Run 标识的权威历史。"""
+        messages = self.load_messages(conversation_id)
+        rows = self._database.execute(
+            "SELECT sequence, agent_run_id FROM agent_messages WHERE conversation_id = ? ORDER BY sequence",
+            (str(conversation_id),),
+        ).fetchall()
+        if len(rows) != len(messages):
+            raise ConversationRepositoryError("AGENT_MESSAGE_METADATA_MISMATCH", "history changed while loading context")
+        return [ContextMessage(row[0], UUID(row[1]), message)
+                for row, message in zip(rows, messages, strict=True)]
+
     def increment_iteration(self, agent_run_id: UUID) -> AgentRun:
-        """Atomically increment one running Run without crossing the 128-loop limit."""
+        """原子递增运行中 Run 的循环计数，不超过 128 次上限。"""
 
         cursor = self._database.execute(
             """
@@ -256,7 +279,7 @@ class ConversationRepository:
         status: AgentRunStatus,
         error_code: str | None,
     ) -> AgentRun:
-        """Apply exactly one terminal transition to a currently running Agent run."""
+        """对当前运行中的 Agent Run 执行且仅执行一次终态转换。"""
 
         if status is AgentRunStatus.RUNNING:
             raise ValueError("finish_run requires a terminal status")
@@ -281,12 +304,12 @@ class ConversationRepository:
         return finished
 
     def get_run(self, agent_run_id: UUID) -> AgentRun | None:
-        """Return the current strict Run snapshot for lifecycle coordination."""
+        """返回当前严格 Run 快照，用于协调生命周期。"""
 
         return self._get_run(agent_run_id)
 
     def _get_run(self, agent_run_id: UUID) -> AgentRun | None:
-        """Load one strict run model from schema-v6 metadata."""
+        """从 schema v7 元数据加载严格 Run 模型。"""
 
         row = self._database.execute(
             """
@@ -312,14 +335,14 @@ class ConversationRepository:
 
 
 def _serialize_message(message: AnyMessage) -> bytes:
-    """Serialize one LangChain message without provider-specific guessing."""
+    """序列化一条 LangChain 消息，不猜测 Provider 特定格式。"""
 
     payload = {"schema_version": 1, "message": message_to_dict(message)}
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def _deserialize_message(payload: bytes) -> AnyMessage:
-    """Restore one plaintext message or fail on an unsupported record."""
+    """还原一条明文消息；不支持的记录明确失败。"""
 
     try:
         value = json.loads(payload.decode("utf-8"))
@@ -334,7 +357,7 @@ def _deserialize_message(payload: bytes) -> AnyMessage:
 
 
 def _message_type(message: AnyMessage) -> str:
-    """Map supported LangChain message classes to stable metadata roles."""
+    """将支持的 LangChain 消息类映射为稳定元数据角色。"""
 
     if isinstance(message, SystemMessage):
         return "SYSTEM"
@@ -351,7 +374,7 @@ def _message_type(message: AnyMessage) -> str:
 
 
 def _utc_now() -> str:
-    """Return a canonical UTC timestamp for SQLite metadata."""
+    """为 SQLite 元数据返回标准 UTC 时间戳。"""
 
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
         "+00:00", "Z"
@@ -359,6 +382,6 @@ def _utc_now() -> str:
 
 
 def _parse_time(value: str) -> datetime:
-    """Parse a canonical UTC SQLite timestamp."""
+    """解析 SQLite 中的标准 UTC 时间戳。"""
 
     return datetime.fromisoformat(value.replace("Z", "+00:00"))

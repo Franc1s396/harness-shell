@@ -1,4 +1,4 @@
-"""Safe HTTP Problem Details construction and exception mapping."""
+"""安全 HTTP Problem Details 构造与异常映射。"""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ LOGGER = logging.getLogger("harness_shell_sidecar.web")
 
 
 class HttpProblem(RuntimeError):
-    """Carry only an explicitly constructed safe HTTP failure."""
+    """只携带显式构建的安全 HTTP 失败。"""
 
     def __init__(self, problem: ProblemDetails) -> None:
-        """Retain the strict response model without the originating exception."""
+        """保留严格响应模型，不保留原始异常。"""
 
         super().__init__(f"{problem.error_code}: {problem.message}")
-        self.problem = problem  # Already-safe public HTTP representation.
+        self.problem = problem  # 已确保安全的公开 HTTP 表示。
 
 
 def build_problem(
@@ -35,7 +35,7 @@ def build_problem(
     message: str,
     details: dict[str, JsonValue] | None = None,
 ) -> ProblemDetails:
-    """Build a bounded error-code-owned Problem Details response."""
+    """构建由错误码决定的有界 Problem Details 响应。"""
 
     slug = error_code.lower().replace("_", "-")
     return ProblemDetails(
@@ -50,7 +50,7 @@ def build_problem(
 
 
 def request_correlation_id(request: Request) -> UUID:
-    """Return a previously validated request ID or a safe generated error ID."""
+    """返回此前已校验请求 ID，或安全生成的错误 ID。"""
 
     existing = getattr(request.state, "request_id", None)
     if isinstance(existing, UUID):
@@ -67,7 +67,7 @@ def request_correlation_id(request: Request) -> UUID:
 
 
 def problem_response(problem: ProblemDetails) -> JSONResponse:
-    """Serialize Problem Details with matching media type and correlation header."""
+    """使用匹配媒体类型和关联头序列化 Problem Details。"""
 
     return JSONResponse(
         status_code=problem.status,
@@ -78,7 +78,7 @@ def problem_response(problem: ProblemDetails) -> JSONResponse:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Replace every FastAPI/Starlette default failure body with typed Problems."""
+    """将全部 FastAPI/Starlette 默认失败正文替换为 typed Problem。"""
 
     @app.exception_handler(HttpProblem)
     async def handle_http_problem(
@@ -130,12 +130,12 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, error: Exception) -> JSONResponse:
-        # Exception text can originate from secret-bearing application inputs. Log
-        # only its class and a stable event, never request bodies or raw messages.
-        LOGGER.error(
+        # 回调显式传入原始异常以保留 traceback；公开响应仍使用固定安全文本。
+        LOGGER.exception(
             "http_request_failed error_code=%s exception_type=%s",
             "SIDECAR_RUNTIME_FAILED",
             type(error).__name__,
+            exc_info=error,
             extra={
                 "harness_event": "http_request_failed",
                 "harness_fields": {

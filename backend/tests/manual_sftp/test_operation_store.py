@@ -1,4 +1,4 @@
-"""Encrypted manual SFTP operation record tests."""
+"""明文手动 SFTP 操作记录测试。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000302")
 
 
 def open_store(tmp_path: Path):
-    """Open one plaintext operation store and its owning schema-v6 database."""
+    """打开明文操作存储及拥有它的数据库。"""
 
     database = RuntimeDatabase.open_plaintext(
         (tmp_path / "runtime.sqlite3").resolve()
@@ -28,7 +28,7 @@ def open_store(tmp_path: Path):
 
 
 def record(operation_id: UUID, state: str) -> RemoteOperationRecord:
-    """Build a strict upload operation record for persistence tests."""
+    """为持久化测试构建严格上传操作记录。"""
 
     return RemoteOperationRecord(
         operation_id=operation_id,

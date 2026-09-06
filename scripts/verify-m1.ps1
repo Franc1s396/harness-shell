@@ -86,8 +86,8 @@ try {
         throw "Packaged Backend did not become ready on dynamic port $smokePort`n$startupOutput"
     }
 } finally {
-    # PyInstaller one-file mode uses a parent and worker. Stop every new
-    # process for this exact artifact, while preserving any pre-existing one.
+    # PyInstaller 单文件模式包含父进程和 worker；停止该精确产物
+    # 本次新增的所有进程，同时保留此前已存在的进程。
     $smokeProcesses = @(
         Get-Process -Name harness-shell-sidecar -ErrorAction SilentlyContinue |
             Where-Object {

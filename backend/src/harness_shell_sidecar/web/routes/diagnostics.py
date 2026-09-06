@@ -1,4 +1,4 @@
-"""Python-owned diagnostics availability and fixed-directory launch routes."""
+"""Python 诊断目录可用性与固定目录打开路由。"""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ CorrelationId = Annotated[UUID, Depends(require_request_id)]
 
 
 def open_log_directory_with_explorer(directory: Path) -> None:
-    """Start Explorer for the already-validated Python-owned directory."""
+    """为已校验的 Python 拥有目录启动 Explorer。"""
 
     subprocess.Popen(["explorer.exe", str(directory)])
 
 
 def _log_directory(request: Request) -> Path | None:
-    """Resolve only the immutable Runtime settings path stored by the app factory."""
+    """仅解析应用工厂保存的不可变 Runtime 配置路径。"""
 
     settings = request.app.state.settings
     return None if settings is None else settings.log_dir
@@ -41,7 +41,7 @@ async def get_log_directory_availability(
     response: Response,
     request_id: CorrelationId,
 ) -> DiagnosticsAvailabilityResponse:
-    """Return availability without serializing the local absolute path."""
+    """返回可用性，不序列化本地绝对路径。"""
 
     directory = _log_directory(request)
     set_correlation(response, request_id)
@@ -60,7 +60,7 @@ async def open_log_directory(
     response: Response,
     request_id: CorrelationId,
 ) -> None:
-    """Open only the existing settings-derived directory through Explorer."""
+    """只通过 Explorer 打开由配置派生的已有目录。"""
 
     directory = _log_directory(request)
     if directory is None or not directory.is_dir():

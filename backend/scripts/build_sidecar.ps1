@@ -43,6 +43,13 @@ if ($null -eq $rustcCommand) {
     $rustcExe = $rustcCommand.Source
 }
 
+$tokenizerScript = Join-Path $PSScriptRoot 'prepare_tokenizer.py'
+$tokenizerOutput = Join-Path $backendRoot 'build\tokenizer'
+& $pythonExe $tokenizerScript --output-dir $tokenizerOutput
+if ($LASTEXITCODE -ne 0) { throw 'Tokenizer preparation failed' }
+& $pythonExe $tokenizerScript --output-dir $tokenizerOutput --check
+if ($LASTEXITCODE -ne 0) { throw 'Tokenizer resource verification failed' }
+
 Push-Location $backendRoot
 try {
     & $pythonExe -m PyInstaller --clean --noconfirm $specPath

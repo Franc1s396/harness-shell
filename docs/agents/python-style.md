@@ -59,16 +59,16 @@
 
 ```python
 class SessionRegistry:
-    """Own live SSH sessions and close each session exactly once."""
+    """拥有活动 SSH 会话，确保每个会话只关闭一次。"""
 
-    # In-memory live sessions keyed by opaque IDs; never persisted or replayed.
+    # 以不透明 ID 索引的内存活动会话，不持久化或回放。
     _sessions: dict[UUID, SshSession]
 
     def close(self, session_id: UUID) -> None:
-        """Close and remove one live session.
+        """关闭并移除一个活动会话。
 
         Raises:
-            SessionNotFoundError: The identifier is not currently owned.
+            SessionNotFoundError: 当前管理者未持有该标识对应的会话。
         """
 ```
 
@@ -99,7 +99,7 @@ class SessionRegistry:
 
 - 预期领域失败使用具体 exception type 和稳定 error code；异常文本必须同时包含该 raise point 的具体、经过安全审查的 message，禁止只抛 error code。调用边界统一映射对外安全 message。
 - 禁止 `except Exception: pass`、空返回、默认成功对象或 broad catch 后继续执行。
-- 未知失败保留失败语义；安全边界默认只记录 stable code 与 exception type，只有明确确认不含 secret、Provider body、command 或远程输出时才允许记录异常 message 或 traceback。不得通过 fallback 数据掩盖根因。
+- 未知失败保留失败语义；捕获异常后需要记录异常日志时统一使用 `logger.exception()`，保留异常文本、异常链和 traceback。异常处理回调通过 `exc_info=error` 显式传入异常；普通错误状态记录使用 `logger.error()`。对外响应仍使用固定安全文本，不得通过 fallback 数据掩盖根因。
 - Cleanup 失败不得覆盖更早的业务失败；需要汇总时明确保存并重新抛出首个失败。
 - 领域异常的 safe message 由产生异常的调用点负责，不得主动拼入 credential、Provider body、command、远程输出或 raw secret frame。
 
@@ -114,10 +114,10 @@ class SessionRegistry:
 ### 敏感数据、日志与持久化
 
 - password、private key、passphrase 和 secret frame 不得由调用点主动写入日志或异常；credential 当前只允许由 Python `CredentialRepository` 明确持久化，Logger 不提供自动过滤。
-- 日志写 stderr；业务代码直接调用标准 `logger.debug()`、`logger.info()`、`logger.warning()` 或 `logger.error()`，使用 `%s` 参数化，不增加 `log_event()` 一类 helper wrapper。调用点只提交经过审查的稳定 message 与元数据，禁止 credential、command、model response、stdout/stderr、SFTP bytes 和 HTTP body。stdout 不承担协议或业务输出；ANSI 仅用于源码 `serve` 开发控制台，`desktop` 保持纯文本。
-- DEBUG 用于 node、route、iteration 等执行细节；INFO 仅保留进程/服务、Agent Run 生命周期与成功 HTTP 完成记录；可预期 HTTP 拒绝使用 WARNING，失败使用 ERROR。
+- 日志写 stderr；业务代码直接调用标准 `logger.debug()`、`logger.info()`、`logger.warning()`、`logger.error()` 或 `logger.exception()`，使用 `%s` 参数化，不增加 `log_event()` 一类 helper wrapper。调用点显式提交的 message 与元数据必须经过审查，禁止主动加入 credential、command、model response、stdout/stderr、SFTP bytes 和 HTTP body；异常日志按上文保留 traceback，Logger 不做内容过滤。stdout 不承担协议或业务输出；ANSI 仅用于源码 `serve` 开发控制台，`desktop` 保持纯文本。
+- DEBUG 用于 node、route、iteration 等执行细节；INFO 用于进程/服务、Agent Run 生命周期、上下文压缩触发与成功 HTTP 完成记录；压缩触发仅记录运行/会话标识、预算和历史消息数量，不记录正文。可预期 HTTP 拒绝使用 WARNING，失败使用 ERROR。
 - 可变 secret buffer 用完后主动覆盖；避免不必要的 `bytes`/`str` 拷贝和长生命周期闭包捕获。
-- 新增持久化字段前明确分类、plaintext 风险、关联数据、schema、删除和自检策略；当前 schema v6 不提供旧版本 migration 或 at-rest encryption。没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
+- 新增持久化字段前明确分类、plaintext 风险、关联数据、schema、删除和自检策略；当前 schema 不提供旧版本 migration 或 at-rest encryption。没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
 
 ### 复杂度与可读性
 
@@ -131,7 +131,8 @@ class SessionRegistry:
 - 新增 Python 文件必须完整遵循本文档。
 - 修改已有文件时，新增或实质修改的 module、class、class field、function 和 method 必须符合本文档。
 - 本次建立规范不要求批量补齐全部历史代码；若旧代码直接阻碍当前 Review、资源判断或安全理解，应在当前任务范围内补齐。
-- 注释语言保持与所在模块既有风格一致；代码标识、Protocol、command、error code 和第三方 API 名保持原文。
+- 说明性注释和 docstring 统一使用简体中文；代码标识、Protocol、command、error code、第三方 API 名及工具识别指令保持原文。
+- 复杂流程按实际执行阶段使用 `# 1. ...`、`# 2. ...` 编号说明关键校验、资源所有权、状态提交和失败清理；简单函数不添加逐行复述式编号。
 - Let it crash 适用于 Python：失败必须显式、可定位、可测试，不以默认值、静默重试或结果后处理代替根因修复。
 
 ## 项目命令
@@ -180,6 +181,6 @@ class SessionRegistry:
 - [ ] 失败使用具体 exception/error code，未知失败未被吞掉、降级或转换为成功形态。
 - [ ] async task、取消、timeout、connection/channel/process/database 和 cleanup owner 清楚且有测试。
 - [ ] 业务调用点未主动把 secret 交给日志、异常、response 或非凭据持久化；Logger 对已传入内容不做过滤。
-- [ ] schema-v6-only、plaintext 和旧库 fail-closed 约束在涉及存储时已核对，未引入无读取闭环的诊断表。
+- [ ] fresh-schema-only、plaintext 和旧库 fail-closed 约束在涉及存储时已核对，未引入无读取闭环的诊断表。
 - [ ] 测试覆盖正常、失败、边界、取消/清理路径，Fake/fixture 清楚说明模拟契约。
 - [ ] 已读取并检查相关根、领域和局部 `AGENTS.md`；长期事实变化已同步更新唯一真源。

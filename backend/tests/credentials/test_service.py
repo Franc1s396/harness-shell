@@ -85,10 +85,10 @@ def test_service_rejects_profile_version_change_after_resolution(
         resolved_buffers: list[bytearray] = []
 
         class RacingCredentials:
-            """Mutate the profile immediately after returning its secret."""
+            """返回秘密后立即变更配置。"""
 
             def resolve(self, credential_id, expected_kind):
-                """Return the real secret and force the version recheck to fail."""
+                """返回真实秘密并强制版本复核失败。"""
 
                 secret = credentials.resolve(credential_id, expected_kind)
                 resolved_buffers.append(secret)
@@ -112,7 +112,7 @@ def test_service_rejects_profile_version_change_after_resolution(
 
 
 def connection_input(**overrides: object) -> ConnectionProfileInput:
-    """Build one strict profile input for credential resolution tests."""
+    """为凭据解析测试构建严格配置输入。"""
 
     values: dict[str, object] = {
         "display_name": "connection",

@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 def load_credentials_module():
-    """Load the target package so a missing implementation is a RED failure."""
+    """加载目标包，使缺失实现明确触发测试失败。"""
 
     try:
         return import_module("harness_shell_sidecar.credentials")
@@ -19,7 +19,7 @@ def load_credentials_module():
 
 
 def encrypt_for_test(public_key, plaintext: bytes):
-    """Build the exact Web Crypto-compatible v1 envelope with fixed bytes."""
+    """使用固定字节构建精确兼容 Web Crypto 的 v1 信封。"""
 
     credentials = load_credentials_module()
     aes_key = bytes(range(32))

@@ -28,14 +28,14 @@ _ANSI_SGR_SEQUENCE = re.compile(r"\x1b\[[0-9;]*m")
 
 @pytest.fixture
 def request_id() -> UUID:
-    """Return one valid HTTP correlation identifier."""
+    """返回合法 HTTP 关联标识。"""
 
     return uuid4()
 
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
-    """Run one fresh autonomous schema-v6 ASGI application lifespan."""
+    """运行全新自主初始化 ASGI 应用的 lifespan。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime-data").resolve())
     with TestClient(create_app(settings=settings)) as test_client:
@@ -44,7 +44,7 @@ def client(tmp_path: Path) -> TestClient:
 
 @pytest.fixture
 def autonomous_client(tmp_path: Path) -> Iterator[TestClient]:
-    """Run one schema-v6 Runtime initialized entirely by ASGI lifespan."""
+    """运行完全由 ASGI lifespan 初始化的 Runtime。"""
 
     settings = RuntimeSettings.from_data_dir((tmp_path / "runtime-data").resolve())
     with TestClient(create_app(settings=settings)) as test_client:
@@ -52,7 +52,7 @@ def autonomous_client(tmp_path: Path) -> Iterator[TestClient]:
 
 
 def reserve_then_release_loopback_port() -> int:
-    """Return a recently released loopback port for an explicit bind test."""
+    """返回刚释放的 loopback 端口，用于显式绑定测试。"""
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
@@ -61,21 +61,21 @@ def reserve_then_release_loopback_port() -> int:
 
 @dataclass
 class ProcessProbe:
-    """Own one Sidecar child, captured output, HTTP polling, and cleanup."""
+    """拥有 Sidecar 子进程、捕获输出、HTTP 轮询及清理。"""
 
-    #: Running child process.
+    #: 运行中的子进程。
     process: subprocess.Popen[str]
-    #: Complete stdout lines observed so far.
+    #: 目前观察到的完整 stdout 行。
     stdout_lines: list[str] = field(default_factory=list)
-    #: Complete stderr lines observed so far.
+    #: 目前观察到的完整 stderr 行。
     stderr_lines: list[str] = field(default_factory=list)
-    #: Queue of newly observed stderr lines for condition-based waits.
+    #: 新观察到的 stderr 行队列，用于按条件等待。
     _stderr_queue: queue.Queue[str] = field(default_factory=queue.Queue)
-    #: Reader threads that own both child pipes.
+    #: 拥有两条子进程管道的读取线程。
     _readers: tuple[threading.Thread, threading.Thread] | None = None
 
     def start_readers(self) -> None:
-        """Drain both child pipes continuously to prevent process deadlock."""
+        """持续排空两条子进程管道，防止进程死锁。"""
 
         assert self.process.stdout is not None
         assert self.process.stderr is not None
@@ -104,7 +104,7 @@ class ProcessProbe:
         *,
         timeout: float = 10.0,
     ) -> dict[str, object]:
-        """Wait for one named console event without arbitrary sleeping."""
+        """等待指定名称的控制台事件，不任意休眠。"""
 
         deadline = time.monotonic() + timeout
         while True:
@@ -136,7 +136,7 @@ class ProcessProbe:
             return record
 
     def wait_until_http_ready(self, port: int, *, timeout: float = 10.0) -> None:
-        """Poll the exact loopback liveness route until it answers or child exits."""
+        """轮询精确 loopback 存活路由，直到响应或子进程退出。"""
 
         deadline = time.monotonic() + timeout
         url = f"http://127.0.0.1:{port}/v1/health/live"
@@ -163,7 +163,7 @@ class ProcessProbe:
         raise AssertionError("Sidecar did not become HTTP-ready before the deadline")
 
     def close(self) -> None:
-        """Terminate the owned child and finish draining captured output."""
+        """终止拥有的子进程，并完成捕获输出的排空。"""
 
         if self.process.poll() is None:
             try:
@@ -176,7 +176,7 @@ class ProcessProbe:
                 reader.join(timeout=2)
 
     def graceful_shutdown(self, *, timeout: float = 5.0) -> int:
-        """Send the platform console signal Uvicorn handles and await lifespan."""
+        """发送 Uvicorn 处理的平台控制台信号，并等待 lifespan。"""
 
         if self.process.poll() is None:
             if sys.platform == "win32":
@@ -188,7 +188,7 @@ class ProcessProbe:
 
 @pytest.fixture
 def sidecar_process() -> Iterator[Callable[..., ProcessProbe]]:
-    """Start source Sidecars and guarantee cleanup after each process test."""
+    """启动源码 Sidecar，并确保每个进程测试结束后清理。"""
 
     probes: list[ProcessProbe] = []
 

@@ -82,7 +82,7 @@ export class BrowserFileGateway {
       );
     }
 
-    // Invoke before the first await so the browser still observes user activation.
+    // 在首次 await 前调用，确保浏览器仍能观察到用户激活。
     const selection = picker.call(window, { suggestedName });
     let handle: FileSystemFileHandle;
     try {

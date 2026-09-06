@@ -1,4 +1,4 @@
-"""Custom LangGraph ReAct loop with explicit persistence and business limits."""
+"""具有显式持久化与业务限制的自定义 LangGraph ReAct 循环。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ from langgraph.runtime import Runtime
 from pydantic import SecretStr, ValidationError
 
 from .context import ContextService
+from .context_models import ContextMessage, ContextSummary, AgentContextPolicy
+from .context_budget import ContextBudget
+from .context_summaries import ContextSummaryRepository
+from .context_compaction import ContextCompactor, SummaryInvoker
+from .tokenizer import load_local_encoding, tokenizer_resource_dir
 from .contracts import (
     AgentRunStatus,
     CommandToolEnvelope,
@@ -38,7 +43,7 @@ LOGGER = logging.getLogger("harness_shell_sidecar.agent.graph")
 
 
 class AgentGraphState(TypedDict):
-    """Persistable-free state exchanged between explicit Agent graph nodes."""
+    """显式 Agent 图节点之间交换的非持久化状态。"""
 
     agent_run_id: UUID
     conversation_id: UUID
@@ -46,6 +51,8 @@ class AgentGraphState(TypedDict):
     api_config_id: UUID
     messages: Annotated[list[AnyMessage], add_messages]
     model_messages: list[AnyMessage]
+    records: list[ContextMessage]  # 有序权威记录；使用整体替换语义。
+    summary: ContextSummary | None  # 仅供模型使用的滚动摘要，不作为 SSE 可见文本。
     react_iteration: int
     run_status: AgentRunStatus
     last_error_code: str | None
@@ -53,22 +60,22 @@ class AgentGraphState(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class AgentGraphContext:
-    """Hold sensitive or run-local values outside graph state and persistence."""
+    """将敏感或本轮局部值保留在图状态和持久化之外。"""
 
-    #: Frozen non-secret provider configuration for this Run.
+    #: 本 Run 冻结的非秘密 Provider 配置。
     api_config: ModelApiConfig
-    #: Short-lived provider secret supplied only to the current graph invocation.
+    #: 仅提供给当前图调用的短生命周期 Provider 秘密。
     api_key: SecretStr
-    #: Caller-owned cancellation event shared with model and SSH operations.
+    #: 调用方拥有的取消事件，由模型和 SSH 操作共享。
     cancelled: asyncio.Event
-    #: Current user input persisted by load_context.
+    #: 由 load_context 持久化的当前用户输入。
     user_message: str
-    #: Run-local visible-text sink; never enters graph state or persistence.
+    #: 本 Run 局部的可见文本接收端，不进入图状态或持久化。
     text_sink: AgentTextDeltaSink
 
 
-class ModelInvoker(Protocol):
-    """Describe the model gateway surface required by graph nodes."""
+class ModelInvoker(SummaryInvoker, Protocol):
+    """描述图节点所需的模型网关接口。"""
 
     async def invoke(
         self,
@@ -78,11 +85,11 @@ class ModelInvoker(Protocol):
         cancelled: asyncio.Event,
         text_sink: AgentTextDeltaSink,
     ) -> AIMessage:
-        """Return one complete model message while streaming final visible text."""
+        """返回完整模型消息，同时流式发布最终可见文本。"""
 
 
 class CommandExecutor(Protocol):
-    """Describe the bound SSH executor surface required by the tool node."""
+    """描述工具节点所需的绑定 SSH 执行器接口。"""
 
     async def execute(
         self,
@@ -90,23 +97,25 @@ class CommandExecutor(Protocol):
         command: str,
         cancelled: asyncio.Event,
     ) -> CommandToolEnvelope:
-        """Execute one reviewed command and return its stable envelope."""
+        """执行已审查命令并返回稳定结果信封。"""
 
 
 @dataclass(frozen=True, slots=True)
 class AgentGraphDependencies:
-    """Collect long-lived non-secret collaborators captured by the compiled graph."""
+    """集中保存编译后图捕获的长期非秘密协作者。"""
 
-    #: Full encrypted history and Run lifecycle authority.
+    #: 完整权威历史和 Run 生命周期的管理者。
     conversations: ConversationRepository
-    #: Interrupted-history repair and model-window projection.
+    #: 负责中断历史修复与模型窗口投影。
     context: ContextService
-    #: Dual-API model invocation gateway.
+    #: 双 API 模型调用网关。
     gateway: ModelInvoker
-    #: Fixed-regex command reviewer.
+    #: 使用固定正则表达式的命令审查器。
     reviewer: CommandSafetyReviewer
-    #: Frozen-session non-PTY SSH command executor.
+    #: 在冻结会话上执行非 PTY SSH 命令的执行器。
     executor: CommandExecutor
+    #: 可选的显式运行时估算器；测试可注入受控预算。
+    budget: ContextBudget | None = None
 
 
 NodePatch = dict[str, object]
@@ -117,13 +126,13 @@ NodeHandler = Callable[
 
 
 def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
-    """Wrap one node with safe start, completion, failure, and duration events."""
+    """为节点记录开始、完成、失败与耗时事件。"""
 
     async def wrapped(
         state: AgentGraphState,
         runtime: Runtime[AgentGraphContext],
     ) -> NodePatch:
-        """Observe one node without changing its patch or failure semantics."""
+        """观测单个节点，不改变其状态补丁或失败语义。"""
 
         fields = {
             "agent_run_id": str(state["agent_run_id"]),
@@ -145,8 +154,8 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
             result = handler(state, runtime)
             patch = await result if inspect.isawaitable(result) else result
         except BaseException as error:
-            # Node failures may carry Provider bodies, commands, or remote output
-            # in their exception chain. Emit only the stable allowlisted fields.
+            # 结构化字段只收集稳定元数据；当前异常日志仍附带 traceback，
+            # 其中可能包含 Provider 正文、命令或远程输出，不能视为安全过滤。
             error_code = getattr(error, "error_code", "SIDECAR_RUNTIME_FAILED")
             if not isinstance(error_code, str):
                 error_code = "SIDECAR_RUNTIME_FAILED"
@@ -156,7 +165,7 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
                 if isinstance(safe_message, str)
                 else f"unexpected {type(error).__module__}.{type(error).__qualname__}"
             )
-            LOGGER.error(
+            LOGGER.exception(
                 "agent_node_failed error_code=%s reason=%s fields=%s",
                 error_code,
                 reason,
@@ -192,37 +201,61 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
 def build_agent_graph(
     dependencies: AgentGraphDependencies,
 ) -> CompiledStateGraph[AgentGraphState, AgentGraphContext, AgentGraphState, AgentGraphState]:
-    """Compile the bounded ReAct graph without any LangGraph checkpointer."""
+    """编译有界 ReAct 图，不使用 LangGraph checkpointer。"""
+
+    policy = AgentContextPolicy()
+    budget = dependencies.budget if dependencies.budget is not None else ContextBudget(
+        load_local_encoding(tokenizer_resource_dir(), policy.tokenizer_encoding), policy)
+    summaries = ContextSummaryRepository(dependencies.conversations.database)
+    compactor = ContextCompactor(summaries, budget, dependencies.gateway)
 
     async def load_context(
         state: AgentGraphState,
         runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Repair interrupted history and append the current HumanMessage atomically."""
+        """原子修复中断历史并追加当前 HumanMessage。"""
 
+        # 1. 先原子修复上轮未完成的工具调用并保存本轮用户消息。
         messages = dependencies.context.load_new_turn(
             state["agent_run_id"],
             state["conversation_id"],
             runtime.context.user_message,
         )
-        return {"messages": messages}
+        # 2. 同时加载带序号历史和独立摘要，供后续压缩及模型投影使用。
+        return {"messages": messages,
+                "records": dependencies.conversations.load_context_messages(state["conversation_id"]),
+                "summary": summaries.load(state["conversation_id"])}
 
-    def trim_context(
-        state: AgentGraphState,
-        _runtime: Runtime[AgentGraphContext],
+    async def compact_context(
+        state: AgentGraphState, runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Build the current System plus last-five-turn model view."""
+        """本用户轮次最多执行一次滚动摘要。"""
+        # 本轮仅由加载后的节点进入一次压缩流程；工具循环不经过此节点。
+        summary = await compactor.compact(config=runtime.context.api_config,
+            api_key=runtime.context.api_key, records=state["records"], summary=state["summary"],
+            conversation_id=state["conversation_id"], source_run_id=state["agent_run_id"],
+            cancelled=runtime.context.cancelled)
+        return {"summary": summary}
 
-        return {
-            "model_messages": dependencies.context.trim_for_model(state["messages"])
-        }
+    def prepare_model_context(
+        state: AgentGraphState,
+        runtime: Runtime[AgentGraphContext],
+    ) -> dict[str, object]:
+        """检查每次请求预算，不在工具循环内执行摘要。"""
+        # 1. 每次主调用前检查有效输入预算，工具循环超预算时直接失败。
+        estimate = budget.estimate(runtime.context.api_config, state["records"], state["summary"])
+        budget.assert_fits(runtime.context.api_config, estimate.tokens)
+        LOGGER.debug("context_budget source=%s tokens=%s run_id=%s", estimate.source, estimate.tokens, state["agent_run_id"])
+        # 2. 预算允许后生成模型专用视图，保持 canonical messages 不变。
+        return {"model_messages": dependencies.context.project(state["records"], state["summary"])}
 
     async def call_model(
         state: AgentGraphState,
         runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Persist the full AIMessage before any conditional tool dispatch."""
+        """在任何条件工具派发前持久化完整 AIMessage。"""
 
+        # 1. 用已通过预算检查的投影请求本轮主模型。
         message = await dependencies.gateway.invoke(
             runtime.context.api_config,
             runtime.context.api_key,
@@ -230,17 +263,25 @@ def build_agent_graph(
             runtime.context.cancelled,
             runtime.context.text_sink,
         )
-        dependencies.conversations.append_message(
+        # 2. 保存此次请求的摘要版本和配置指纹，供后续 usage 估算判断能否复用。
+        message.additional_kwargs["harness_context_anchor"] = {
+            "schema_version": 1,
+            "context_revision": state["summary"].revision if state["summary"] else 0,
+            "request_identity": budget.request_identity(runtime.context.api_config),
+        }
+        # 3. AI 回复先入库，再用真实序号更新 graph 历史，之后才允许路由到工具执行。
+        sequence = dependencies.conversations.append_message(
             state["agent_run_id"],
             state["conversation_id"],
             message,
         )
-        return {"messages": [message]}
+        return {"messages": [message], "records": [*state["records"],
+            ContextMessage(sequence, state["agent_run_id"], message)]}
 
     def route_after_model(
         state: AgentGraphState,
     ) -> Literal["check_react_limit", "return_response"]:
-        """Route complete text to END and every tool decision through the limit gate."""
+        """将完整文本路由到 END，所有工具决策都经过限制门禁。"""
 
         message = _last_ai_message(state)
         target = "check_react_limit" if message.tool_calls else "return_response"
@@ -271,7 +312,7 @@ def build_agent_graph(
         state: AgentGraphState,
         _runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Reject a 129th decision or atomically count the next completed loop."""
+        """拒绝第 129 次决策，或原子记录下一次已完成循环。"""
 
         if state["react_iteration"] >= 128:
             return {"last_error_code": "REACT_LIMIT_REACHED"}
@@ -284,7 +325,7 @@ def build_agent_graph(
     def route_after_limit(
         state: AgentGraphState,
     ) -> Literal["execute_tool", "reject_limit"]:
-        """Route solely from the explicit persisted business-limit decision."""
+        """仅依据显式持久化的业务限制决策路由。"""
 
         target = (
             "reject_limit"
@@ -318,8 +359,9 @@ def build_agent_graph(
         state: AgentGraphState,
         runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Pair model calls with structured results and dispatch at most one command."""
+        """为模型调用配对结构化结果，最多派发一条命令。"""
 
+        # 1. 读取已持久化的工具决策；多个调用全部配对拒绝结果，不派发命令。
         calls = _last_ai_message(state).tool_calls
         if len(calls) > 1:
             messages = [
@@ -334,6 +376,7 @@ def build_agent_graph(
             ]
         else:
             call = calls[0]
+            # 2. 单调用进入工具名、参数和安全审查边界后，才可在冻结会话上执行。
             envelope = await _execute_one_tool_call(
                 call,
                 state["ssh_session_id"],
@@ -341,18 +384,21 @@ def build_agent_graph(
                 dependencies,
             )
             messages = [tool_message(call["id"], envelope)]
-        dependencies.conversations.append_messages_atomic(
+        # 3. 原子保存全部工具结果，再按真实序号更新图历史并继续模型循环。
+        sequences = dependencies.conversations.append_messages_atomic(
             state["agent_run_id"],
             state["conversation_id"],
             messages,
         )
-        return {"messages": messages}
+        return {"messages": messages, "records": [*state["records"],
+            *(ContextMessage(sequence, state["agent_run_id"], message)
+              for sequence, message in zip(sequences, messages, strict=True))]}
 
     async def return_response(
         state: AgentGraphState,
         _runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Report final model text while AgentService validates transport budget."""
+        """报告最终模型文本，由 AgentService 校验传输预算。"""
 
         message = _last_ai_message(state)
         if message.tool_calls:
@@ -366,8 +412,9 @@ def build_agent_graph(
         state: AgentGraphState,
         _runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """Pair every refused call and finish without invoking SSH or the model again."""
+        """为每个被拒绝调用配对结果并结束，不再调用 SSH 或模型。"""
 
+        # 1. 给每个未执行调用配对明确的业务上限失败，保持工具历史闭合。
         messages = [
             tool_message(
                 call["id"],
@@ -378,7 +425,8 @@ def build_agent_graph(
             )
             for call in _last_ai_message(state).tool_calls
         ]
-        dependencies.conversations.append_messages_atomic(
+        # 2. 先持久化拒绝消息，再把 Run 转为 LIMIT_REACHED。
+        sequences = dependencies.conversations.append_messages_atomic(
             state["agent_run_id"],
             state["conversation_id"],
             messages,
@@ -388,6 +436,7 @@ def build_agent_graph(
             AgentRunStatus.LIMIT_REACHED,
             "REACT_LIMIT_REACHED",
         )
+        # 3. 返回终态补丁，不再调用模型或 SSH。
         return {
             "messages": messages,
             "run_status": AgentRunStatus.LIMIT_REACHED,
@@ -396,7 +445,8 @@ def build_agent_graph(
 
     builder = StateGraph(AgentGraphState, context_schema=AgentGraphContext)
     builder.add_node("load_context", _instrument_agent_node("load_context", load_context))
-    builder.add_node("trim_context", _instrument_agent_node("trim_context", trim_context))
+    builder.add_node("compact_context", _instrument_agent_node("compact_context", compact_context))
+    builder.add_node("prepare_model_context", _instrument_agent_node("prepare_model_context", prepare_model_context))
     builder.add_node("call_model", _instrument_agent_node("call_model", call_model))
     builder.add_node(
         "check_react_limit",
@@ -409,11 +459,12 @@ def build_agent_graph(
     )
     builder.add_node("reject_limit", _instrument_agent_node("reject_limit", reject_limit))
     builder.add_edge(START, "load_context")
-    builder.add_edge("load_context", "trim_context")
-    builder.add_edge("trim_context", "call_model")
+    builder.add_edge("load_context", "compact_context")
+    builder.add_edge("compact_context", "prepare_model_context")
+    builder.add_edge("prepare_model_context", "call_model")
     builder.add_conditional_edges("call_model", route_after_model)
     builder.add_conditional_edges("check_react_limit", route_after_limit)
-    builder.add_edge("execute_tool", "trim_context")
+    builder.add_edge("execute_tool", "prepare_model_context")
     builder.add_edge("return_response", END)
     builder.add_edge("reject_limit", END)
     return builder.compile()
@@ -425,7 +476,7 @@ async def _execute_one_tool_call(
     cancelled: asyncio.Event,
     dependencies: AgentGraphDependencies,
 ) -> CommandToolEnvelope:
-    """Validate, review, and execute exactly one canonical model tool call."""
+    """校验、审查并执行且仅执行一个规范模型工具调用。"""
 
     if call["name"] != "execute_command":
         return _failure_envelope("UNKNOWN_TOOL", "The requested tool is not registered.")
@@ -451,7 +502,7 @@ async def _execute_one_tool_call(
 
 
 def _last_ai_message(state: AgentGraphState) -> AIMessage:
-    """Return the graph's latest AIMessage or expose an invalid route immediately."""
+    """返回图中最新的 AIMessage；路由非法时立即失败。"""
 
     if not state["messages"] or not isinstance(state["messages"][-1], AIMessage):
         raise RuntimeError("Agent graph expected the latest message to be AIMessage")
@@ -459,7 +510,7 @@ def _last_ai_message(state: AgentGraphState) -> AIMessage:
 
 
 def _failure_envelope(code: str, message: str) -> CommandToolEnvelope:
-    """Build one stable non-sensitive ToolMessage failure payload."""
+    """构建稳定、非敏感的 ToolMessage 失败载荷。"""
 
     return CommandToolEnvelope(
         ok=False,

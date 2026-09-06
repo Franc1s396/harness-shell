@@ -38,6 +38,9 @@ const sse = (...values: unknown[]) => async function* () {
 const input: ModelApiConfigInput = {
   display_name: "OpenAI Production",
   api_type: "RESPONSES",
+  context_window_size: 128000,
+  context_compaction_threshold_ratio: 0.75,
+  max_output_tokens: 8192,
   base_url: "https://api.openai.com/v1",
   model: "gpt-5",
   enabled: true,
@@ -84,6 +87,9 @@ describe("agentApi", () => {
       ["GET", "/v1/agent/api-configs"],
       ["GET", "/v1/runtime/credential-encryption-key"],
       ["POST", "/v1/agent/api-configs", { body: {
+        context_window_size: input.context_window_size,
+        context_compaction_threshold_ratio: input.context_compaction_threshold_ratio,
+        max_output_tokens: input.max_output_tokens,
         display_name: input.display_name,
         api_type: input.api_type,
         base_url: input.base_url,

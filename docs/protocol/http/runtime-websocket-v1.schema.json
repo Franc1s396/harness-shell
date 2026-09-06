@@ -139,7 +139,7 @@
     "JsonValue": {},
     "MutationProgressProjection": {
       "additionalProperties": false,
-      "description": "Publish a safe manual mutation phase without local paths or raw errors.",
+      "description": "发布安全的手动变更阶段，不含本地路径或原始错误。",
       "properties": {
         "cancellable": {
           "const": false,
@@ -228,7 +228,7 @@
     },
     "PtyClosedMessage": {
       "additionalProperties": false,
-      "description": "Publish one unsolicited PTY closure event.",
+      "description": "发布主动推送的 PTY 关闭事件。",
       "properties": {
         "causation_id": {
           "title": "Causation Id",
@@ -271,7 +271,7 @@
     },
     "PtyClosedPayload": {
       "additionalProperties": false,
-      "description": "Preserve the current PTY process exit projection.",
+      "description": "保留当前 PTY 进程退出投影。",
       "properties": {
         "exit_signal": {
           "anyOf": [
@@ -311,7 +311,7 @@
     },
     "PtyInputMessage": {
       "additionalProperties": false,
-      "description": "Request one correlated PTY write over the Runtime WebSocket.",
+      "description": "通过 Runtime WebSocket 请求带关联标识的 PTY 写入。",
       "properties": {
         "causation_id": {
           "title": "Causation Id",
@@ -354,7 +354,7 @@
     },
     "PtyInputPayload": {
       "additionalProperties": false,
-      "description": "Carry one bounded canonical Base64 PTY input chunk.",
+      "description": "携带有界标准 Base64 PTY 输入分块。",
       "properties": {
         "data_b64": {
           "contentEncoding": "base64",
@@ -376,7 +376,7 @@
     },
     "PtyInputResultMessage": {
       "additionalProperties": false,
-      "description": "Correlate one PTY input success or stable domain failure.",
+      "description": "关联 PTY 输入成功或稳定领域失败。",
       "properties": {
         "causation_id": {
           "format": "uuid",
@@ -420,7 +420,7 @@
     },
     "PtyInputResultPayload": {
       "additionalProperties": false,
-      "description": "Report the exact PTY write result without closing on domain failure.",
+      "description": "报告精确 PTY 写入结果，不因领域失败关闭连接。",
       "properties": {
         "accepted_bytes": {
           "maximum": 32768,
@@ -455,7 +455,7 @@
     },
     "PtyOutputMessage": {
       "additionalProperties": false,
-      "description": "Publish one unsolicited PTY output event.",
+      "description": "发布主动推送的 PTY 输出事件。",
       "properties": {
         "causation_id": {
           "title": "Causation Id",
@@ -498,7 +498,7 @@
     },
     "PtyOutputPayload": {
       "additionalProperties": false,
-      "description": "Carry one monotonically ordered PTY output chunk.",
+      "description": "携带单调有序的 PTY 输出分块。",
       "properties": {
         "data_b64": {
           "contentEncoding": "base64",
@@ -526,7 +526,7 @@
     },
     "RuntimeErrorMessage": {
       "additionalProperties": false,
-      "description": "Correlate a non-PTY domain failure while retaining the connection.",
+      "description": "关联非 PTY 领域失败，同时保留连接。",
       "properties": {
         "causation_id": {
           "anyOf": [
@@ -577,7 +577,7 @@
     },
     "RuntimeErrorPayload": {
       "additionalProperties": false,
-      "description": "Expose one stable WebSocket domain failure without raw internals.",
+      "description": "暴露稳定 WebSocket 领域失败，不包含原始内部信息。",
       "properties": {
         "details": {
           "anyOf": [
@@ -612,7 +612,7 @@
     },
     "RuntimePingMessage": {
       "additionalProperties": false,
-      "description": "Refresh only the explicit Runtime heartbeat owner.",
+      "description": "仅刷新显式 Runtime 心跳状态。",
       "properties": {
         "causation_id": {
           "title": "Causation Id",
@@ -655,7 +655,7 @@
     },
     "RuntimePingPayload": {
       "additionalProperties": false,
-      "description": "Carry the Desktop's explicit heartbeat timestamp.",
+      "description": "携带桌面端显式心跳时间戳。",
       "properties": {
         "client_timestamp": {
           "format": "date-time",
@@ -671,7 +671,7 @@
     },
     "RuntimePongMessage": {
       "additionalProperties": false,
-      "description": "Correlate one explicit Runtime ping.",
+      "description": "关联显式 Runtime ping。",
       "properties": {
         "causation_id": {
           "format": "uuid",
@@ -715,7 +715,7 @@
     },
     "RuntimePongPayload": {
       "additionalProperties": false,
-      "description": "Carry the server's timezone-aware heartbeat response time.",
+      "description": "携带服务器带时区的心跳响应时间。",
       "properties": {
         "server_timestamp": {
           "format": "date-time",
@@ -731,7 +731,7 @@
     },
     "SftpOperationProgressMessage": {
       "additionalProperties": false,
-      "description": "Publish the complete current safe Manual SFTP progress projection.",
+      "description": "发布完整的当前安全手动 SFTP 进展投影。",
       "properties": {
         "causation_id": {
           "title": "Causation Id",
@@ -774,7 +774,7 @@
     },
     "SshConnectionStateMessage": {
       "additionalProperties": false,
-      "description": "Publish the complete current safe SSH status projection.",
+      "description": "发布完整的当前安全 SSH 状态投影。",
       "properties": {
         "causation_id": {
           "title": "Causation Id",

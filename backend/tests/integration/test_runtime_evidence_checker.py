@@ -1,4 +1,4 @@
-"""Behavior tests for schema-v6 SSH Lab evidence validation."""
+"""schema v7 SSH Lab 证据校验的行为测试。"""
 
 from __future__ import annotations
 
@@ -23,11 +23,12 @@ SCHEMA_TABLES = (
     "agent_conversations",
     "agent_runs",
     "agent_messages",
+    "agent_context_summaries",
 )
 
 
 def create_database(root: Path, *, omit: str | None = None) -> Path:
-    """Create one minimal schema-v6 evidence database."""
+    """创建最小 schema v7 证据数据库。"""
 
     path = root / "runtime.sqlite3"
     connection = sqlite3.connect(path)
@@ -37,7 +38,7 @@ def create_database(root: Path, *, omit: str | None = None) -> Path:
                 continue
             if table == "schema_migrations":
                 connection.execute("CREATE TABLE schema_migrations(version INTEGER)")
-                connection.execute("INSERT INTO schema_migrations VALUES (6)")
+                connection.execute("INSERT INTO schema_migrations VALUES (7)")
             elif table == "runtime_records":
                 connection.execute(
                     "CREATE TABLE runtime_records(record_type TEXT, record_id TEXT)"
@@ -53,7 +54,7 @@ def create_database(root: Path, *, omit: str | None = None) -> Path:
 
 
 def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run the repository checker exactly as PowerShell gates do."""
+    """按 PowerShell 门禁的实际方式运行仓库检查器。"""
 
     return subprocess.run(
         [sys.executable, str(SCRIPT), str(root), *args],
@@ -64,8 +65,8 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_m2_requires_complete_schema_v6_and_ssh_runtime_rows(tmp_path: Path) -> None:
-    """M2 may leave generic records empty because SSH tests inject credentials."""
+def test_m2_requires_complete_schema_v7_and_ssh_runtime_rows(tmp_path: Path) -> None:
+    """M2 的通用记录可以为空，因为 SSH 测试注入凭据。"""
 
     create_database(tmp_path)
     result = run_checker(tmp_path)
@@ -100,12 +101,12 @@ def test_manual_sftp_gate_requires_plaintext_operation_record(tmp_path: Path) ->
     assert run_checker(tmp_path, "--manual-sftp").returncode == 0
 
 
-def test_checker_rejects_non_v6_schema_version(tmp_path: Path) -> None:
+def test_checker_rejects_non_v7_schema_version(tmp_path: Path) -> None:
     path = create_database(tmp_path)
     connection = sqlite3.connect(path)
-    connection.execute("UPDATE schema_migrations SET version = 4")
+    connection.execute("UPDATE schema_migrations SET version = 6")
     connection.commit()
     connection.close()
     result = run_checker(tmp_path)
     assert result.returncode != 0
-    assert "schema version 6" in result.stderr
+    assert "schema version 7" in result.stderr

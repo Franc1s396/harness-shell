@@ -20,13 +20,13 @@ from harness_shell_sidecar.runtime.request_context import RequestContext
 
 
 def request_headers() -> dict[str, str]:
-    """Create one valid request correlation header."""
+    """创建合法请求关联头。"""
 
     return {"X-Request-ID": str(uuid4())}
 
 
 def agent_stream_headers(request_id: str | None = None) -> dict[str, str]:
-    """Create strict Agent SSE negotiation and correlation headers."""
+    """创建严格 Agent SSE 协商与关联请求头。"""
 
     return {
         "Accept": "text/event-stream",
@@ -35,7 +35,7 @@ def agent_stream_headers(request_id: str | None = None) -> dict[str, str]:
 
 
 def parse_sse_events(wire: str) -> list[dict[str, object]]:
-    """Decode Backend-owned fixed three-line frames for route assertions."""
+    """解码 Backend 固定三行帧，用于路由断言。"""
 
     events: list[dict[str, object]] = []
     for frame in wire.split("\n\n"):
@@ -50,10 +50,10 @@ def parse_sse_events(wire: str) -> list[dict[str, object]]:
 
 
 class SuccessfulTurnApplication:
-    """Publish one deterministic successful lifecycle for route integration."""
+    """为路由集成发布确定性成功生命周期。"""
 
     def __init__(self) -> None:
-        """Freeze one Run identity reused across all emitted events."""
+        """冻结所有发出事件共用的 Run 标识。"""
 
         now = datetime.now(UTC)
         self.run_snapshot = AgentRun(
@@ -74,7 +74,7 @@ class SuccessfulTurnApplication:
         _params: Mapping[str, object],
         sink,
     ) -> None:
-        """Emit started, one exact visible delta, and durable completion."""
+        """发出 started、精确可见增量及持久化完成事件。"""
 
         await sink.started(self.run_snapshot)
         await sink.text_delta("hello")
@@ -89,7 +89,7 @@ class SuccessfulTurnApplication:
 
 
 class FailedTurnApplication(SuccessfulTurnApplication):
-    """Publish one deterministic durable post-start failure."""
+    """发布确定性、已持久化的启动后失败。"""
 
     async def run(
         self,
@@ -97,7 +97,7 @@ class FailedTurnApplication(SuccessfulTurnApplication):
         _params: Mapping[str, object],
         sink,
     ) -> None:
-        """Emit started then the matching failed terminal event."""
+        """发出 started，再发出匹配的失败终止事件。"""
 
         await sink.started(self.run_snapshot)
         await sink.text_delta("partial")
@@ -114,7 +114,7 @@ class FailedTurnApplication(SuccessfulTurnApplication):
 
 
 def config_input(**overrides: object) -> dict[str, object]:
-    """Build one Provider configuration mutation input."""
+    """构建 Provider 配置变更输入。"""
 
     value: dict[str, object] = {
         "display_name": "Test Provider",
@@ -128,7 +128,7 @@ def config_input(**overrides: object) -> dict[str, object]:
 
 
 def encrypted_secret(client: TestClient, secret: str) -> dict[str, object]:
-    """Encrypt one API key for the current Runtime public key."""
+    """使用当前 Runtime 公钥加密 API Key。"""
 
     public_key = client.get(
         "/v1/runtime/credential-encryption-key",
@@ -159,7 +159,7 @@ def encrypted_secret(client: TestClient, secret: str) -> dict[str, object]:
 
 
 def credential_record(database_path: Path, credential_id: str) -> dict[str, str] | None:
-    """Read one credential through a test-thread-owned SQLite connection."""
+    """通过测试线程拥有的 SQLite 连接读取凭据。"""
 
     with sqlite3.connect(database_path) as database:
         row = database.execute(
@@ -174,7 +174,7 @@ def credential_record(database_path: Path, credential_id: str) -> dict[str, str]
 
 
 def credential_count(database_path: Path) -> int:
-    """Count credential rows without borrowing the ASGI thread connection."""
+    """统计凭据行，不借用 ASGI 线程连接。"""
 
     with sqlite3.connect(database_path) as database:
         row = database.execute(
@@ -243,7 +243,7 @@ def test_api_config_create_rolls_back_credential_when_metadata_write_fails(
     resources = autonomous_client.app.state.runtime_owner.require_resources()
 
     def fail_create(_value: object) -> None:
-        """Simulate a metadata failure after the handler creates the credential."""
+        """handler 创建凭据后模拟元数据失败。"""
 
         raise RuntimeError("simulated metadata failure")
 
@@ -292,7 +292,7 @@ def test_agent_turn_accepts_only_identities_and_missing_config_is_typed(
 
 
 def test_agent_turn_requires_sse_accept(autonomous_client) -> None:
-    """Reject a turn before application work when SSE was not negotiated."""
+    """未协商 SSE 时在应用工作开始前拒绝轮次。"""
 
     response = autonomous_client.post(
         "/v1/agent/turns",
@@ -311,7 +311,7 @@ def test_agent_turn_requires_sse_accept(autonomous_client) -> None:
 
 
 def test_agent_turn_success_is_started_first_sse(autonomous_client) -> None:
-    """Expose only the fixed correlated event sequence on HTTP success."""
+    """HTTP 成功时仅暴露固定关联事件序列。"""
 
     request_id = str(uuid4())
     resources = autonomous_client.app.state.runtime_owner.require_resources()
@@ -350,7 +350,7 @@ def test_agent_turn_success_is_started_first_sse(autonomous_client) -> None:
 
 
 def test_agent_turn_post_start_failure_remains_sse(autonomous_client) -> None:
-    """Keep HTTP 200 and emit one safe terminal failure after started."""
+    """started 后保持 HTTP 200，并发出安全终止失败。"""
 
     resources = autonomous_client.app.state.runtime_owner.require_resources()
     application = FailedTurnApplication()

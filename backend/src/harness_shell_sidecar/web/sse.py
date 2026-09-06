@@ -1,4 +1,4 @@
-"""Encode strict Agent turn events as UTF-8 Server-Sent Events frames."""
+"""将严格 Agent 轮次事件编码为 UTF-8 SSE 帧。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from harness_shell_sidecar.agent.streaming import AgentTurnStreamEvent
 
 
 def encode_sse_event(event: AgentTurnStreamEvent) -> bytes:
-    """Encode one event with fixed LF framing and one compact JSON data line."""
+    """使用固定 LF 分帧和一行紧凑 JSON 数据编码事件。"""
 
     payload = json.dumps(
         event.model_dump(mode="json"),

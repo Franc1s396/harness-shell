@@ -1,4 +1,4 @@
-"""Import-side-effect-free FastAPI application factory."""
+"""导入时无副作用的 FastAPI 应用工厂。"""
 
 from __future__ import annotations
 
@@ -33,8 +33,9 @@ def create_app(
     resource_factory: ResourceFactory | None = None,
     log_directory_opener: Callable[[Path], object] | None = None,
 ) -> FastAPI:
-    """Build the private ASGI app without opening DBs or starting background work."""
+    """构建内部 ASGI 应用，不打开数据库或启动后台工作。"""
 
+    # 1. 构建无启动副作用的应用，资源初始化只交给 lifespan。
     app = FastAPI(
         title="Harness Shell Private Python Runtime API",
         version="1.0.0",
@@ -60,6 +61,7 @@ def create_app(
     app.state.log_directory_opener = (
         log_directory_opener or open_log_directory_with_explorer
     )
+    # 2. 注册统一错误映射和固定 typed 路由，不增加通用业务入口。
     register_exception_handlers(app)
     app.include_router(runtime_router)
     app.include_router(connections_router)
@@ -69,6 +71,7 @@ def create_app(
     app.include_router(agent_router)
     app.include_router(manual_sftp_router)
     app.include_router(diagnostics_router)
+    # 3. 装配大小、跨域和访问日志边界，再绑定唯一 Runtime WebSocket。
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -84,7 +87,7 @@ def create_app(
             "X-Chunk-EOF",
         ],
     )
-    # Register last so access logging owns the complete HTTP middleware chain.
+    # 最后注册，让访问日志包围完整 HTTP 中间件链。
     app.add_middleware(HttpAccessLogMiddleware)
     app.add_api_websocket_route(
         "/v1/runtime/events",

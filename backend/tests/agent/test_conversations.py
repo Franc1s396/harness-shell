@@ -14,7 +14,7 @@ from .conftest import AgentStorage, valid_api_config_input
 
 
 def _started_run(agent_storage: AgentStorage) -> tuple[UUID, AgentRun]:
-    """Create the minimum persisted configuration, conversation, and running Run."""
+    """创建最小持久化配置、会话和运行中 Run。"""
 
     config = agent_storage.api_configs.create(valid_api_config_input())
     conversation_id = agent_storage.conversations.create_conversation()
@@ -100,7 +100,7 @@ def test_append_messages_rolls_back_metadata_and_records_on_write_failure(
     calls = 0
 
     def fail_second_put(record: PlaintextRecord) -> None:
-        """Persist the first record, then simulate a second-record write failure."""
+        """持久化首条记录，再模拟第二条写入失败。"""
 
         nonlocal calls
         calls += 1

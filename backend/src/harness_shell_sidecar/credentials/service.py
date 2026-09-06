@@ -1,4 +1,4 @@
-"""Credential resolution boundary between public identities and SSH secrets."""
+"""公开标识与 SSH 秘密之间的凭据解析边界。"""
 
 from __future__ import annotations
 
@@ -17,23 +17,23 @@ from .repository import CredentialRepositoryError
 
 
 class _CredentialRepositoryProtocol(Protocol):
-    """Describe the kind-checked secret lookup used by the service."""
+    """描述服务使用的按类型校验秘密查询接口。"""
 
     def resolve(
         self,
         credential_id: UUID,
         expected_kind: CredentialKind,
     ) -> bytearray:
-        """Return one mutable purpose-checked credential buffer."""
+        """返回经过用途检查的可变凭据缓冲区。"""
 
 
 class CredentialServiceError(RuntimeError):
-    """Expose one stable credential-resolution failure without secret text."""
+    """暴露稳定凭据解析失败，不包含秘密文本。"""
 
     error_code: str
 
     def __init__(self, error_code: str, message: str) -> None:
-        """Retain a stable public code and reviewed non-secret detail."""
+        """保留稳定公开错误码与已审查非秘密详情。"""
 
         self.error_code = error_code
         self.safe_message = message
@@ -42,33 +42,33 @@ class CredentialServiceError(RuntimeError):
 
 @dataclass(slots=True)
 class ResolvedSshConnect:
-    """Own one version-frozen SSH request and all temporary secret buffers."""
+    """拥有版本冻结的 SSH 请求及其全部临时秘密缓冲区。"""
 
-    #: Direct connection identity.
+    #: 直连连接标识。
     connection_id: UUID
-    #: Direct profile version rechecked after credential resolution.
+    #: 凭据解析后再次检查的直连配置版本。
     profile_version: int
-    #: Password bytes for password authentication.
+    #: 密码认证使用的密码字节。
     password: bytearray | None = None
-    #: Imported private-key UTF-8 bytes for key authentication.
+    #: 密钥认证使用的已导入私钥 UTF-8 字节。
     private_key: bytearray | None = None
-    #: Optional direct private-key passphrase bytes.
+    #: 可选的直连私钥口令字节。
     passphrase: bytearray | None = None
-    #: Optional single ProxyJump connection identity.
+    #: 可选的单层 ProxyJump 连接标识。
     jump_connection_id: UUID | None = None
-    #: Optional ProxyJump profile version.
+    #: 可选的 ProxyJump 配置版本。
     jump_profile_version: int | None = None
-    #: Optional ProxyJump password bytes.
+    #: 可选的 ProxyJump 密码字节。
     jump_password: bytearray | None = None
-    #: Optional ProxyJump private-key bytes.
+    #: 可选的 ProxyJump 私钥字节。
     jump_private_key: bytearray | None = None
-    #: Optional ProxyJump private-key passphrase bytes.
+    #: 可选的 ProxyJump 私钥口令字节。
     jump_passphrase: bytearray | None = None
-    #: Every allocated secret buffer, including aliases above.
+    #: 全部已分配秘密缓冲区，包括上述字段引用的缓冲区。
     _allocated: list[bytearray] = field(default_factory=list, repr=False)
 
     def close(self) -> None:
-        """Overwrite every temporary secret buffer; repeated calls are safe."""
+        """覆盖全部临时秘密缓冲区，允许安全重复调用。"""
 
         for secret in self._allocated:
             zeroize(secret)
@@ -76,7 +76,7 @@ class ResolvedSshConnect:
 
 
 class CredentialService:
-    """Snapshot profiles, resolve exact credential kinds, and reject races."""
+    """快照配置、解析精确凭据类型并拒绝竞态。"""
 
     _connections: ConnectionRepository
     _credentials: _CredentialRepositoryProtocol
@@ -86,14 +86,15 @@ class CredentialService:
         connections: ConnectionRepository,
         credentials: _CredentialRepositoryProtocol,
     ) -> None:
-        """Bind Runtime-owned repositories without taking their lifecycle."""
+        """绑定 Runtime 拥有的仓库，不接管生命周期。"""
 
         self._connections = connections
         self._credentials = credentials
 
     def build_ssh_connect(self, connection_id: UUID) -> ResolvedSshConnect:
-        """Resolve direct and one-hop credentials against stable profile versions."""
+        """基于稳定配置版本解析直连与单层跳板凭据。"""
 
+        # 1. 冻结目标和可选跳板配置，拒绝多层 ProxyJump。
         direct = self._required_profile(connection_id)
         jump = (
             None
@@ -106,6 +107,7 @@ class CredentialService:
                 "the selected ProxyJump profile references another jump",
             )
 
+        # 2. 建立临时秘密的统一所有者，再分别解析目标与跳板凭据。
         resolved = ResolvedSshConnect(
             connection_id=direct.connection_id,
             profile_version=direct.version,
@@ -124,6 +126,7 @@ class CredentialService:
                     resolved.jump_private_key,
                     resolved.jump_passphrase,
                 ) = self._resolve_profile(jump, resolved._allocated)
+            # 3. 解析后复核两端配置版本，防止网络操作使用陈旧身份。
             self._require_same_version(direct)
             if jump is not None:
                 self._require_same_version(jump)
@@ -131,6 +134,7 @@ class CredentialService:
         except CredentialServiceError:
             resolved.close()
             raise
+        # 4. 失败路径清零已取得的全部秘密，再映射或传播原始失败。
         except CredentialRepositoryError as error:
             resolved.close()
             raise CredentialServiceError(
@@ -142,7 +146,7 @@ class CredentialService:
             raise
 
     def _required_profile(self, connection_id: UUID) -> ConnectionProfile:
-        """Load one required profile or return a stable not-found error."""
+        """加载必需配置；不存在时返回稳定错误。"""
 
         profile = self._connections.get(connection_id)
         if profile is None:
@@ -157,7 +161,7 @@ class CredentialService:
         profile: ConnectionProfile,
         allocated: list[bytearray],
     ) -> tuple[bytearray | None, bytearray | None, bytearray | None]:
-        """Resolve exactly the credential kinds declared by one profile."""
+        """仅解析配置声明的精确凭据类型。"""
 
         if profile.auth_kind == "password":
             password = self._credentials.resolve(
@@ -182,7 +186,7 @@ class CredentialService:
         return None, private_key, passphrase
 
     def _require_same_version(self, snapshot: ConnectionProfile) -> None:
-        """Reject deletion or any successful update after secret resolution."""
+        """拒绝凭据解析后发生的删除或任何成功更新。"""
 
         current = self._connections.get(snapshot.connection_id)
         if current is None or current.version != snapshot.version:

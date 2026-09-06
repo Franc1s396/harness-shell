@@ -8,12 +8,12 @@ import pytest
 from harness_shell_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
 
 
-def test_plaintext_database_bootstraps_only_schema_v6(tmp_path: Path) -> None:
+def test_plaintext_database_bootstraps_only_schema_v7(tmp_path: Path) -> None:
     database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
     try:
         assert database.execute(
             "SELECT version FROM schema_migrations"
-        ).fetchall() == [(6,)]
+        ).fetchall() == [(7,)]
         tables = {
             row[0]
             for row in database.execute(

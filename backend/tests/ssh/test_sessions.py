@@ -36,7 +36,7 @@ class FakeConnection:
         self.waited = True
 
     def is_closed(self) -> bool:
-        """Expose the same authoritative closed predicate as AsyncSSH."""
+        """暴露与 AsyncSSH 相同的权威关闭判断。"""
 
         return self.closed
 
@@ -152,7 +152,7 @@ def test_child_close_failure_still_closes_target_and_jump_transports() -> None:
 
 
 def test_connected_predicate_rejects_closed_target_or_jump_transport() -> None:
-    """Do not treat a registry entry with a closed transport as connected."""
+    """不能将传输已关闭的注册表条目视为已连接。"""
 
     sessions = SshSessionRegistry()
     target = FakeConnection()

@@ -1,4 +1,4 @@
-"""Isolated SFTP channel ownership bound to live SSH sessions."""
+"""绑定活动 SSH 会话的独立 SFTP 通道所有权。"""
 
 from __future__ import annotations
 
@@ -17,17 +17,17 @@ CHANNEL_OPERATION_TIMEOUT_SECONDS = 15
 
 @dataclass(slots=True)
 class SftpChannelLease:
-    """Own one SFTP client until deterministic close and registry removal."""
+    """拥有 SFTP 客户端，直到确定性关闭并从注册表移除。"""
 
-    #: Live SSH session which owns the child channel.
+    #: 拥有此子通道的活动 SSH 会话。
     owner: SshSession
-    #: Public AsyncSSH SFTP client opened with byte paths.
+    #: 使用字节路径打开的 AsyncSSH 公共 SFTP 客户端。
     client: Any
-    #: Prevent duplicate exit/wait operations.
+    #: 防止重复执行退出和等待操作。
     _closed: bool = False
 
     async def close(self) -> None:
-        """Close once and always remove the client from the SSH child registry."""
+        """只关闭一次，并始终从 SSH 子资源注册表移除客户端。"""
 
         if self._closed:
             return
@@ -57,15 +57,15 @@ class SftpChannelLease:
 
 
 class SftpChannelFactory:
-    """Open short-lived SFTP clients only from explicitly selected live sessions."""
+    """仅从用户显式选择的活动会话打开短生命周期 SFTP 客户端。"""
 
     def __init__(self, ssh_sessions: SshSessionRegistry) -> None:
-        """Bind the sole live SSH session registry."""
+        """绑定唯一的活动 SSH 会话注册表。"""
 
         self._ssh_sessions = ssh_sessions
 
     async def open(self, ssh_session_id: UUID) -> SftpChannelLease:
-        """Open and register one byte-path SFTP client for a live session."""
+        """为活动会话打开并注册使用字节路径的 SFTP 客户端。"""
 
         owner = self._ssh_sessions.get(ssh_session_id)
         if owner is None:
@@ -98,14 +98,16 @@ class SftpChannelFactory:
         jump_profile_version: int | None,
         jump_host_key_fingerprint: str | None,
     ) -> UUID:
-        """Resolve an unambiguous session with the exact frozen authenticated chain."""
+        """按精确冻结的认证链解析无歧义会话。"""
 
+        # 1. 确认原连接仍有活动会话，避免恢复流程自行建立网络连接。
         connection_sessions = self._ssh_sessions.find_by_connection_id(connection_id)
         if not connection_sessions:
             raise ManualSftpError(
                 "SFTP_SESSION_NOT_CONNECTED",
                 "Recovery requires an active SSH session for this connection.",
             )
+        # 2. 精确匹配目标和跳板版本、Host Key 等完整认证链。
         sessions = self._ssh_sessions.find_recovery_session(
             connection_id=connection_id,
             connection_profile_version=connection_profile_version,
@@ -114,6 +116,7 @@ class SftpChannelFactory:
             jump_profile_version=jump_profile_version,
             jump_host_key_fingerprint=jump_host_key_fingerprint,
         )
+        # 3. 无匹配或多个匹配都显式失败，仅返回唯一可信会话。
         if not sessions:
             raise ManualSftpError(
                 "SFTP_RECOVERY_SESSION_MISMATCH",

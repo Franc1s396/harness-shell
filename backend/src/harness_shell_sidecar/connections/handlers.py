@@ -1,4 +1,4 @@
-"""Validated dispatcher handlers for connection profile and Host Key storage."""
+"""连接配置和 Host Key 存储的已校验 dispatcher handler。"""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class ConnectionUpdateRequest(ConnectionProfileFields):
 
 
 class _ConnectionUpdateParams(ConnectionUpdateRequest):
-    """Combine one target identity with a validated connection update request."""
+    """将目标标识与已校验的连接更新请求组合。"""
 
     connection_id: UUID = Field(description="Connection profile to replace.")
 
@@ -106,12 +106,12 @@ def register_connection_handlers(
     credential_cipher: RuntimeCredentialCipher,
     database: RuntimeDatabase,
 ) -> None:
-    """Register connection operations with aggregate credential ownership."""
+    """注册由聚合管理凭据所有权的连接操作。"""
 
     async def list_connections(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
-        """Return all persisted connection profiles in repository order."""
+        """按仓库顺序返回全部持久化连接配置。"""
 
         _params(raw_params, _EmptyParams)
         context.require_active()
@@ -124,7 +124,7 @@ def register_connection_handlers(
     async def create_connection(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
-        """Atomically create owned credentials and their connection profile."""
+        """原子创建所需凭据及其所属连接配置。"""
 
         params = _params(raw_params, ConnectionCreateRequest)
         context.require_active()
@@ -152,8 +152,9 @@ def register_connection_handlers(
     async def update_connection(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
-        """Atomically replace a profile and any explicitly supplied credentials."""
+        """原子替换配置和显式提供的凭据。"""
 
+        # 1. 严格校验请求并读取现有配置，认证方式变化必须同时提供新凭据。
         params = _params(raw_params, _ConnectionUpdateParams)
         context.require_active()
         current = repository.get(params.connection_id)
@@ -166,6 +167,7 @@ def register_connection_handlers(
                 "INVALID_REQUEST_PAYLOAD",
                 "authentication changes require a new credential",
             )
+        # 2. 在同一事务内创建替换凭据、更新配置并删除不再拥有的旧凭据。
         with database.transaction():
             credential_id = current.credential_id
             if params.credential_envelope is not None:
@@ -189,12 +191,13 @@ def register_connection_handlers(
                 (current.credential_id, current.passphrase_credential_id),
                 (credential_id, passphrase_id),
             )
+        # 3. 事务成功后才返回新配置；异常由事务回滚，避免凭据与配置脱节。
         return {"connection": updated.model_dump(mode="json")}
 
     async def delete_connection(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
-        """Atomically delete a profile and every credential it owns."""
+        """原子删除配置及其拥有的全部凭据。"""
 
         params = _params(raw_params, _ConnectionIdParams)
         context.require_active()
@@ -218,7 +221,7 @@ def register_connection_handlers(
     async def confirm_host_key(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
-        """Persist the first explicitly confirmed Host Key for a connection."""
+        """持久化连接首次由用户显式确认的 Host Key。"""
 
         candidate = _params(raw_params, HostKeyCandidate)
         context.require_active()
@@ -231,7 +234,7 @@ def register_connection_handlers(
     async def replace_host_key(
         context: RequestContext, raw_params: Mapping[str, object]
     ) -> dict[str, object]:
-        """Replace the trusted Host Key under optimistic fingerprint control."""
+        """基于乐观指纹校验替换可信 Host Key。"""
 
         params = _params(raw_params, _HostKeyReplaceParams)
         context.require_active()
@@ -257,14 +260,14 @@ def register_connection_handlers(
 
 
 def _params(raw_params: Mapping[str, object], model: type[BaseModel]) -> Any:
-    """Validate JSON params strictly while permitting canonical UUID strings."""
+    """严格校验 JSON 参数，同时允许标准 UUID 字符串。"""
 
     if not isinstance(raw_params, Mapping):
         raise DispatchError(
             "INVALID_REQUEST_PAYLOAD", "request params must be an object"
         )
     try:
-        # JSON-mode validation preserves strict UUID parsing from JSON strings.
+        # JSON 模式校验保留从 JSON 字符串严格解析 UUID 的行为。
         return model.model_validate_json(json.dumps(dict(raw_params)))
     except (TypeError, ValueError, ValidationError) as exc:
         raise DispatchError(
@@ -273,13 +276,13 @@ def _params(raw_params: Mapping[str, object], model: type[BaseModel]) -> Any:
 
 
 def _map_repository_errors(handler: Handler) -> Handler:
-    """Map connection and aggregate credential failures to stable dispatch errors."""
+    """将连接与聚合凭据失败映射为稳定派发错误。"""
 
     async def wrapped(
         context: RequestContext,
         raw_params: Mapping[str, object],
     ) -> dict[str, object]:
-        """Invoke one connection handler and retain only stable failure codes."""
+        """调用连接 handler，并只保留稳定失败错误码。"""
 
         try:
             return await handler(context, raw_params)
@@ -292,7 +295,7 @@ def _map_repository_errors(handler: Handler) -> Handler:
 
 
 def _credential_kind(auth_kind: str) -> CredentialKind:
-    """Map the closed connection authentication kind to its credential purpose."""
+    """将限定的连接认证类型映射为凭据用途。"""
 
     return "ssh_password" if auth_kind == "password" else "imported_private_key"
 
@@ -303,7 +306,7 @@ def _create_credential(
     envelope: CredentialEnvelope,
     kind: CredentialKind,
 ) -> UUID:
-    """Decrypt, persist, and promptly clear one aggregate credential buffer."""
+    """解密、持久化并及时清零聚合凭据缓冲区。"""
 
     secret = cipher.decrypt(envelope)
     text = ""
@@ -326,7 +329,7 @@ def _connection_profile_input(
     credential_id: UUID,
     passphrase_id: UUID | None,
 ) -> ConnectionProfileInput:
-    """Build the repository value after aggregate-owned credentials exist."""
+    """聚合拥有的凭据已存在后构建仓库写入值。"""
 
     return ConnectionProfileInput(
         display_name=params.display_name,
@@ -349,7 +352,7 @@ def _updated_passphrase_id(
     cipher: RuntimeCredentialCipher,
     repository: CredentialRepository,
 ) -> UUID | None:
-    """Select, replace, or drop the connection-owned private-key passphrase."""
+    """选择、替换或移除连接拥有的私钥口令。"""
 
     if params.auth_kind == "password":
         return None
@@ -370,7 +373,7 @@ def _delete_replaced_credentials(
     previous_ids: tuple[UUID | None, ...],
     retained_ids: tuple[UUID | None, ...],
 ) -> None:
-    """Delete no-longer-owned credentials and fail if durable ownership diverged."""
+    """删除不再拥有的凭据；持久化所有权不一致时失败。"""
 
     retained = {credential_id for credential_id in retained_ids if credential_id is not None}
     for credential_id in {

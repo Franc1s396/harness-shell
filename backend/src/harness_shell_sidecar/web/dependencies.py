@@ -1,4 +1,4 @@
-"""FastAPI dependencies for correlation and the unique runtime owner."""
+"""请求关联和唯一运行时管理者的 FastAPI 依赖。"""
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ async def require_request_id(
     request: Request,
     x_request_id: Annotated[str | None, Header(alias="X-Request-ID")] = None,
 ) -> UUID:
-    """Require one canonical UUID correlation header before application work."""
+    """应用工作开始前要求标准 UUID 关联请求头。"""
 
     raw = x_request_id
     try:
@@ -153,7 +153,7 @@ async def require_request_id(
 
 
 def runtime_owner(request: Request) -> RuntimeOwner:
-    """Resolve the lifespan-owned RuntimeOwner without retaining a second graph."""
+    """解析 lifespan 拥有的 RuntimeOwner，不保留第二份资源图。"""
 
     return request.app.state.runtime_owner
 
@@ -163,7 +163,7 @@ def validate_json_model(
     model: type[ModelT],
     request_id: UUID,
 ) -> ModelT:
-    """Validate a decoded HTTP object through the model's strict JSON boundary."""
+    """通过模型的严格 JSON 边界校验已解码 HTTP 对象。"""
 
     try:
         return model.model_validate_json(
@@ -182,7 +182,7 @@ def validate_json_model(
 
 
 def model_from_result(value: object, model: type[ModelT]) -> ModelT:
-    """Revalidate a dispatcher JSON value before typed HTTP serialization."""
+    """typed HTTP 序列化前重新校验 dispatcher JSON 值。"""
 
     try:
         return model.model_validate_json(
@@ -198,7 +198,7 @@ async def dispatch_application(
     operation: str,
     params: Mapping[str, object],
 ) -> dict[str, object]:
-    """Dispatch one operation through the shared owner and map stable failures."""
+    """通过共享管理者派发操作，并映射稳定失败。"""
 
     try:
         resources = owner.require_resources()
@@ -222,7 +222,7 @@ def require_ready_resources(
     owner: RuntimeOwner,
     request_id: UUID,
 ) -> RuntimeResources:
-    """Resolve the ready graph with the same typed 503 used by dispatch routes."""
+    """解析就绪资源图，使用与派发路由相同的 typed 503。"""
 
     try:
         return owner.require_resources()
@@ -239,13 +239,13 @@ def require_ready_resources(
 
 
 def set_correlation(response, request_id: UUID) -> None:
-    """Echo the validated request ID on a successful typed response."""
+    """在成功的 typed 响应中回显已校验请求 ID。"""
 
     response.headers["X-Request-ID"] = str(request_id)
 
 
 def dispatch_error_problem(request_id: UUID, error: DispatchError) -> HttpProblem:
-    """Map only stable application error codes to fixed HTTP categories."""
+    """仅将稳定应用错误码映射为固定 HTTP 类别。"""
 
     code = error.error_code
     status = _DOMAIN_HTTP_STATUS.get(code)

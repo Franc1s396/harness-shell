@@ -17,6 +17,9 @@ const config: ModelApiConfig = {
   api_config_id: "10000000-0000-4000-8000-000000000001",
   display_name: "Production",
   api_type: "RESPONSES",
+  context_window_size: 128000,
+  context_compaction_threshold_ratio: 0.75,
+  max_output_tokens: 8192,
   base_url: "https://api.example/v1",
   model: "gpt-5",
   api_key_secret_ref: "credential-old",
@@ -59,6 +62,9 @@ const deferred = <T,>() => {
 
 const providerDraft: ProviderDraft = {
   displayName: "Production",
+  contextWindowSize: "128000",
+  contextCompactionThresholdPercent: "75",
+  maxOutputTokens: "8192",
   apiType: "RESPONSES",
   baseUrl: "https://api.example/v1",
   model: "gpt-5",

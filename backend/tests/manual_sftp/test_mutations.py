@@ -1,4 +1,4 @@
-"""No-follow mutation and recursive tombstone tests."""
+"""不跟随链接的变更与递归墓碑删除测试。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ ROOT = "/home/demo/tree"
 
 @dataclass(slots=True)
 class Node:
-    """One fake no-follow filesystem entry."""
+    """不跟随链接的文件系统条目替身。"""
 
     kind: str
     payload: bytes = b""
@@ -40,7 +40,7 @@ class Node:
 
 
 class FakeName:
-    """Public AsyncSSH scandir item shape."""
+    """AsyncSSH 公共 scandir 条目结构。"""
 
     def __init__(self, filename: str, attrs) -> None:
         self.filename = filename.encode("utf-8")
@@ -48,7 +48,7 @@ class FakeName:
 
 
 class FakeReadHandle:
-    """Expose the bounded async read surface used by real snapshot hashing."""
+    """暴露真实快照哈希使用的有界异步读取接口。"""
 
     def __init__(self, payload: bytes) -> None:
         self._payload = payload
@@ -67,7 +67,7 @@ class FakeReadHandle:
 
 
 class FakeMutationClient:
-    """Expose public SFTP mutation APIs over one shared tree."""
+    """在共享树上暴露公共 SFTP 变更 API。"""
 
     version = 3
 
@@ -129,7 +129,7 @@ class FakeMutationClient:
         self.remote.nodes[path.decode("utf-8")] = Node("directory")
 
     async def statvfs(self, path: bytes):
-        """Return a deterministic filesystem ID for rename preflight."""
+        """为重命名预检返回确定性文件系统 ID。"""
 
         value = path.decode("utf-8")
         fsid = (
@@ -181,7 +181,7 @@ class FakeMutationClient:
 
 
 class FakeConnection:
-    """Create isolated clients over shared fake remote state."""
+    """在共享远程状态替身上创建独立客户端。"""
 
     def __init__(self, remote: "FakeMutationRemote") -> None:
         self.remote = remote
@@ -192,7 +192,7 @@ class FakeConnection:
 
 
 class FakeMutationRemote:
-    """Shared tree plus evidence that forbidden fallbacks never occurred."""
+    """共享树及禁止降级从未发生的证据。"""
 
     def __init__(self) -> None:
         self.nodes = {
@@ -217,11 +217,11 @@ class FakeMutationRemote:
 
 
 async def event(_payload: dict) -> None:
-    """Accept mutation progress events in focused unit tests."""
+    """在定向单元测试中接收变更进展事件。"""
 
 
 def manager(tmp_path: Path, remote: FakeMutationRemote):
-    """Build one mutation manager and its live session/database owners."""
+    """构建变更管理器及其活动会话和数据库管理者。"""
 
     database, owner, mutations, _operations = manager_with_operations(tmp_path, remote)
     return database, owner, mutations
@@ -230,7 +230,7 @@ def manager(tmp_path: Path, remote: FakeMutationRemote):
 def manager_with_operations(
     tmp_path: Path, remote: FakeMutationRemote
 ) -> tuple[RuntimeDatabase, SshSession, MutationManager, ManualSftpOperationStore]:
-    """Build a mutation manager while exposing its plaintext operation store."""
+    """构建变更管理器，同时暴露明文操作存储。"""
 
     database = RuntimeDatabase.open_plaintext(
         (tmp_path / "runtime.sqlite3").resolve()
@@ -249,7 +249,7 @@ def manager_with_operations(
 
 
 def file_snapshot(path: str, payload: bytes) -> TransferSnapshot:
-    """Mirror the domain's no-follow file snapshot at a known instant."""
+    """复现已知时刻领域层不跟随链接的文件快照。"""
 
     return TransferSnapshot(
         path=path,
@@ -264,7 +264,7 @@ def file_snapshot(path: str, payload: bytes) -> TransferSnapshot:
 def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
     tmp_path: Path,
 ) -> None:
-    """The Python contract includes a regular target hash before Rust revalidates it."""
+    """Python 契约在重新校验前包含普通目标文件哈希。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -298,7 +298,7 @@ def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
 def test_ordinary_file_rename_and_remove_succeed_with_fresh_hash_snapshots(
     tmp_path: Path,
 ) -> None:
-    """Exercise the concrete Python mutation domain, including its hash rechecks."""
+    """覆盖具体 Python 变更领域，包括哈希复核。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -345,7 +345,7 @@ def test_ordinary_file_rename_and_remove_succeed_with_fresh_hash_snapshots(
 def test_changed_rename_snapshot_fails_before_remote_mutation(
     tmp_path: Path, changed: str
 ) -> None:
-    """MutationManager compares both current snapshots before it records or dispatches rename."""
+    """MutationManager 在记录或派发重命名前比较两个当前快照。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -383,7 +383,7 @@ def test_changed_rename_snapshot_fails_before_remote_mutation(
 def test_mkdir_target_exists_leaves_no_nonterminal_operation_record(
     tmp_path: Path,
 ) -> None:
-    """A pre-dispatch target-exists result must not become a recovery item."""
+    """派发前目标已存在的结果不得变为恢复项。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -411,7 +411,7 @@ def test_mkdir_target_exists_leaves_no_nonterminal_operation_record(
 def test_nonempty_directory_remove_leaves_no_nonterminal_operation_record(
     tmp_path: Path,
 ) -> None:
-    """A proven non-empty directory fails before mutation intent is persisted."""
+    """已证实非空目录必须在变更意图持久化前失败。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -461,10 +461,10 @@ def test_recursive_delete_never_enters_symlink_target(tmp_path: Path) -> None:
 def test_recursive_preflight_uses_only_60_second_progress_windows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each manifest step receives its own progress window without a total timer."""
+    """每个清单步骤拥有独立进展窗口，不设置整体计时器。"""
 
     class TimeoutProbe:
-        """Record manifest timeout scopes while letting each fake I/O step proceed."""
+        """记录清单超时作用域，同时允许每个替身 I/O 步骤执行。"""
 
         def __init__(self) -> None:
             self.windows: list[int | float] = []
@@ -573,7 +573,7 @@ def test_recursive_delete_pre_isolation_failure_consumes_plan_and_terminalizes_r
 def test_recursive_delete_permission_failures_are_typed_and_durable(
     tmp_path: Path,
 ) -> None:
-    """Permission denial at every delete-execute phase must persist recovery then fail."""
+    """删除执行各阶段的权限拒绝必须先持久化恢复状态再失败。"""
 
     async def scenario() -> None:
         for phase in ("initial", "rescan", "deleting"):
@@ -608,7 +608,7 @@ def test_recursive_delete_permission_failures_are_typed_and_durable(
 def test_recursive_delete_rescan_unknown_failure_is_durable_and_explicit(
     tmp_path: Path,
 ) -> None:
-    """An isolated tombstone must persist recovery before a rescan failure escapes."""
+    """墓碑已隔离时，重新扫描失败抛出前必须持久化恢复状态。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -641,7 +641,7 @@ def test_recursive_delete_rescan_unknown_failure_is_durable_and_explicit(
 def test_recursive_delete_unknown_cleanup_failure_is_durable_and_raises(
     tmp_path: Path,
 ) -> None:
-    """An unexpected deletion failure cannot be returned as a normal terminal result."""
+    """意外删除失败不能作为正常终态结果返回。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -716,7 +716,7 @@ def test_cross_device_statvfs_rejects_before_rename_dispatch(tmp_path: Path) -> 
 def test_remove_accepts_an_empty_directory_when_server_lists_dot_entries(
     tmp_path: Path,
 ) -> None:
-    """AsyncSSH's real dot entries must not make an otherwise empty directory non-empty."""
+    """AsyncSSH 真实点条目不得使原本为空的目录被判为非空。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()
@@ -749,7 +749,7 @@ def test_remove_accepts_an_empty_directory_when_server_lists_dot_entries(
 def test_mutation_snapshot_permission_denial_uses_the_stable_error_code(
     tmp_path: Path,
 ) -> None:
-    """Permission denial before a mutation record exists remains a typed domain failure."""
+    """变更记录创建前的权限拒绝仍是 typed 领域失败。"""
 
     async def scenario() -> None:
         remote = FakeMutationRemote()

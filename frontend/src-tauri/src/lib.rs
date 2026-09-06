@@ -48,7 +48,7 @@ fn show_native_startup_error(message: &str) {
 
     let title = wide(STARTUP_TITLE);
     let message = wide(message);
-    // The UTF-16 buffers remain alive throughout this synchronous native call.
+    // UTF-16 缓冲区在整个同步原生调用期间保持存活。
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),

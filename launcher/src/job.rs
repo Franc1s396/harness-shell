@@ -15,7 +15,7 @@ use windows_sys::Win32::{
 
 use crate::error::LauncherError;
 
-/// Kill-on-close Job that is the sole owner of both desktop child process trees.
+/// 关闭时终止进程的 Job，是两棵桌面子进程树的唯一所有者。
 pub struct WindowsJob {
     handle: OwnedHandle,
 }

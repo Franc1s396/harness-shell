@@ -1,4 +1,4 @@
-"""Typed health and runtime lifecycle HTTP routes."""
+"""typed 健康检查与运行时生命周期 HTTP 路由。"""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def credential_encryption_key(
     request_id: CorrelationId,
     owner: Owner,
 ) -> CredentialPublicKeyResponse:
-    """Expose only the current process-ephemeral credential public key."""
+    """仅暴露当前进程临时凭据公钥。"""
 
     try:
         resources = owner.require_resources()
@@ -54,13 +54,13 @@ async def credential_encryption_key(
 
 
 def _set_correlation(response: Response, request_id: UUID) -> None:
-    """Echo the validated request ID in every successful HTTP response."""
+    """在每个成功 HTTP 响应中回显已校验请求 ID。"""
 
     response.headers["X-Request-ID"] = str(request_id)
 
 
 def _owner_problem(request_id: UUID, error: RuntimeOwnerError) -> HttpProblem:
-    """Map one stable lifecycle conflict to its fixed HTTP category."""
+    """将稳定生命周期冲突映射为固定 HTTP 类别。"""
 
     status_code = 409 if error.error_code == "RUNTIME_ALREADY_INITIALIZED" else 503
     return HttpProblem(
@@ -83,7 +83,7 @@ async def health_live(
     response: Response,
     request_id: CorrelationId,
 ) -> HealthLiveResponse:
-    """Report liveness without opening or inspecting runtime persistence."""
+    """报告存活状态，不打开或检查运行时持久化。"""
 
     _set_correlation(response, request_id)
     return HealthLiveResponse(request_id=request_id, live=True)
@@ -95,7 +95,7 @@ async def health_ready(
     request_id: CorrelationId,
     owner: Owner,
 ) -> HealthReadyResponse:
-    """Return ready only after the complete verified graph is published."""
+    """完整且已验证的资源图发布后才返回就绪。"""
 
     state_value = owner.state()
     if state_value is not RuntimePhase.READY:
@@ -123,7 +123,7 @@ async def runtime_state(
     request_id: CorrelationId,
     owner: Owner,
 ) -> RuntimeStateResponse:
-    """Return the current safe lifecycle state without resource details."""
+    """返回当前安全生命周期状态，不含资源详情。"""
 
     _set_correlation(response, request_id)
     return RuntimeStateResponse(request_id=request_id, state=owner.state())

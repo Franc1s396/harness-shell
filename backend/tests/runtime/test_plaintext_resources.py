@@ -11,11 +11,11 @@ from harness_shell_sidecar.runtime.resources import RuntimeResources
 
 
 async def discard_event(_event: dict[str, object]) -> None:
-    """Provide a bounded no-op event sink for local resource tests."""
+    """为本地资源测试提供有界空操作事件接收端。"""
 
 
 def load_runtime_settings_type():
-    """Load the target settings type so a missing module is a RED failure."""
+    """加载目标配置类型，使模块缺失明确触发测试失败。"""
 
     try:
         return import_module(
@@ -58,7 +58,7 @@ def test_runtime_settings_require_absolute_data_directory() -> None:
 
 
 def test_runtime_settings_only_publish_consumed_paths(tmp_path: Path) -> None:
-    """Do not retain trace or heartbeat settings without a Python consumer."""
+    """没有 Python 使用方时不保留 trace 或心跳配置。"""
 
     settings_type = load_runtime_settings_type()
     settings = settings_type.from_data_dir(tmp_path.resolve())

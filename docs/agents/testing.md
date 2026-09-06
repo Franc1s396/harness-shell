@@ -36,16 +36,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
 ## 门禁边界
 
 - M1：本地 Windows Python/Frontend/Rust tests、packaged Backend 显式 `serve` loopback smoke、最小 Tauri capabilities 与 Frontend build。
-- M2：M1 加 OpenSSH Lab 脚本/真实 SSH integration、plaintext schema-v6 evidence 与生成物跟踪检查。
+- M2：M1 加 OpenSSH Lab 脚本/真实 SSH integration、plaintext schema-v7 evidence 与生成物跟踪检查。
 - Manual SFTP：M2 加浏览器本地文件/hash/256 KiB raw-chunk contract、Python remote recovery 和真实 OpenSSH SFTP/PTY isolation。
-- M3 Agent：Manual SFTP gate 加 Python `CredentialRepository` ownership、fake ChatModels 与 bound-session OpenSSH command。
+- M3 Agent：Manual SFTP gate 加 Python `CredentialRepository` ownership、fake SDK streams 与 bound-session OpenSSH command。
 - `verify-installer-entry.ps1`：只静态证明 NSIS input/shortcut/finish target；不证明安装或进程行为。
 
 Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated absolute>`。安装版 Desktop 只能从 Launcher 开始，并从 ready pipe 获得端口；测试和脚本不得扫描端口或直接把 UI/Backend 当用户入口。
 
 ## 必测契约
 
-- schema v6 新建、自检、旧 schema 在任何写入前拒绝、plaintext record；不得重新出现无读取闭环的 Audit/Trace/Artifact 表。
+- schema v7 新建、自检、旧 schema 在任何写入前拒绝、plaintext record；不得重新出现无读取闭环的 Audit/Trace/Artifact 表。
 - credential request envelope、Python repository kind match、Provider key lookup、secret non-logging。
 - direct HTTP Problem、request ID、size/media/header/unknown-field failure；HTTP access log 覆盖 route template、实际返回 status、duration、INFO/WARNING/ERROR 分级、raw path 不泄露，以及 `GET /v1/runtime/state` 不打印 access log。
 - Agent SSE 必测 strict LF/CRLF framing、UTF-8 chunk boundary、frame/body/terminal reserve、started-first HTTP 200 barrier、durable terminal ordering、capacity 64 背压、terminal 发送前 request ID/capacity ownership、disconnect/shutdown cancellation、secret/tool/command/output non-exposure 与 OpenAPI/fixture drift。
@@ -54,6 +54,20 @@ Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated 
 - Manual SFTP React picker/handle/hash/chunk loop和 Python remote temp/commit/abort/recovery。
 - Launcher ready/control/stderr pipe、Backend 独立日志落盘与 10 MiB/4 归档轮转、handle inheritance、Job cleanup、UI-first/Backend-first exit、无 respawn。
 - Tauri production bootstrap 只有 `get_backend_bootstrap`；main capability 只含 bootstrap 与固定 close/destroy 权限。
+
+## 离线 tokenizer 与打包
+
+新增源码环境在启动或测试前显式准备资源（仅此构建步骤允许获取编码数据）：
+
+```powershell
+backend\.venv\Scripts\python.exe backend/scripts/prepare_tokenizer.py --output-dir backend/build/tokenizer
+backend\.venv\Scripts\python.exe backend/scripts/prepare_tokenizer.py --output-dir backend/build/tokenizer --check
+powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sidecar.ps1
+```
+
+`build-requirements.lock` 固定 `tiktoken==0.12.0` 及依赖，准备脚本生成 `o200k_base` ranks/metadata/固定样本，PyInstaller 纳入编码资源和原生扩展。build 脚本严格串行执行 lock、准备、check、PyInstaller 和实际 exe smoke。Runtime 初始化构造并测试 encoding 后才发布 READY；smoke 子进程使用临时空缓存、关闭端口代理及 loopback NO_PROXY。这证明当前产物不借用用户缓存或外网，不能替代真实断网机器和安装版验收。生成资源留在忽略的 build 目录，不提交。
+
+上下文回归覆盖：Provider round-trip 和表单预算、工具首部及 DB/model 一致、usage/revision、完整轮边界、摘要取消/3 次尝试/输入与候选超预算、UI 文本隔离、旧库拒绝和 tokenizer 缺失/损坏。`verify-m3-agent.ps1` 包含全部 Agent/storage 测试和 Manual SFTP/M2 前置链。
 
 ## Desktop 与安装验收
 

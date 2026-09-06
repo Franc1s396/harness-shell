@@ -70,8 +70,8 @@ export class RuntimeWebSocket {
     parsed.hash = "";
     this.#url = parsed.toString();
     this.#socketFactory = dependencies.socketFactory ?? ((url) => {
-      // The owner uses only the WebSocket members modeled by SocketLike. DOM
-      // callbacks accept event arguments that this boundary intentionally ignores.
+      // 管理者仅使用 SocketLike 定义的 WebSocket 成员；
+      // DOM 回调接收的事件参数在此边界有意忽略。
       return new WebSocket(url) as unknown as SocketLike;
     });
     this.#randomUuid = dependencies.randomUuid ?? (() => crypto.randomUUID());

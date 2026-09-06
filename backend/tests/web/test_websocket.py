@@ -10,13 +10,13 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 def request_headers() -> dict[str, str]:
-    """Create one valid HTTP correlation header."""
+    """创建合法 HTTP 关联头。"""
 
     return {"X-Request-ID": str(uuid4())}
 
 
 def runtime_owner(client):
-    """Return the autonomous HTTP runtime owner."""
+    """返回自主初始化的 HTTP 运行时管理者。"""
 
     return client.app.state.runtime_owner
 
@@ -29,7 +29,7 @@ def message(
     causation_id: UUID | None = None,
     timestamp: str | None = None,
 ) -> dict[str, object]:
-    """Build one canonical Runtime WebSocket client envelope."""
+    """构建规范 Runtime WebSocket 客户端信封。"""
 
     return {
         "schema_version": 1,

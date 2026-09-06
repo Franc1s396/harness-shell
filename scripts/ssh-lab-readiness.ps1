@@ -11,8 +11,8 @@ function Wait-SshLabContainerId {
     )
 
     do {
-        # Compose may report successful startup before `ps -q` publishes the
-        # container ID. Treat only an empty successful query as pending.
+        # Compose 可能在 ps -q 发布容器 ID 前报告启动成功；
+        # 只有成功但结果为空的查询才视为仍在等待。
         $candidate = & $QueryContainerId $Service
         $containerId = if ($null -eq $candidate) { '' } else { [string]$candidate }
         if (-not [string]::IsNullOrWhiteSpace($containerId)) {

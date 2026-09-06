@@ -14,12 +14,13 @@ REQUIRED_SCHEMA_TABLES = (
     "agent_conversations",
     "agent_runs",
     "agent_messages",
+    "agent_context_summaries",
 )
 M2_REQUIRED_ROWS = ("connection_profiles", "host_keys")
 
 
 def main() -> None:
-    """Check aggregate plaintext schema-v6 evidence for one local gate."""
+    """检查本地门禁的聚合明文 schema v7 证据。"""
 
     if len(sys.argv) not in {2, 3}:
         raise SystemExit(
@@ -79,8 +80,8 @@ def main() -> None:
         raise SystemExit(
             "required evidence schema is missing: " + ", ".join(missing_schema)
         )
-    if versions != {6}:
-        raise SystemExit(f"required schema version 6 is missing: {sorted(versions)!r}")
+    if versions != {7}:
+        raise SystemExit(f"required schema version 7 is missing: {sorted(versions)!r}")
     if manual_sftp:
         missing_rows = []
         if manual_sftp_operations == 0:

@@ -1,4 +1,4 @@
-"""Package the official SDK runtime without the retired LangChain OpenAI adapter."""
+"""打包官方 SDK 运行时，不包含已移除的 LangChain OpenAI 适配器。"""
 
 from pathlib import Path
 
@@ -10,7 +10,8 @@ BACKEND_ROOT = Path(SPECPATH)
 
 hiddenimports = sorted(
     set(
-        collect_submodules("pydantic")
+        collect_submodules("tiktoken")
+        + collect_submodules("pydantic")
         + collect_submodules("cryptography")
         + collect_submodules("fastapi")
         + collect_submodules("starlette")
@@ -26,6 +27,8 @@ datas = collect_data_files(
     includes=["storage/migrations/*.sql"],
 )
 
+datas += [(str(BACKEND_ROOT / "build" / "tokenizer"), "harness_shell_sidecar/agent/tokenizer_data")]
+
 a = Analysis(
     [str(BACKEND_ROOT / "src" / "harness_shell_sidecar" / "__main__.py")],
     pathex=[str(BACKEND_ROOT / "src")],
@@ -35,8 +38,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # The shared development venv can still contain this extra package.
-    # Its presence must never reintroduce the retired adapter into the executable.
+    # 共用的开发虚拟环境可能仍安装了这个额外包。
+    # 即使环境中存在该包，也不得将已移除的适配器重新打入可执行文件。
     excludes=["langchain_openai"],
     noarchive=False,
     optimize=0,

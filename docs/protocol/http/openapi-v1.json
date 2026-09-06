@@ -45,7 +45,7 @@
     "schemas": {
       "AgentApiConfigListResponse": {
         "additionalProperties": false,
-        "description": "Return all non-secret Provider configurations.",
+        "description": "返回全部非秘密 Provider 配置。",
         "properties": {
           "configs": {
             "items": {
@@ -69,7 +69,7 @@
       },
       "AgentApiConfigResponse": {
         "additionalProperties": false,
-        "description": "Return one non-secret Provider configuration.",
+        "description": "返回一个非秘密 Provider 配置。",
         "properties": {
           "config": {
             "$ref": "#/components/schemas/ModelApiConfig"
@@ -89,7 +89,7 @@
       },
       "AgentTurnCompletedEvent": {
         "additionalProperties": false,
-        "description": "Close a stream after the full message and successful Run are durable.",
+        "description": "完整消息与成功 Run 均持久化后关闭流。",
         "properties": {
           "agent_run_id": {
             "description": "Durable Agent Run identity frozen for the complete stream.",
@@ -163,7 +163,7 @@
       },
       "AgentTurnFailedEvent": {
         "additionalProperties": false,
-        "description": "Close a stream after a failed, limited, or cancelled Run is durable.",
+        "description": "失败、受限或取消 Run 持久化后关闭流。",
         "properties": {
           "agent_run_id": {
             "description": "Durable Agent Run identity frozen for the complete stream.",
@@ -252,7 +252,7 @@
       },
       "AgentTurnRequest": {
         "additionalProperties": false,
-        "description": "Validate the identity-only public payload accepted for an Agent turn.",
+        "description": "校验 Agent 轮次仅包含标识的公共载荷。",
         "properties": {
           "api_config_id": {
             "format": "uuid",
@@ -294,7 +294,7 @@
       },
       "AgentTurnStartedEvent": {
         "additionalProperties": false,
-        "description": "Open a stream only after its durable Run is in RUNNING state.",
+        "description": "持久化 Run 进入 RUNNING 后才开启流。",
         "properties": {
           "agent_run_id": {
             "description": "Durable Agent Run identity frozen for the complete stream.",
@@ -361,7 +361,7 @@
       },
       "AgentTurnTextDeltaEvent": {
         "additionalProperties": false,
-        "description": "Carry one exact non-empty piece of final visible model text.",
+        "description": "携带一段精确非空的模型最终可见文本。",
         "properties": {
           "agent_run_id": {
             "description": "Durable Agent Run identity frozen for the complete stream.",
@@ -421,7 +421,7 @@
         "type": "object"
       },
       "ApiType": {
-        "description": "Select the one explicitly configured OpenAI-compatible API surface.",
+        "description": "选择唯一显式配置的 OpenAI 兼容 API 类型。",
         "enum": [
           "CHAT_COMPLETIONS",
           "RESPONSES"
@@ -527,7 +527,7 @@
       },
       "ConnectionListResponse": {
         "additionalProperties": false,
-        "description": "Return all persisted connection profiles in repository order.",
+        "description": "按仓库顺序返回全部持久化连接配置。",
         "properties": {
           "connections": {
             "items": {
@@ -671,7 +671,7 @@
       },
       "ConnectionResponse": {
         "additionalProperties": false,
-        "description": "Return one persisted connection profile.",
+        "description": "返回持久化连接配置。",
         "properties": {
           "connection": {
             "$ref": "#/components/schemas/ConnectionProfile"
@@ -881,7 +881,7 @@
       },
       "CredentialEnvelope": {
         "additionalProperties": false,
-        "description": "Carry one RSA-wrapped AES-GCM credential mutation payload.",
+        "description": "携带 RSA 包装的 AES-GCM 凭据变更载荷。",
         "properties": {
           "ciphertext_b64": {
             "description": "Canonical Base64 AES-GCM ciphertext and authentication tag.",
@@ -923,7 +923,7 @@
       },
       "CredentialPublicKeyResponse": {
         "additionalProperties": false,
-        "description": "Return current ephemeral public key with HTTP correlation.",
+        "description": "返回当前临时公钥及 HTTP 关联信息。",
         "properties": {
           "key_id": {
             "description": "Ephemeral Runtime RSA key identity.",
@@ -966,7 +966,7 @@
       },
       "DeletePlanSummary": {
         "additionalProperties": false,
-        "description": "Expose only complete no-follow recursive-delete plan metadata.",
+        "description": "仅暴露完整且不跟随链接的递归删除计划元数据。",
         "properties": {
           "complete": {
             "const": true,
@@ -1037,7 +1037,7 @@
       },
       "DeleteResponse": {
         "additionalProperties": false,
-        "description": "Return the determined deletion outcome for an identity.",
+        "description": "返回针对标识的已确定删除结果。",
         "properties": {
           "deleted": {
             "title": "Deleted",
@@ -1058,7 +1058,7 @@
       },
       "DiagnosticsAvailabilityResponse": {
         "additionalProperties": false,
-        "description": "Report only whether the fixed Python-owned log directory is available.",
+        "description": "仅报告固定 Python 日志目录是否可用。",
         "properties": {
           "available": {
             "description": "Whether the fixed Runtime log directory currently exists.",
@@ -1081,7 +1081,7 @@
       },
       "DownloadReady": {
         "additionalProperties": false,
-        "description": "Freeze one remote download source before returning any bytes.",
+        "description": "在返回任何字节前冻结远程下载源。",
         "properties": {
           "byte_count": {
             "maximum": 9007199254740991.0,
@@ -1133,7 +1133,7 @@
       },
       "HealthLiveResponse": {
         "additionalProperties": false,
-        "description": "Report that the Python HTTP event loop can respond.",
+        "description": "报告 Python HTTP 事件循环能够响应。",
         "properties": {
           "live": {
             "title": "Live",
@@ -1154,7 +1154,7 @@
       },
       "HealthReadyResponse": {
         "additionalProperties": false,
-        "description": "Report that the complete runtime resource graph is ready.",
+        "description": "报告完整运行时资源图已就绪。",
         "properties": {
           "ready": {
             "title": "Ready",
@@ -1227,7 +1227,7 @@
       },
       "HostKeyInspectionRequest": {
         "additionalProperties": false,
-        "description": "Locate one profile whose direct or single-hop Host Key is inspected.",
+        "description": "定位需要检查直连或单层跳板 Host Key 的配置。",
         "properties": {
           "connection_id": {
             "format": "uuid",
@@ -1309,7 +1309,7 @@
       },
       "HostKeyReplacementRequest": {
         "additionalProperties": false,
-        "description": "Bind a new candidate to the exact trusted fingerprint being replaced.",
+        "description": "将新候选绑定到被替换的精确可信指纹。",
         "properties": {
           "connection_id": {
             "format": "uuid",
@@ -1362,7 +1362,7 @@
       },
       "HostKeyResponse": {
         "additionalProperties": false,
-        "description": "Return one persisted Host Key trust record.",
+        "description": "返回持久化 Host Key 信任记录。",
         "properties": {
           "host_key": {
             "$ref": "#/components/schemas/HostKeyRecord"
@@ -1383,7 +1383,7 @@
       "JsonValue": {},
       "ListingBatch": {
         "additionalProperties": false,
-        "description": "Return one bounded page from a short-lived listing cursor.",
+        "description": "从短生命周期列表游标返回有界分页。",
         "properties": {
           "complete": {
             "title": "Complete",
@@ -1437,7 +1437,7 @@
       },
       "ManualSftpContext": {
         "additionalProperties": false,
-        "description": "Describe one explicitly bound live SSH session without exposing secrets.",
+        "description": "描述显式绑定的活动 SSH 会话，不暴露秘密。",
         "properties": {
           "connection_id": {
             "description": "Connection profile behind the session.",
@@ -1481,7 +1481,7 @@
       },
       "ModelApiConfig": {
         "additionalProperties": false,
-        "description": "Represent one persisted API configuration without secret material.",
+        "description": "表示一条不含秘密材料的持久化 API 配置。",
         "properties": {
           "api_config_id": {
             "description": "Stable configuration identity.",
@@ -1506,6 +1506,22 @@
             "title": "Base Url",
             "type": "string"
           },
+          "context_compaction_threshold_ratio": {
+            "default": 0.75,
+            "description": "Fraction of the window triggering compaction.",
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Context Compaction Threshold Ratio",
+            "type": "number"
+          },
+          "context_window_size": {
+            "default": 128000,
+            "description": "Maximum configured context window in tokens.",
+            "exclusiveMinimum": 0.0,
+            "maximum": 9007199254740991.0,
+            "title": "Context Window Size",
+            "type": "integer"
+          },
           "created_at": {
             "description": "UTC creation timestamp.",
             "format": "date-time",
@@ -1524,6 +1540,14 @@
             "description": "Whether new Agent runs may use this configuration.",
             "title": "Enabled",
             "type": "boolean"
+          },
+          "max_output_tokens": {
+            "default": 8192,
+            "description": "Reserved and requested maximum output tokens per invocation.",
+            "exclusiveMinimum": 0.0,
+            "maximum": 9007199254740991.0,
+            "title": "Max Output Tokens",
+            "type": "integer"
           },
           "model": {
             "description": "Provider model identifier passed without inference.",
@@ -1554,7 +1578,7 @@
       },
       "ModelApiConfigCreateRequest": {
         "additionalProperties": false,
-        "description": "Carry Provider fields and one current-key encrypted API key.",
+        "description": "携带 Provider 字段和使用当前密钥加密的 API Key。",
         "properties": {
           "api_key_envelope": {
             "$ref": "#/components/schemas/CredentialEnvelope",
@@ -1571,6 +1595,22 @@
             "title": "Base Url",
             "type": "string"
           },
+          "context_compaction_threshold_ratio": {
+            "default": 0.75,
+            "description": "Fraction of the window triggering compaction.",
+            "exclusiveMaximum": 1,
+            "exclusiveMinimum": 0,
+            "title": "Context Compaction Threshold Ratio",
+            "type": "number"
+          },
+          "context_window_size": {
+            "default": 128000,
+            "description": "Maximum configured context window in tokens.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "title": "Context Window Size",
+            "type": "integer"
+          },
           "display_name": {
             "description": "User-facing label for this provider configuration.",
             "maxLength": 80,
@@ -1583,6 +1623,14 @@
             "description": "Whether new Agent runs may use this configuration.",
             "title": "Enabled",
             "type": "boolean"
+          },
+          "max_output_tokens": {
+            "default": 8192,
+            "description": "Reserved and requested maximum output tokens per invocation.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "title": "Max Output Tokens",
+            "type": "integer"
           },
           "model": {
             "description": "Provider model identifier passed without inference.",
@@ -1604,7 +1652,7 @@
       },
       "ModelApiConfigUpdateRequest": {
         "additionalProperties": false,
-        "description": "Carry Provider fields and an optional replacement API key.",
+        "description": "携带 Provider 字段及可选的替换 API Key。",
         "properties": {
           "api_key_envelope": {
             "anyOf": [
@@ -1629,6 +1677,22 @@
             "title": "Base Url",
             "type": "string"
           },
+          "context_compaction_threshold_ratio": {
+            "default": 0.75,
+            "description": "Fraction of the window triggering compaction.",
+            "exclusiveMaximum": 1,
+            "exclusiveMinimum": 0,
+            "title": "Context Compaction Threshold Ratio",
+            "type": "number"
+          },
+          "context_window_size": {
+            "default": 128000,
+            "description": "Maximum configured context window in tokens.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "title": "Context Window Size",
+            "type": "integer"
+          },
           "display_name": {
             "description": "User-facing label for this provider configuration.",
             "maxLength": 80,
@@ -1641,6 +1705,14 @@
             "description": "Whether new Agent runs may use this configuration.",
             "title": "Enabled",
             "type": "boolean"
+          },
+          "max_output_tokens": {
+            "default": 8192,
+            "description": "Reserved and requested maximum output tokens per invocation.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "title": "Max Output Tokens",
+            "type": "integer"
           },
           "model": {
             "description": "Provider model identifier passed without inference.",
@@ -1661,7 +1733,7 @@
       },
       "OperationTerminalProjection": {
         "additionalProperties": false,
-        "description": "Return one trustworthy terminal result or explicit uncertainty.",
+        "description": "返回可信终态结果或明确的不确定状态。",
         "properties": {
           "byte_count": {
             "anyOf": [
@@ -1746,7 +1818,7 @@
       },
       "ProblemDetails": {
         "additionalProperties": false,
-        "description": "Expose one bounded machine-readable failure without raw internals.",
+        "description": "暴露有界机器可读失败，不包含原始内部信息。",
         "properties": {
           "details": {
             "additionalProperties": {
@@ -1795,7 +1867,7 @@
       },
       "PtyOpenRequest": {
         "additionalProperties": false,
-        "description": "Bind a new PTY to one active SSH session and initial geometry.",
+        "description": "将新 PTY 绑定到活动 SSH 会话和初始尺寸。",
         "properties": {
           "cols": {
             "maximum": 500,
@@ -1825,7 +1897,7 @@
       },
       "PtyResizeRequest": {
         "additionalProperties": false,
-        "description": "Describe a bounded PTY geometry update.",
+        "description": "描述有界 PTY 尺寸更新。",
         "properties": {
           "cols": {
             "maximum": 500,
@@ -1901,7 +1973,7 @@
       },
       "PtySessionResponse": {
         "additionalProperties": false,
-        "description": "Return one interactive PTY session snapshot.",
+        "description": "返回交互式 PTY 会话快照。",
         "properties": {
           "pty_session": {
             "$ref": "#/components/schemas/PtySession"
@@ -1921,7 +1993,7 @@
       },
       "RecoverySummary": {
         "additionalProperties": false,
-        "description": "Expose a safe summary of one remote-only recovery record.",
+        "description": "暴露仅含远程状态的恢复记录安全摘要。",
         "properties": {
           "available_actions": {
             "items": {
@@ -2005,7 +2077,7 @@
       },
       "RemoteEntry": {
         "additionalProperties": false,
-        "description": "Expose no-follow remote metadata safe for the WebView.",
+        "description": "暴露可安全提供给 WebView 的不跟随链接远程元数据。",
         "properties": {
           "entry_type": {
             "description": "No-follow remote entry kind.",
@@ -2088,7 +2160,7 @@
       },
       "RemoteFileHash": {
         "additionalProperties": false,
-        "description": "Return a complete remote-file hash tied to a verified snapshot.",
+        "description": "返回关联已验证快照的完整远程文件哈希。",
         "properties": {
           "byte_count": {
             "maximum": 9007199254740991.0,
@@ -2119,7 +2191,7 @@
         "type": "object"
       },
       "RuntimePhase": {
-        "description": "Describe the single runtime owner from live startup through cleanup.",
+        "description": "描述从启动到清理的唯一运行时管理者。",
         "enum": [
           "INITIALIZING",
           "READY",
@@ -2134,7 +2206,7 @@
       },
       "RuntimeStateResponse": {
         "additionalProperties": false,
-        "description": "Return the safe shared runtime lifecycle state.",
+        "description": "返回安全的共享运行时生命周期状态。",
         "properties": {
           "request_id": {
             "format": "uuid",
@@ -2154,7 +2226,7 @@
       },
       "SftpClosedResponse": {
         "additionalProperties": false,
-        "description": "Acknowledge explicit listing cursor closure.",
+        "description": "确认显式列表游标关闭。",
         "properties": {
           "closed": {
             "title": "Closed",
@@ -2175,7 +2247,7 @@
       },
       "SftpContextResponse": {
         "additionalProperties": false,
-        "description": "Return one safe Manual SFTP context.",
+        "description": "返回安全手动 SFTP 上下文。",
         "properties": {
           "context": {
             "$ref": "#/components/schemas/ManualSftpContext"
@@ -2195,7 +2267,7 @@
       },
       "SftpDeletePlanResponse": {
         "additionalProperties": false,
-        "description": "Return one complete recursive-delete preflight summary.",
+        "description": "返回完整递归删除预检摘要。",
         "properties": {
           "delete_plan": {
             "$ref": "#/components/schemas/DeletePlanSummary"
@@ -2215,7 +2287,7 @@
       },
       "SftpDeletePreflightRequest": {
         "additionalProperties": false,
-        "description": "Build a complete recursive-delete plan without deleting anything.",
+        "description": "构建完整递归删除计划，不执行删除。",
         "properties": {
           "operation_id": {
             "format": "uuid",
@@ -2242,7 +2314,7 @@
       },
       "SftpDownloadBeginRequest": {
         "additionalProperties": false,
-        "description": "Begin a download under one fresh durable operation identity.",
+        "description": "使用新的持久化操作标识开始下载。",
         "properties": {
           "operation_id": {
             "format": "uuid",
@@ -2269,7 +2341,7 @@
       },
       "SftpDownloadResponse": {
         "additionalProperties": false,
-        "description": "Return one ready download owner.",
+        "description": "返回就绪下载状态。",
         "properties": {
           "download": {
             "$ref": "#/components/schemas/DownloadReady"
@@ -2289,7 +2361,7 @@
       },
       "SftpEntryResponse": {
         "additionalProperties": false,
-        "description": "Return one safe no-follow remote metadata projection.",
+        "description": "返回安全、不跟随链接的远程元数据投影。",
         "properties": {
           "entry": {
             "$ref": "#/components/schemas/RemoteEntry"
@@ -2309,7 +2381,7 @@
       },
       "SftpHashResponse": {
         "additionalProperties": false,
-        "description": "Return one complete remote file hash.",
+        "description": "返回完整远程文件哈希。",
         "properties": {
           "hash": {
             "$ref": "#/components/schemas/RemoteFileHash"
@@ -2329,7 +2401,7 @@
       },
       "SftpListingResponse": {
         "additionalProperties": false,
-        "description": "Return one bounded listing batch.",
+        "description": "返回有界列表批次。",
         "properties": {
           "batch": {
             "$ref": "#/components/schemas/ListingBatch"
@@ -2349,7 +2421,7 @@
       },
       "SftpMkdirRequest": {
         "additionalProperties": false,
-        "description": "Create one basename under a previously validated parent.",
+        "description": "在此前已校验父目录下创建单个名称。",
         "properties": {
           "name": {
             "title": "Name",
@@ -2381,7 +2453,7 @@
       },
       "SftpPathRequest": {
         "additionalProperties": false,
-        "description": "Select one remote path inside a strict JSON body.",
+        "description": "在严格 JSON 请求体中选择远程路径。",
         "properties": {
           "path": {
             "title": "Path",
@@ -2402,7 +2474,7 @@
       },
       "SftpRecoveryActionRequest": {
         "additionalProperties": false,
-        "description": "Execute one allowlisted recovery action under a fresh identity.",
+        "description": "使用新标识执行允许列表内的恢复操作。",
         "properties": {
           "action": {
             "enum": [
@@ -2430,7 +2502,7 @@
       },
       "SftpRecoveryListResponse": {
         "additionalProperties": false,
-        "description": "Return all remote-only recovery summaries in stable creation order.",
+        "description": "按稳定创建顺序返回全部仅含远程状态的恢复摘要。",
         "properties": {
           "recoveries": {
             "items": {
@@ -2454,7 +2526,7 @@
       },
       "SftpRecoveryResponse": {
         "additionalProperties": false,
-        "description": "Return one safe recovery inspection or action result.",
+        "description": "返回安全恢复检查或操作结果。",
         "properties": {
           "recovery": {
             "$ref": "#/components/schemas/RecoverySummary"
@@ -2474,7 +2546,7 @@
       },
       "SftpRemoveRequest": {
         "additionalProperties": false,
-        "description": "Remove one entry only when its complete snapshot still matches.",
+        "description": "完整快照仍匹配时才删除条目。",
         "properties": {
           "expected_snapshot": {
             "$ref": "#/components/schemas/TransferSnapshot"
@@ -2505,7 +2577,7 @@
       },
       "SftpRenameRequest": {
         "additionalProperties": false,
-        "description": "Rename one unchanged source to one validated target.",
+        "description": "将未改变的源重命名为已校验目标。",
         "properties": {
           "operation_id": {
             "format": "uuid",
@@ -2564,7 +2636,7 @@
       },
       "SftpSessionRequest": {
         "additionalProperties": false,
-        "description": "Select one explicitly connected SSH session.",
+        "description": "选择显式连接的 SSH 会话。",
         "properties": {
           "ssh_session_id": {
             "format": "uuid",
@@ -2580,7 +2652,7 @@
       },
       "SftpSnapshotResponse": {
         "additionalProperties": false,
-        "description": "Return one remote target preflight snapshot.",
+        "description": "返回远程目标预检快照。",
         "properties": {
           "request_id": {
             "format": "uuid",
@@ -2600,7 +2672,7 @@
       },
       "SftpTerminalResponse": {
         "additionalProperties": false,
-        "description": "Return one trustworthy terminal or recovery-required outcome.",
+        "description": "返回可信终态或需要恢复的结果。",
         "properties": {
           "request_id": {
             "format": "uuid",
@@ -2620,7 +2692,7 @@
       },
       "SftpUploadBeginRequest": {
         "additionalProperties": false,
-        "description": "Freeze the local source and remote target identity for an upload.",
+        "description": "为上传冻结本地源和远程目标标识。",
         "properties": {
           "operation_id": {
             "format": "uuid",
@@ -2664,7 +2736,7 @@
       },
       "SftpUploadChunkResponse": {
         "additionalProperties": false,
-        "description": "Acknowledge an exact raw upload chunk without Base64.",
+        "description": "确认精确原始上传分块，不使用 Base64。",
         "properties": {
           "accepted_bytes": {
             "maximum": 262144.0,
@@ -2707,7 +2779,7 @@
       },
       "SftpUploadResponse": {
         "additionalProperties": false,
-        "description": "Return one ready upload owner.",
+        "description": "返回就绪上传状态。",
         "properties": {
           "request_id": {
             "format": "uuid",
@@ -2727,7 +2799,7 @@
       },
       "SshConnectRequest": {
         "additionalProperties": false,
-        "description": "Locate one profile whose credentials Python resolves internally.",
+        "description": "定位由 Python 内部解析凭据的配置。",
         "properties": {
           "connection_id": {
             "format": "uuid",
@@ -2743,7 +2815,7 @@
       },
       "SshStatusResponse": {
         "additionalProperties": false,
-        "description": "Return one safe SSH lifecycle status.",
+        "description": "返回安全 SSH 生命周期状态。",
         "properties": {
           "request_id": {
             "format": "uuid",
@@ -2763,7 +2835,7 @@
       },
       "TransferSnapshot": {
         "additionalProperties": false,
-        "description": "Freeze one remote target for later compare-before-mutate checks.",
+        "description": "冻结远程目标，以便后续变更前比较校验。",
         "properties": {
           "entry_type": {
             "anyOf": [
@@ -2841,7 +2913,7 @@
       },
       "UploadReady": {
         "additionalProperties": false,
-        "description": "Describe an exclusive remote upload temporary file ready for chunks.",
+        "description": "描述可接收分块的独占远程上传临时文件。",
         "properties": {
           "next_offset": {
             "maximum": 9007199254740991.0,
@@ -2885,7 +2957,7 @@
   "paths": {
     "/v1/agent/api-configs": {
       "get": {
-        "description": "Return all non-secret Provider configurations.",
+        "description": "返回全部非秘密 Provider 配置。",
         "operationId": "list_api_configs_v1_agent_api_configs_get",
         "parameters": [
           {
@@ -2919,7 +2991,7 @@
         "summary": "List Api Configs"
       },
       "post": {
-        "description": "Persist one Provider configuration with its encrypted API key.",
+        "description": "持久化 Provider 配置及其加密传输的 API Key。",
         "operationId": "create_api_config_v1_agent_api_configs_post",
         "parameters": [
           {
@@ -2965,7 +3037,7 @@
     },
     "/v1/agent/api-configs/{api_config_id}": {
       "delete": {
-        "description": "Delete Provider metadata and its owned credential atomically.",
+        "description": "原子删除 Provider 元数据及其拥有的凭据。",
         "operationId": "delete_api_config_v1_agent_api_configs__api_config_id__delete",
         "parameters": [
           {
@@ -3009,7 +3081,7 @@
         "summary": "Delete Api Config"
       },
       "patch": {
-        "description": "Replace one complete non-secret Provider configuration.",
+        "description": "替换完整非秘密 Provider 配置。",
         "operationId": "update_api_config_v1_agent_api_configs__api_config_id__patch",
         "parameters": [
           {
@@ -3065,7 +3137,7 @@
     },
     "/v1/agent/turns": {
       "post": {
-        "description": "Start one Agent SSE response only after its durable Run exists.",
+        "description": "持久化 Run 已存在后才启动 Agent SSE 响应。",
         "operationId": "run_agent_turn_v1_agent_turns_post",
         "parameters": [
           {
@@ -3143,7 +3215,7 @@
     },
     "/v1/connections": {
       "get": {
-        "description": "Return all persisted profiles through the shared application handler.",
+        "description": "通过共享应用 handler 返回全部持久化配置。",
         "operationId": "list_connections_v1_connections_get",
         "parameters": [
           {
@@ -3177,7 +3249,7 @@
         "summary": "List Connections"
       },
       "post": {
-        "description": "Validate and persist one complete connection profile.",
+        "description": "校验并持久化完整连接配置。",
         "operationId": "create_connection_v1_connections_post",
         "parameters": [
           {
@@ -3223,7 +3295,7 @@
     },
     "/v1/connections/{connection_id}": {
       "delete": {
-        "description": "Delete one profile only when its domain ownership gates allow it.",
+        "description": "仅在领域所有权门禁允许时删除配置。",
         "operationId": "delete_connection_v1_connections__connection_id__delete",
         "parameters": [
           {
@@ -3267,7 +3339,7 @@
         "summary": "Delete Connection"
       },
       "patch": {
-        "description": "Replace one complete connection profile while preserving its identity.",
+        "description": "替换完整连接配置，同时保留其标识。",
         "operationId": "update_connection_v1_connections__connection_id__patch",
         "parameters": [
           {
@@ -3323,7 +3395,7 @@
     },
     "/v1/diagnostics/log-directory": {
       "get": {
-        "description": "Return availability without serializing the local absolute path.",
+        "description": "返回可用性，不序列化本地绝对路径。",
         "operationId": "get_log_directory_availability_v1_diagnostics_log_directory_get",
         "parameters": [
           {
@@ -3359,7 +3431,7 @@
     },
     "/v1/diagnostics/log-directory/open": {
       "post": {
-        "description": "Open only the existing settings-derived directory through Explorer.",
+        "description": "只通过 Explorer 打开由配置派生的已有目录。",
         "operationId": "open_log_directory_v1_diagnostics_log_directory_open_post",
         "parameters": [
           {
@@ -3388,7 +3460,7 @@
     },
     "/v1/health/live": {
       "get": {
-        "description": "Report liveness without opening or inspecting runtime persistence.",
+        "description": "报告存活状态，不打开或检查运行时持久化。",
         "operationId": "health_live_v1_health_live_get",
         "parameters": [
           {
@@ -3424,7 +3496,7 @@
     },
     "/v1/health/ready": {
       "get": {
-        "description": "Return ready only after the complete verified graph is published.",
+        "description": "完整且已验证的资源图发布后才返回就绪。",
         "operationId": "health_ready_v1_health_ready_get",
         "parameters": [
           {
@@ -3460,7 +3532,7 @@
     },
     "/v1/host-key-confirmations": {
       "post": {
-        "description": "Persist a user's explicit first-trust Host Key confirmation.",
+        "description": "持久化用户显式首次信任确认的 Host Key。",
         "operationId": "confirm_host_key_v1_host_key_confirmations_post",
         "parameters": [
           {
@@ -3506,7 +3578,7 @@
     },
     "/v1/host-key-inspections": {
       "post": {
-        "description": "Inspect a direct or single-hop Host Key without retaining credentials.",
+        "description": "检查直连或单层跳板 Host Key，不保留凭据。",
         "operationId": "inspect_host_key_v1_host_key_inspections_post",
         "parameters": [
           {
@@ -3552,7 +3624,7 @@
     },
     "/v1/host-key-replacements": {
       "post": {
-        "description": "Replace a trusted Host Key with an explicit compare-and-swap fingerprint.",
+        "description": "使用显式比较交换指纹替换可信 Host Key。",
         "operationId": "replace_host_key_v1_host_key_replacements_post",
         "parameters": [
           {
@@ -3598,7 +3670,7 @@
     },
     "/v1/pty/sessions": {
       "post": {
-        "description": "Open one PTY channel on an explicitly selected SSH session.",
+        "description": "在显式选择的 SSH 会话上打开 PTY 通道。",
         "operationId": "open_pty_session_v1_pty_sessions_post",
         "parameters": [
           {
@@ -3644,7 +3716,7 @@
     },
     "/v1/pty/sessions/{pty_session_id}": {
       "delete": {
-        "description": "Close one active PTY and return its terminal snapshot.",
+        "description": "关闭活动 PTY 并返回终态快照。",
         "operationId": "close_pty_session_v1_pty_sessions__pty_session_id__delete",
         "parameters": [
           {
@@ -3690,7 +3762,7 @@
     },
     "/v1/pty/sessions/{pty_session_id}/resize": {
       "post": {
-        "description": "Resize one active PTY without exposing its byte stream over HTTP.",
+        "description": "调整活动 PTY 大小，不通过 HTTP 暴露字节流。",
         "operationId": "resize_pty_session_v1_pty_sessions__pty_session_id__resize_post",
         "parameters": [
           {
@@ -3746,7 +3818,7 @@
     },
     "/v1/runtime/credential-encryption-key": {
       "get": {
-        "description": "Expose only the current process-ephemeral credential public key.",
+        "description": "仅暴露当前进程临时凭据公钥。",
         "operationId": "credential_encryption_key_v1_runtime_credential_encryption_key_get",
         "parameters": [
           {
@@ -3782,7 +3854,7 @@
     },
     "/v1/runtime/state": {
       "get": {
-        "description": "Return the current safe lifecycle state without resource details.",
+        "description": "返回当前安全生命周期状态，不含资源详情。",
         "operationId": "runtime_state_v1_runtime_state_get",
         "parameters": [
           {
@@ -3818,7 +3890,7 @@
     },
     "/v1/sftp/contexts": {
       "post": {
-        "description": "Open one Manual SFTP context on an active SSH session.",
+        "description": "在活动 SSH 会话上打开手动 SFTP 上下文。",
         "operationId": "open_context_v1_sftp_contexts_post",
         "parameters": [
           {
@@ -3864,7 +3936,7 @@
     },
     "/v1/sftp/deletions/preflight": {
       "post": {
-        "description": "Build one complete no-follow recursive-delete plan.",
+        "description": "构建完整、不跟随链接的递归删除计划。",
         "operationId": "delete_preflight_v1_sftp_deletions_preflight_post",
         "parameters": [
           {
@@ -3910,7 +3982,7 @@
     },
     "/v1/sftp/deletions/{operation_id}/execute": {
       "post": {
-        "description": "Consume the one-shot delete plan identified by the endpoint owner key.",
+        "description": "消费端点所属键标识的一次性删除计划。",
         "operationId": "delete_execute_v1_sftp_deletions__operation_id__execute_post",
         "parameters": [
           {
@@ -3956,7 +4028,7 @@
     },
     "/v1/sftp/directories": {
       "post": {
-        "description": "Create one remote directory without embedding its path in the URL.",
+        "description": "创建远程目录，不将路径嵌入 URL。",
         "operationId": "mkdir_v1_sftp_directories_post",
         "parameters": [
           {
@@ -4002,7 +4074,7 @@
     },
     "/v1/sftp/downloads": {
       "post": {
-        "description": "Begin one verified pull-based remote download.",
+        "description": "开始经过验证的拉取式远程下载。",
         "operationId": "begin_download_v1_sftp_downloads_post",
         "parameters": [
           {
@@ -4048,7 +4120,7 @@
     },
     "/v1/sftp/downloads/{operation_id}/abort": {
       "post": {
-        "description": "Abort one download and report its durable terminal outcome.",
+        "description": "中止下载并报告持久化终态结果。",
         "operationId": "abort_download_v1_sftp_downloads__operation_id__abort_post",
         "parameters": [
           {
@@ -4094,7 +4166,7 @@
     },
     "/v1/sftp/downloads/{operation_id}/chunks/{sequence}": {
       "get": {
-        "description": "Return one validated raw download chunk with strict identity headers.",
+        "description": "返回已校验原始下载分块，携带严格标识响应头。",
         "operationId": "download_chunk_v1_sftp_downloads__operation_id__chunks__sequence__get",
         "parameters": [
           {
@@ -4188,7 +4260,7 @@
     },
     "/v1/sftp/downloads/{operation_id}/finish": {
       "post": {
-        "description": "Verify the complete download and unchanged remote source.",
+        "description": "验证完整下载及远程源未发生改变。",
         "operationId": "finish_download_v1_sftp_downloads__operation_id__finish_post",
         "parameters": [
           {
@@ -4234,7 +4306,7 @@
     },
     "/v1/sftp/hashes/sha256": {
       "post": {
-        "description": "Hash one unchanged remote regular file completely.",
+        "description": "完整计算未改变的远程普通文件哈希。",
         "operationId": "sha256_v1_sftp_hashes_sha256_post",
         "parameters": [
           {
@@ -4280,7 +4352,7 @@
     },
     "/v1/sftp/listings": {
       "post": {
-        "description": "Begin one bounded remote directory listing.",
+        "description": "开始有界远程目录列表。",
         "operationId": "begin_listing_v1_sftp_listings_post",
         "parameters": [
           {
@@ -4326,7 +4398,7 @@
     },
     "/v1/sftp/listings/{listing_id}": {
       "delete": {
-        "description": "Close one listing cursor explicitly.",
+        "description": "显式关闭列表游标。",
         "operationId": "close_listing_v1_sftp_listings__listing_id__delete",
         "parameters": [
           {
@@ -4372,7 +4444,7 @@
     },
     "/v1/sftp/listings/{listing_id}/batches/{sequence}": {
       "get": {
-        "description": "Read the exact next sequence from one listing cursor.",
+        "description": "从列表游标读取精确下一序号。",
         "operationId": "next_listing_v1_sftp_listings__listing_id__batches__sequence__get",
         "parameters": [
           {
@@ -4429,7 +4501,7 @@
     },
     "/v1/sftp/metadata/lstat": {
       "post": {
-        "description": "Return no-follow metadata for one remote path.",
+        "description": "返回远程路径的不跟随链接元数据。",
         "operationId": "lstat_v1_sftp_metadata_lstat_post",
         "parameters": [
           {
@@ -4475,7 +4547,7 @@
     },
     "/v1/sftp/metadata/readlink": {
       "post": {
-        "description": "Return one explicitly resolved symlink target projection.",
+        "description": "返回显式解析的符号链接目标投影。",
         "operationId": "readlink_v1_sftp_metadata_readlink_post",
         "parameters": [
           {
@@ -4521,7 +4593,7 @@
     },
     "/v1/sftp/recoveries": {
       "get": {
-        "description": "List every remote-only recovery through the dispatcher owner.",
+        "description": "通过 dispatcher 管理者列出全部远程恢复记录。",
         "operationId": "list_recoveries_v1_sftp_recoveries_get",
         "parameters": [
           {
@@ -4557,7 +4629,7 @@
     },
     "/v1/sftp/recoveries/{recovery_id}": {
       "get": {
-        "description": "Inspect one remote recovery record without mutating it.",
+        "description": "检查远程恢复记录，不进行变更。",
         "operationId": "inspect_recovery_v1_sftp_recoveries__recovery_id__get",
         "parameters": [
           {
@@ -4603,7 +4675,7 @@
     },
     "/v1/sftp/recoveries/{recovery_id}/actions": {
       "post": {
-        "description": "Execute one explicitly selected recovery action.",
+        "description": "执行显式选择的恢复操作。",
         "operationId": "execute_recovery_v1_sftp_recoveries__recovery_id__actions_post",
         "parameters": [
           {
@@ -4659,7 +4731,7 @@
     },
     "/v1/sftp/removals": {
       "post": {
-        "description": "Remove one unchanged remote entry.",
+        "description": "删除未改变的远程条目。",
         "operationId": "remove_v1_sftp_removals_post",
         "parameters": [
           {
@@ -4705,7 +4777,7 @@
     },
     "/v1/sftp/renames": {
       "post": {
-        "description": "Perform one snapshot-protected atomic remote rename.",
+        "description": "执行受快照保护的原子远程重命名。",
         "operationId": "rename_v1_sftp_renames_post",
         "parameters": [
           {
@@ -4751,7 +4823,7 @@
     },
     "/v1/sftp/uploads": {
       "post": {
-        "description": "Begin one no-clobber upload to an exclusive temporary file.",
+        "description": "开始向独占临时文件执行不覆盖上传。",
         "operationId": "begin_upload_v1_sftp_uploads_post",
         "parameters": [
           {
@@ -4797,7 +4869,7 @@
     },
     "/v1/sftp/uploads/preflight": {
       "post": {
-        "description": "Freeze the current remote upload target before mutation.",
+        "description": "变更前冻结当前远程上传目标。",
         "operationId": "upload_preflight_v1_sftp_uploads_preflight_post",
         "parameters": [
           {
@@ -4843,7 +4915,7 @@
     },
     "/v1/sftp/uploads/{operation_id}/abort": {
       "post": {
-        "description": "Abort one upload and report any required cleanup.",
+        "description": "中止上传并报告所需清理。",
         "operationId": "abort_upload_v1_sftp_uploads__operation_id__abort_post",
         "parameters": [
           {
@@ -4889,7 +4961,7 @@
     },
     "/v1/sftp/uploads/{operation_id}/chunks/{sequence}": {
       "put": {
-        "description": "Accept one canonical raw upload chunk under dispatcher ownership.",
+        "description": "在 dispatcher 所有权下接收标准原始上传分块。",
         "operationId": "upload_chunk_v1_sftp_uploads__operation_id__chunks__sequence__put",
         "parameters": [
           {
@@ -4962,7 +5034,7 @@
     },
     "/v1/sftp/uploads/{operation_id}/finish": {
       "post": {
-        "description": "Verify and atomically commit one complete upload.",
+        "description": "验证并原子提交完整上传。",
         "operationId": "finish_upload_v1_sftp_uploads__operation_id__finish_post",
         "parameters": [
           {
@@ -5008,7 +5080,7 @@
     },
     "/v1/ssh/sessions": {
       "post": {
-        "description": "Use transient credentials to establish one verified SSH session.",
+        "description": "使用临时凭据建立经过验证的 SSH 会话。",
         "operationId": "connect_ssh_session_v1_ssh_sessions_post",
         "parameters": [
           {
@@ -5054,7 +5126,7 @@
     },
     "/v1/ssh/sessions/{ssh_session_id}": {
       "delete": {
-        "description": "Close one SSH session and all of its child channels.",
+        "description": "关闭 SSH 会话及其全部子通道。",
         "operationId": "disconnect_ssh_session_v1_ssh_sessions__ssh_session_id__delete",
         "parameters": [
           {

@@ -10,7 +10,7 @@ from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 def load_credentials_module():
-    """Load the target package so a missing implementation is a RED failure."""
+    """加载目标包，使缺失实现明确触发测试失败。"""
 
     try:
         return import_module("harness_shell_sidecar.credentials")
@@ -19,7 +19,7 @@ def load_credentials_module():
 
 
 def open_repository(tmp_path: Path):
-    """Open a fresh schema-v6 database and its credential repository."""
+    """打开全新数据库及其凭据仓库。"""
 
     credentials = load_credentials_module()
     database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")

@@ -1,4 +1,4 @@
-"""Strict shared HTTP request and response models."""
+"""严格共享 HTTP 请求与响应模型。"""
 
 from __future__ import annotations
 
@@ -33,39 +33,39 @@ from harness_shell_sidecar.terminal.models import PtySession
 
 
 class StrictHttpModel(BaseModel):
-    """Forbid undeclared HTTP fields and implicit Python coercion."""
+    """禁止未声明 HTTP 字段和隐式 Python 强制转换。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class ProblemDetails(StrictHttpModel):
-    """Expose one bounded machine-readable failure without raw internals."""
+    """暴露有界机器可读失败，不包含原始内部信息。"""
 
-    #: Stable URN for the error category.
+    #: 错误类别的稳定 URN。
     type: str
-    #: Short safe human-readable category label.
+    #: 简短安全的人类可读类别标签。
     title: str
-    #: HTTP status duplicated for strict cross-layer validation.
+    #: 重复携带 HTTP 状态，用于严格跨层校验。
     status: int
-    #: Stable machine-readable business or transport error code.
+    #: 稳定的机器可读业务或传输错误码。
     error_code: str
-    #: Safe bounded message that is never a client decision source.
+    #: 安全有界消息，不能用作客户端决策依据。
     message: str
-    #: Correlation identifier echoed in the response header.
+    #: 在响应头中回显的关联标识。
     request_id: UUID
-    #: Error-code-specific allowlisted structured context.
+    #: 错误码专属允许列表内的结构化上下文。
     details: dict[str, JsonValue]
 
 
 class HealthLiveResponse(StrictHttpModel):
-    """Report that the Python HTTP event loop can respond."""
+    """报告 Python HTTP 事件循环能够响应。"""
 
     request_id: UUID
     live: bool
 
 
 class HealthReadyResponse(StrictHttpModel):
-    """Report that the complete runtime resource graph is ready."""
+    """报告完整运行时资源图已就绪。"""
 
     request_id: UUID
     ready: bool
@@ -73,20 +73,20 @@ class HealthReadyResponse(StrictHttpModel):
 
 
 class RuntimeStateResponse(StrictHttpModel):
-    """Return the safe shared runtime lifecycle state."""
+    """返回安全的共享运行时生命周期状态。"""
 
     request_id: UUID
     state: RuntimePhase
 
 
 class CredentialPublicKeyResponse(CredentialPublicKey):
-    """Return current ephemeral public key with HTTP correlation."""
+    """返回当前临时公钥及 HTTP 关联信息。"""
 
     request_id: UUID
 
 
 class DiagnosticsAvailabilityResponse(StrictHttpModel):
-    """Report only whether the fixed Python-owned log directory is available."""
+    """仅报告固定 Python 日志目录是否可用。"""
 
     request_id: UUID = Field(description="HTTP request correlation identity.")
     available: bool = Field(
@@ -95,77 +95,77 @@ class DiagnosticsAvailabilityResponse(StrictHttpModel):
 
 
 class ConnectionListResponse(StrictHttpModel):
-    """Return all persisted connection profiles in repository order."""
+    """按仓库顺序返回全部持久化连接配置。"""
 
     request_id: UUID
     connections: list[ConnectionProfile]
 
 
 class ConnectionResponse(StrictHttpModel):
-    """Return one persisted connection profile."""
+    """返回持久化连接配置。"""
 
     request_id: UUID
     connection: ConnectionProfile
 
 
 class DeleteResponse(StrictHttpModel):
-    """Return the determined deletion outcome for an identity."""
+    """返回针对标识的已确定删除结果。"""
 
     request_id: UUID
     deleted: bool
 
 
 class HostKeyResponse(StrictHttpModel):
-    """Return one persisted Host Key trust record."""
+    """返回持久化 Host Key 信任记录。"""
 
     request_id: UUID
     host_key: HostKeyRecord
 
 
 class SshStatusResponse(StrictHttpModel):
-    """Return one safe SSH lifecycle status."""
+    """返回安全 SSH 生命周期状态。"""
 
     request_id: UUID
     status: ConnectionStatus
 
 
 class PtySessionResponse(StrictHttpModel):
-    """Return one interactive PTY session snapshot."""
+    """返回交互式 PTY 会话快照。"""
 
     request_id: UUID
     pty_session: PtySession
 
 
 class AgentApiConfigListResponse(StrictHttpModel):
-    """Return all non-secret Provider configurations."""
+    """返回全部非秘密 Provider 配置。"""
 
     request_id: UUID
     configs: list[ModelApiConfig]
 
 
 class AgentApiConfigResponse(StrictHttpModel):
-    """Return one non-secret Provider configuration."""
+    """返回一个非秘密 Provider 配置。"""
 
     request_id: UUID
     config: ModelApiConfig
 
 
 class RuntimeMessageBase(StrictHttpModel):
-    """Carry fields shared by every strict Runtime WebSocket message."""
+    """携带所有严格 Runtime WebSocket 消息共用的字段。"""
 
-    #: Frozen WebSocket schema version.
+    #: 冻结的 WebSocket schema 版本。
     schema_version: Literal[1] = 1
-    #: Unique message identity used for causation and PTY input ownership.
+    #: 用于因果关联和 PTY 输入所有权的唯一消息标识。
     message_id: UUID
-    #: Message that caused this response, or null for unsolicited events.
+    #: 导致本响应的消息；主动事件为 null。
     causation_id: UUID | None
-    #: Timezone-aware message creation time.
+    #: 带时区的消息创建时间。
     timestamp: datetime
 
     @field_validator("timestamp")
     @classmethod
     def require_aware_timestamp(cls, value: datetime) -> datetime:
-        """Reject local or naive datetimes at the cross-process boundary."""
+        """在跨进程边界拒绝本地或不带时区的 datetime。"""
 
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("runtime message timestamp must be timezone-aware")
@@ -173,17 +173,17 @@ class RuntimeMessageBase(StrictHttpModel):
 
 
 class PtyInputPayload(StrictHttpModel):
-    """Carry one bounded canonical Base64 PTY input chunk."""
+    """携带有界标准 Base64 PTY 输入分块。"""
 
-    #: Active PTY session that receives the bytes.
+    #: 接收字节的活动 PTY 会话。
     pty_session_id: UUID
-    #: Canonical Base64 for exactly 1..32768 decoded bytes.
+    #: 解码后恰为 1..32768 字节的标准 Base64。
     data_b64: str = Field(json_schema_extra={"contentEncoding": "base64"})
 
     @field_validator("data_b64")
     @classmethod
     def validate_data(cls, value: str) -> str:
-        """Require canonical Base64 and the existing PTY byte limit."""
+        """要求标准 Base64 并遵守现有 PTY 字节上限。"""
 
         try:
             decoded = base64.b64decode(value, validate=True)
@@ -196,32 +196,32 @@ class PtyInputPayload(StrictHttpModel):
         return value
 
     def decoded_data(self) -> bytes:
-        """Decode bytes only after the strict validator has accepted the value."""
+        """严格校验器接受值后才解码字节。"""
 
         return base64.b64decode(self.data_b64, validate=True)
 
 
 class PtyInputMessage(RuntimeMessageBase):
-    """Request one correlated PTY write over the Runtime WebSocket."""
+    """通过 Runtime WebSocket 请求带关联标识的 PTY 写入。"""
 
-    #: Discriminator for PTY input.
+    #: PTY 输入判别字段。
     type: Literal["pty.input"]
-    #: Client messages cannot claim a causation owner.
+    #: 客户端消息不能声明因果关联所有者。
     causation_id: None
-    #: Strict PTY input payload.
+    #: 严格 PTY 输入载荷。
     payload: PtyInputPayload
 
 
 class RuntimePingPayload(StrictHttpModel):
-    """Carry the Desktop's explicit heartbeat timestamp."""
+    """携带桌面端显式心跳时间戳。"""
 
-    #: Timezone-aware time at which Desktop created the ping.
+    #: 桌面端创建 ping 时的带时区时间。
     client_timestamp: datetime
 
     @field_validator("client_timestamp")
     @classmethod
     def require_aware_timestamp(cls, value: datetime) -> datetime:
-        """Reject a naive client heartbeat time."""
+        """拒绝不带时区的客户端心跳时间。"""
 
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("client timestamp must be timezone-aware")
@@ -229,13 +229,13 @@ class RuntimePingPayload(StrictHttpModel):
 
 
 class RuntimePingMessage(RuntimeMessageBase):
-    """Refresh only the explicit Runtime heartbeat owner."""
+    """仅刷新显式 Runtime 心跳状态。"""
 
-    #: Discriminator for Runtime ping.
+    #: Runtime ping 判别字段。
     type: Literal["runtime.ping"]
-    #: Client messages cannot claim a causation owner.
+    #: 客户端消息不能声明因果关联所有者。
     causation_id: None
-    #: Strict heartbeat payload.
+    #: 严格心跳载荷。
     payload: RuntimePingPayload
 
 
@@ -246,124 +246,124 @@ RuntimeClientMessage = Annotated[
 
 
 class PtyInputResultPayload(StrictHttpModel):
-    """Report the exact PTY write result without closing on domain failure."""
+    """报告精确 PTY 写入结果，不因领域失败关闭连接。"""
 
-    #: Requested PTY session identity.
+    #: 请求的 PTY 会话标识。
     pty_session_id: UUID
-    #: Accepted decoded bytes, or zero when the domain rejected the write.
+    #: 已接受的解码字节数；领域拒绝写入时为零。
     accepted_bytes: Annotated[int, Field(ge=0, le=32_768, strict=True)]
-    #: Stable domain error code, or null on success.
+    #: 稳定领域错误码；成功时为 null。
     error_code: str | None
 
 
 class PtyInputResultMessage(RuntimeMessageBase):
-    """Correlate one PTY input success or stable domain failure."""
+    """关联 PTY 输入成功或稳定领域失败。"""
 
-    #: Discriminator for PTY input result.
+    #: PTY 输入结果判别字段。
     type: Literal["pty.input_result"]
-    #: PTY results always identify the input message that caused them.
+    #: PTY 结果始终标识导致该结果的输入消息。
     causation_id: UUID
-    #: Strict result payload.
+    #: 严格结果载荷。
     payload: PtyInputResultPayload
 
 
 class PtyOutputPayload(PtyInputPayload):
-    """Carry one monotonically ordered PTY output chunk."""
+    """携带单调有序的 PTY 输出分块。"""
 
-    #: Per-PTY monotonically increasing output sequence.
+    #: 每个 PTY 内单调递增的输出序号。
     stream_sequence: Annotated[int, Field(ge=0, strict=True)]
 
 
 class PtyOutputMessage(RuntimeMessageBase):
-    """Publish one unsolicited PTY output event."""
+    """发布主动推送的 PTY 输出事件。"""
 
-    #: Discriminator for PTY output.
+    #: PTY 输出判别字段。
     type: Literal["pty.output"]
-    #: Domain output is unsolicited rather than caused by a client message.
+    #: 领域输出是主动推送，不由客户端消息触发。
     causation_id: None
-    #: Strict output payload.
+    #: 严格输出载荷。
     payload: PtyOutputPayload
 
 
 class PtyClosedPayload(StrictHttpModel):
-    """Preserve the current PTY process exit projection."""
+    """保留当前 PTY 进程退出投影。"""
 
-    #: Closed PTY session identity.
+    #: 已关闭 PTY 会话标识。
     pty_session_id: UUID
-    #: Remote process exit status when supplied by AsyncSSH.
+    #: AsyncSSH 提供的远程进程退出状态。
     exit_status: int | None
-    #: Remote process exit signal when supplied by AsyncSSH.
+    #: AsyncSSH 提供的远程进程退出信号。
     exit_signal: str | None
 
 
 class PtyClosedMessage(RuntimeMessageBase):
-    """Publish one unsolicited PTY closure event."""
+    """发布主动推送的 PTY 关闭事件。"""
 
-    #: Discriminator for PTY closure.
+    #: PTY 关闭判别字段。
     type: Literal["pty.closed"]
-    #: Domain closure is unsolicited rather than caused by a client message.
+    #: 领域关闭是主动事件，不由客户端消息触发。
     causation_id: None
-    #: Strict closure payload.
+    #: 严格关闭载荷。
     payload: PtyClosedPayload
 
 
 class SshConnectionStateMessage(RuntimeMessageBase):
-    """Publish the complete current safe SSH status projection."""
+    """发布完整的当前安全 SSH 状态投影。"""
 
-    #: Discriminator for SSH connection state.
+    #: SSH 连接状态判别字段。
     type: Literal["ssh.connection_state"]
-    #: Domain SSH state is unsolicited.
+    #: 领域 SSH 状态为主动事件。
     causation_id: None
-    #: Existing safe ConnectionStatus without lossy state invention.
+    #: 现有安全 ConnectionStatus，不虚构有损状态。
     payload: ConnectionStatus
 
 
 class SftpOperationProgressMessage(RuntimeMessageBase):
-    """Publish the complete current safe Manual SFTP progress projection."""
+    """发布完整的当前安全手动 SFTP 进展投影。"""
 
-    #: Discriminator for Manual SFTP operation progress.
+    #: 手动 SFTP 操作进展判别字段。
     type: Literal["sftp.operation_progress"]
-    #: Domain Manual SFTP progress is unsolicited.
+    #: 领域手动 SFTP 进展为主动事件。
     causation_id: None
-    #: Existing mutation progress projection.
+    #: 现有变更进展投影。
     payload: MutationProgressProjection
 
 
 class RuntimePongPayload(StrictHttpModel):
-    """Carry the server's timezone-aware heartbeat response time."""
+    """携带服务器带时区的心跳响应时间。"""
 
-    #: UTC time at which the pong was created.
+    #: 创建 pong 时的 UTC 时间。
     server_timestamp: datetime
 
 
 class RuntimePongMessage(RuntimeMessageBase):
-    """Correlate one explicit Runtime ping."""
+    """关联显式 Runtime ping。"""
 
-    #: Discriminator for Runtime pong.
+    #: Runtime pong 判别字段。
     type: Literal["runtime.pong"]
-    #: Pong always identifies the ping that caused it.
+    #: pong 始终标识触发它的 ping。
     causation_id: UUID
-    #: Strict pong payload.
+    #: 严格 pong 载荷。
     payload: RuntimePongPayload
 
 
 class RuntimeErrorPayload(StrictHttpModel):
-    """Expose one stable WebSocket domain failure without raw internals."""
+    """暴露稳定 WebSocket 领域失败，不包含原始内部信息。"""
 
-    #: Stable machine-readable error code.
+    #: 稳定机器可读错误码。
     error_code: str
-    #: Safe fixed public message.
+    #: 安全固定公开消息。
     message: str
-    #: Error-code-owned allowlisted context, or null.
+    #: 错误码专属允许列表内的上下文，或 null。
     details: dict[str, JsonValue] | None
 
 
 class RuntimeErrorMessage(RuntimeMessageBase):
-    """Correlate a non-PTY domain failure while retaining the connection."""
+    """关联非 PTY 领域失败，同时保留连接。"""
 
-    #: Discriminator for Runtime error.
+    #: Runtime 错误判别字段。
     type: Literal["runtime.error"]
-    #: Strict safe error payload.
+    #: 严格安全错误载荷。
     payload: RuntimeErrorPayload
 
 

@@ -1,4 +1,4 @@
-"""Single-owner typed Runtime WebSocket gateway and domain event converter."""
+"""单一所有者 typed Runtime WebSocket 网关与领域事件转换器。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ _CLIENT_ADAPTER = TypeAdapter(RuntimeClientMessage)
 
 
 def _model_from_json(value: object, model):
-    """Validate raw domain JSON through strict models without Python coercion."""
+    """通过严格模型校验原始领域 JSON，不做 Python 强制转换。"""
 
     return model.model_validate_json(
         json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -59,7 +59,7 @@ def _model_from_json(value: object, model):
 
 
 def _message_fields() -> dict[str, object]:
-    """Create the common fields for one unsolicited server event."""
+    """创建服务器主动事件的公共字段。"""
 
     return {
         "schema_version": 1,
@@ -70,7 +70,7 @@ def _message_fields() -> dict[str, object]:
 
 
 def convert_domain_event(event: dict[str, object]) -> RuntimeServerMessage:
-    """Convert exactly one allowlisted current domain event to its final WS type."""
+    """将且仅将一个允许的当前领域事件转换为最终 WS 类型。"""
 
     event_name = event.get("event")
     if event_name == "ssh.connection.status":
@@ -130,14 +130,14 @@ def convert_domain_event(event: dict[str, object]) -> RuntimeServerMessage:
 
 
 class RuntimeWebSocketGateway:
-    """Own the single Desktop WebSocket and two bounded message queues."""
+    """拥有唯一桌面 WebSocket 和两个有界消息队列。"""
 
     def __init__(
         self,
         *,
         heartbeat_timeout_seconds: float = HEARTBEAT_TIMEOUT_SECONDS,
     ) -> None:
-        """Create disconnected inbound/outbound queues with capacity 64."""
+        """创建未连接的入站和出站队列，容量为 64。"""
 
         if heartbeat_timeout_seconds <= 0:
             raise ValueError("heartbeat timeout must be positive")
@@ -152,7 +152,7 @@ class RuntimeWebSocketGateway:
         self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
 
     async def claim(self) -> bool:
-        """Claim the unique active connection without replacing its owner."""
+        """取得唯一活动连接，不替换已有所有者。"""
 
         async with self._owner_lock:
             if self._connected:
@@ -161,7 +161,7 @@ class RuntimeWebSocketGateway:
             return True
 
     async def release(self) -> None:
-        """Release the connection and discard only its unread inbound messages."""
+        """释放连接，并仅丢弃其未读入站消息。"""
 
         async with self._owner_lock:
             self._connected = False
@@ -170,23 +170,24 @@ class RuntimeWebSocketGateway:
                 self._inbound.task_done()
 
     async def publish(self, message: RuntimeServerMessage) -> None:
-        """Apply backpressure until the active Desktop consumes the event."""
+        """施加背压，直到活动桌面端消费事件。"""
 
         await self._outbound.put(message)
 
     async def publish_domain_event(self, event: dict[str, object]) -> None:
-        """Validate and convert one raw manager event before queueing it."""
+        """入队前校验并转换原始管理器事件。"""
 
         await self.publish(convert_domain_event(event))
 
     async def next_outbound(self) -> RuntimeServerMessage:
-        """Return the next typed server message in exact queue order."""
+        """严格按队列顺序返回下一条 typed 服务端消息。"""
 
         return await self._outbound.get()
 
     async def run(self, websocket: WebSocket, resources: RuntimeResources) -> None:
-        """Run receiver, processor, sender, and heartbeat until one terminates."""
+        """运行接收、处理、发送和心跳任务，直到其中一个结束。"""
 
+        # 1. 为本连接建立心跳信号，并独占接收、处理、发送和心跳四个任务。
         heartbeat = asyncio.Event()
         tasks = {
             asyncio.create_task(self._receive(websocket)),
@@ -196,17 +197,20 @@ class RuntimeWebSocketGateway:
         }
         done: set[asyncio.Task[None]] = set()
         try:
+            # 2. 任一任务结束即进入连接收敛，不自动重连或重放消息。
             done, _ = await asyncio.wait(
                 tasks,
                 return_when=asyncio.FIRST_COMPLETED,
             )
+        # 3. 包括端点取消在内的所有退出路径都取消并等待其余任务。
         finally:
-            # ASGI server shutdown may cancel the endpoint before a child task
-            # wins FIRST_COMPLETED. The gateway still owns and joins all four.
+            # ASGI 关闭可能先于任一子任务触发 FIRST_COMPLETED 而取消端点；
+            # 网关仍拥有全部四个任务，必须等待它们结束。
             pending = tasks - done
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+        # 4. 回收先结束任务的结果，只将明确断连视为正常连接结束。
         for task in done:
             if task.cancelled():
                 continue
@@ -216,7 +220,7 @@ class RuntimeWebSocketGateway:
                 pass
 
     async def _receive(self, websocket: WebSocket) -> None:
-        """Read only bounded UTF-8 text messages and apply inbound backpressure."""
+        """只读取有界 UTF-8 文本消息，并施加入站背压。"""
 
         while True:
             message = await websocket.receive()
@@ -237,8 +241,9 @@ class RuntimeWebSocketGateway:
         resources: RuntimeResources,
         heartbeat: asyncio.Event,
     ) -> None:
-        """Validate client messages and keep stable domain failures connected."""
+        """校验客户端消息，稳定领域失败时保留连接。"""
 
+        # 1. 按入站队列顺序严格校验消息，协议非法时关闭连接。
         while True:
             encoded = await self._inbound.get()
             try:
@@ -247,6 +252,7 @@ class RuntimeWebSocketGateway:
                 except (ValueError, ValidationError):
                     await websocket.close(code=CONTRACT_CLOSE_CODE)
                     return
+                # 2. 仅合法 ping 刷新心跳并回复关联 pong；PTY 输入进入共享 dispatcher。
                 if isinstance(message, RuntimePingMessage):
                     heartbeat.set()
                     await self.publish(
@@ -263,6 +269,7 @@ class RuntimeWebSocketGateway:
                     )
                 elif isinstance(message, PtyInputMessage):
                     await self._write_pty(resources, message)
+            # 3. 无论处理成功、失败还是取消，都完成当前队列项的计数。
             finally:
                 self._inbound.task_done()
 
@@ -271,13 +278,15 @@ class RuntimeWebSocketGateway:
         resources: RuntimeResources,
         message: PtyInputMessage,
     ) -> None:
-        """Write one PTY chunk under dispatcher ownership and correlate the result."""
+        """在 dispatcher 所有权下写入 PTY 分块并关联结果。"""
 
+        # 1. 对已通过严格模型校验的 Base64 输入解码，准备领域写入。
         data = message.payload.decoded_data()
 
         async def work(_context) -> None:
             await resources.pty_manager.write(message.payload.pty_session_id, data)
 
+        # 2. 使用消息 ID 占用 dispatcher 容量，保留稳定 PTY 或派发失败码。
         error_code: str | None = None
         try:
             await resources.dispatcher.execute(message.message_id, work)
@@ -285,6 +294,7 @@ class RuntimeWebSocketGateway:
             error_code = error.error_code
         except DispatchError as error:
             error_code = error.error_code
+        # 3. 发布与输入关联的确认；失败时接受字节数为零，不虚构写入成功。
         await self.publish(
             PtyInputResultMessage(
                 schema_version=1,
@@ -301,7 +311,7 @@ class RuntimeWebSocketGateway:
         )
 
     async def _send(self, websocket: WebSocket) -> None:
-        """Serialize typed messages in queue order without dropping or merging."""
+        """按队列顺序序列化 typed 消息，不丢弃或合并。"""
 
         while True:
             message = await self._outbound.get()
@@ -315,7 +325,7 @@ class RuntimeWebSocketGateway:
         websocket: WebSocket,
         heartbeat: asyncio.Event,
     ) -> None:
-        """Require explicit ping messages; other traffic never refreshes liveness."""
+        """要求显式 ping；其他通信不刷新存活状态。"""
 
         while True:
             try:
@@ -330,7 +340,7 @@ class RuntimeWebSocketGateway:
 
 
 async def runtime_websocket_endpoint(websocket: WebSocket) -> None:
-    """Accept only one ready Runtime WebSocket for the ASGI process."""
+    """ASGI 进程仅接受一个就绪 Runtime WebSocket。"""
 
     from .lifespan import RuntimeOwnerError
 
@@ -351,8 +361,8 @@ async def runtime_websocket_endpoint(websocket: WebSocket) -> None:
         try:
             await gateway.run(websocket, resources)
         except asyncio.CancelledError:
-            # Endpoint cancellation is the ASGI server's connection-close
-            # signal. Internal gateway tasks were already joined above.
+            # 端点取消是 ASGI 服务器的连接关闭信号；
+            # 内部网关任务已在上方等待回收。
             return
     finally:
         await gateway.release()

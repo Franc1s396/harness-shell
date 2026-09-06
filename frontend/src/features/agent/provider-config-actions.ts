@@ -8,6 +8,9 @@ import {
 } from "../../api/agent";
 
 export type ProviderDraft = {
+  contextWindowSize: string;
+  contextCompactionThresholdPercent: string;
+  maxOutputTokens: string;
   displayName: string;
   apiType: ApiType;
   baseUrl: string;
@@ -28,6 +31,9 @@ export class ProviderMutationFailure extends Error {
 }
 
 const toInput = (draft: ProviderDraft): ModelApiConfigInput => ({
+  context_window_size: Number(draft.contextWindowSize),
+  context_compaction_threshold_ratio: Number(draft.contextCompactionThresholdPercent) / 100,
+  max_output_tokens: Number(draft.maxOutputTokens),
   display_name: draft.displayName,
   api_type: draft.apiType,
   base_url: draft.baseUrl,

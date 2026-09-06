@@ -1,4 +1,4 @@
-"""Bounded, sequence-checked ownership for remote directory listings."""
+"""远程目录列表的有界、带序号校验的所有权管理。"""
 
 from __future__ import annotations
 
@@ -25,33 +25,33 @@ MAX_UINT64 = 2**64 - 1
 
 @dataclass(slots=True)
 class _ListingCursor:
-    """Own one iterator, channel, expected sequence, and observed count."""
+    """拥有一个迭代器、通道、预期序号和已观察数量。"""
 
-    #: Public cursor identifier returned across the typed HTTP boundary.
+    #: 跨 typed HTTP 边界返回的公共游标标识。
     listing_id: UUID
-    #: Validated absolute directory path.
+    #: 已校验的目录绝对路径。
     path: str
-    #: Lease which owns the underlying SFTP client.
+    #: 拥有底层 SFTP 客户端的租约。
     lease: SftpChannelLease
-    #: AsyncSSH directory iterator whose handle closes through ``aclose``.
+    #: 通过 aclose 关闭句柄的 AsyncSSH 目录迭代器。
     iterator: Any
-    #: Sequence accepted by the next explicit ``next`` request.
+    #: 下次显式 next 请求接受的序号。
     expected_sequence: int
-    #: Entries already returned to the caller.
+    #: 已返回给调用方的条目数。
     observed_entry_count: int
 
 
 class ListingManager:
-    """Own every short-lived listing cursor and its isolated SFTP channel."""
+    """拥有全部短生命周期列表游标及其独立 SFTP 通道。"""
 
     def __init__(self, channels: SftpChannelFactory) -> None:
-        """Bind the channel factory and create an empty cursor registry."""
+        """绑定通道工厂并创建空游标注册表。"""
 
         self._channels = channels
         self._cursors: dict[UUID, _ListingCursor] = {}
 
     async def begin(self, ssh_session_id: UUID, path: str) -> ListingBatch:
-        """Open a cursor and return its first sequence-zero batch."""
+        """打开游标并返回序号为零的首批条目。"""
 
         remote_path = validate_remote_path(path)
         lease = await self._channels.open(ssh_session_id)
@@ -95,7 +95,7 @@ class ListingManager:
         return batch
 
     async def next(self, listing_id: UUID, sequence: int) -> ListingBatch:
-        """Return exactly the expected next batch or close the invalid cursor."""
+        """仅返回预期的下一批，或关闭非法游标。"""
 
         cursor = self._cursors.get(listing_id)
         if cursor is None:
@@ -123,7 +123,7 @@ class ListingManager:
         return batch
 
     async def close(self, listing_id: UUID) -> None:
-        """Close one active cursor and its channel."""
+        """关闭活动游标及其通道。"""
 
         cursor = self._cursors.pop(listing_id, None)
         if cursor is None:
@@ -133,7 +133,7 @@ class ListingManager:
         await self._close_cursor(cursor)
 
     async def close_all(self) -> None:
-        """Close all cursors, attempting every cleanup before surfacing failure."""
+        """关闭全部游标，尝试所有清理后再暴露失败。"""
 
         cursors = tuple(self._cursors.values())
         self._cursors.clear()
@@ -150,8 +150,9 @@ class ListingManager:
     async def _read_batch(
         self, cursor: _ListingCursor, *, sequence: int
     ) -> ListingBatch:
-        """Read one bounded batch and close naturally completed cursors."""
+        """读取有界批次，并关闭自然结束的游标。"""
 
+        # 1. 建立本批缓冲，在固定超时内读取并验证真实目录条目。
         entries: list[RemoteEntry] = []
         done = False
         try:
@@ -193,9 +194,11 @@ class ListingManager:
         except (asyncssh.SFTPNoSuchFile, asyncssh.SFTPNoSuchPath) as exc:
             raise map_typed_sftp_status(exc) from exc
 
+        # 2. 仅在整批读取成功后推进下一序号；自然结束时关闭游标和通道。
         cursor.expected_sequence = sequence + 1
         if done:
             await self._close_cursor(cursor)
+        # 3. 返回有界批次及完成标志，让客户端按精确序号继续。
         return ListingBatch(
             listing_id=cursor.listing_id,
             path=cursor.path,
@@ -208,7 +211,7 @@ class ListingManager:
 
     @staticmethod
     async def _close_cursor(cursor: _ListingCursor) -> None:
-        """Close the directory iterator before closing its channel lease."""
+        """先关闭目录迭代器，再关闭其通道租约。"""
 
         first_error: BaseException | None = None
         close_iterator = getattr(cursor.iterator, "aclose", None)
@@ -227,7 +230,7 @@ class ListingManager:
 
 
 def remote_entry(path: str, attrs: Any, *, link_target: str | None = None) -> RemoteEntry:
-    """Build strict no-follow metadata from public AsyncSSH attributes."""
+    """使用 AsyncSSH 公共属性构建严格的不跟随链接元数据。"""
 
     remote_path = validate_remote_path(path)
     name = remote_path.rstrip("/").rsplit("/", 1)[-1] or "/"
@@ -258,7 +261,7 @@ def remote_entry(path: str, attrs: Any, *, link_target: str | None = None) -> Re
 
 
 def _remote_entry(directory: str, item: Any) -> RemoteEntry | None:
-    """Decode one filename strictly and map its no-follow listing attributes."""
+    """严格解码文件名并映射不跟随链接的列表属性。"""
 
     raw_name = getattr(item, "filename", None)
     try:
@@ -280,7 +283,7 @@ def _remote_entry(directory: str, item: Any) -> RemoteEntry | None:
 
 
 def _entry_type(mode: int) -> str:
-    """Map POSIX file type bits without following symbolic links."""
+    """映射 POSIX 文件类型位，不跟随符号链接。"""
 
     if stat.S_ISREG(mode):
         return "file"
@@ -292,7 +295,7 @@ def _entry_type(mode: int) -> str:
 
 
 def _mtime_ns(attrs: Any) -> str | None:
-    """Encode exact integer seconds and nanoseconds as one uint64 decimal string."""
+    """将精确整数秒和纳秒编码为 uint64 十进制字符串。"""
 
     seconds = getattr(attrs, "mtime", None)
     if seconds is None:

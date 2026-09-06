@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// Bounded Launcher failures safe to show in a native startup dialog.
+/// 可安全显示在原生启动对话框中的有界 Launcher 失败。
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum LauncherError {
     #[error("LAUNCHER_CONFIG_INVALID: The Harness Shell installation paths are invalid.")]

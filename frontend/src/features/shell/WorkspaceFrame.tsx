@@ -156,7 +156,7 @@ export function WorkspaceFrame({
     try {
       await onCancelActiveSftpTransfer(activeSftpTransfer.operation_id);
     } catch (error) {
-      // Keep the lifecycle decision visible. A failed cancel is not equivalent to cleanup.
+      // 明确展示生命周期决策；取消失败不等于已清理。
       setCloseTransferDecision("idle");
       setCloseTransferError(normalizeManualSftpError(error));
     }

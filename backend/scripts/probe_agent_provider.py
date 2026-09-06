@@ -1,4 +1,4 @@
-"""Explicit, non-streaming smoke probe for one configured Agent API surface."""
+"""对一个已配置的 Agent API 执行显式、非流式冒烟探测。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ REQUIRED_ENVIRONMENT = (
 
 
 def _configuration_from_environment() -> tuple[ModelApiConfig, SecretStr]:
-    """Build one strict ephemeral configuration without persisting its secret."""
+    """构造严格的临时配置，不持久化秘密。"""
 
     missing = [name for name in REQUIRED_ENVIRONMENT if not os.environ.get(name)]
     if missing:
@@ -49,7 +49,7 @@ def _configuration_from_environment() -> tuple[ModelApiConfig, SecretStr]:
 
 
 async def _probe(config: ModelApiConfig, api_key: SecretStr) -> tuple[str, int]:
-    """Invoke exactly the configured API path and return bounded status metadata."""
+    """仅调用配置指定的 API 路径，并返回有界的状态元数据。"""
 
     started = time.monotonic()
     status = "PASS"
@@ -67,15 +67,15 @@ async def _probe(config: ModelApiConfig, api_key: SecretStr) -> tuple[str, int]:
             asyncio.Event(),
         )
     except Exception:
-        # Provider errors can contain URLs, headers, request bodies, or response
-        # text. The probe exposes only the fixed status dimensions below.
+        # Provider 错误可能包含 URL、请求头、请求体或响应正文。
+        # 因此探测结果只暴露下列固定状态维度。
         status = "FAIL"
     latency_ms = max(0, int((time.monotonic() - started) * 1000))
     return status, latency_ms
 
 
 def main() -> None:
-    """Run only after explicit opt-in and print no provider-sensitive content."""
+    """仅在显式启用后运行，且不输出 Provider 敏感内容。"""
 
     if os.environ.get("HARNESS_RUN_AGENT_PROVIDER_PROBE") != "1":
         raise SystemExit(

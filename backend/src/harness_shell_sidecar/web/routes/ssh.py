@@ -1,4 +1,4 @@
-"""Typed HTTP control routes for SSH sessions."""
+"""SSH 会话的 typed HTTP 控制路由。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ async def connect_ssh_session(
     request_id: CorrelationId,
     owner: Owner,
 ) -> SshStatusResponse:
-    """Use transient credentials to establish one verified SSH session."""
+    """使用临时凭据建立经过验证的 SSH 会话。"""
 
     value = validate_json_model(payload, SshConnectRequest, request_id)
     result = await dispatch_application(
@@ -62,7 +62,7 @@ async def disconnect_ssh_session(
     request_id: CorrelationId,
     owner: Owner,
 ) -> SshStatusResponse:
-    """Close one SSH session and all of its child channels."""
+    """关闭 SSH 会话及其全部子通道。"""
 
     result = await dispatch_application(
         owner,

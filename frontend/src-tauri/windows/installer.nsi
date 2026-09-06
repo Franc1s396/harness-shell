@@ -1,7 +1,7 @@
 Unicode true
 ManifestDPIAware true
-; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
-; Currently undocumented on NSIS's website but is in the Docs folder of source tree, see
+; 为 Windows 10 1607+ 清单添加 dpiAwareness PerMonitorV2；旧版本应忽略它并采用 ManifestDPIAware true 设置的 dpiAware true。
+; NSIS 网站暂未记录该选项，但源码树 Docs 目录有说明，参见：
 ; https://github.com/kichik/nsis/blob/5fc0b87b819a9eec006df4967d08e522ddd651c9/Docs/src/attributes.but#L286-L300
 ; https://github.com/tauri-apps/tauri/pull/10106
 ManifestDPIAwareness PerMonitorV2
@@ -9,12 +9,12 @@ ManifestDPIAwareness PerMonitorV2
 !if "{{compression}}" == "none"
   SetCompress off
 !else
-  ; Set the compression algorithm. We default to LZMA.
+  ; 设置压缩算法，默认使用 LZMA。
   SetCompressor /SOLID "{{compression}}"
 !endif
 
-; Keep above !include to stay ahead of any plugin command
-; see https://github.com/tauri-apps/tauri/pull/15422#discussion_r3289239624
+; 保持在 !include 之前，确保先于任何插件命令执行。
+; 参见 https://github.com/tauri-apps/tauri/pull/15422#discussion_r3289239624
 {{#if signed_plugins_path}}
 !addplugindir "{{signed_plugins_path}}"
 {{/if}}
@@ -80,8 +80,8 @@ Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
 OutFile "${OUTFILE}"
 
-; We don't actually use this value as default install path,
-; it's just for nsis to append the product name folder in the directory selector
+; 此值不作为默认安装路径，
+; 仅供 NSIS 在目录选择器中追加产品名称目录。
 ; https://nsis.sourceforge.io/Reference/InstallDir
 !define PLACEHOLDER_INSTALL_DIR "placeholder\${PRODUCTNAME}"
 InstallDir "${PLACEHOLDER_INSTALL_DIR}"
@@ -93,15 +93,15 @@ VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 
-# additional plugins
+# 额外插件
 !addplugindir "${ADDITIONALPLUGINSPATH}"
 
-; Uninstaller signing command
+; 卸载程序签名命令
 !if "${UNINSTALLERSIGNCOMMAND}" != ""
   !uninstfinalize '${UNINSTALLERSIGNCOMMAND}'
 !endif
 
-; Handle install mode, `perUser`, `perMachine` or `both`
+; 处理安装模式：perUser、perMachine 或 both。
 !if "${INSTALLMODE}" == "perMachine"
   RequestExecutionLevel admin
 !endif
@@ -127,76 +127,76 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
   !include MultiUser.nsh
 !endif
 
-; Installer icon
+; 安装程序图标
 !if "${INSTALLERICON}" != ""
   !define MUI_ICON "${INSTALLERICON}"
 !endif
 
-; Installer sidebar image
+; 安装程序侧栏图片
 !if "${SIDEBARIMAGE}" != ""
   !define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBARIMAGE}"
 !endif
 
-; Enable header images for installer and uninstaller pages when either image is configured.
+; 任一页眉图片已配置时，为安装与卸载页面启用页眉图片。
 !if "${HEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE
 !else if "${UNINSTALLERHEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE
 !endif
 
-; Installer header image
+; 安装程序页眉图片
 !if "${HEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE_BITMAP "${HEADERIMAGE}"
 !endif
 
-; Uninstaller header image
+; 卸载程序页眉图片
 !if "${UNINSTALLERHEADERIMAGE}" != ""
   !define MUI_HEADERIMAGE_UNBITMAP "${UNINSTALLERHEADERIMAGE}"
 !endif
 
-; Uninstaller icon
+; 卸载程序图标
 !if "${UNINSTALLERICON}" != ""
   !define MUI_UNICON "${UNINSTALLERICON}"
 !endif
 
-; Define registry key to store installer language
+; 定义保存安装语言的注册表键
 !define MUI_LANGDLL_REGISTRY_ROOT "HKCU"
 !define MUI_LANGDLL_REGISTRY_KEY "${MANUPRODUCTKEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Installer Language"
 
-; Installer pages, must be ordered as they appear
-; 1. Welcome Page
+; 安装页面必须按显示顺序排列
+; 1. 欢迎页
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !insertmacro MUI_PAGE_WELCOME
 
-; 2. License Page (if defined)
+; 2. 许可页（已定义时）
 !if "${LICENSE}" != ""
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
   !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
 !endif
 
-; 3. Install mode (if it is set to `both`)
+; 3. 安装模式（设为 both 时）
 !if "${INSTALLMODE}" == "both"
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
 !endif
 
-; 4. Custom page to ask user if he wants to reinstall/uninstall
-;    only if a previous installation was detected
+; 4. 询问用户重新安装或卸载的自定义页面，
+;    仅在检测到已有安装时显示。
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
 Function PageReinstall
-  ; Uninstall previous WiX installation if exists.
+  ; 存在旧 WiX 安装时先卸载。
   ;
-  ; A WiX installer stores the installation info in registry
-  ; using a UUID and so we have to loop through all keys under
+  ; WiX 安装程序在注册表中按 UUID 保存安装信息，
+  ; 因此需要遍历下列路径下的全部键：
   ; `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
-  ; and check if `DisplayName` and `Publisher` keys match ${PRODUCTNAME} and ${MANUFACTURER}
+  ; 检查 DisplayName 和 Publisher 是否匹配 ${PRODUCTNAME} 和 ${MANUFACTURER}。
   ;
-  ; This has a potential issue that there maybe another installation that matches
-  ; our ${PRODUCTNAME} and ${MANUFACTURER} but wasn't installed by our WiX installer,
-  ; however, this should be fine since the user will have to confirm the uninstallation
-  ; and they can chose to abort it if doesn't make sense.
+  ; 可能存在产品名和厂商相同、
+  ; 但并非本项目 WiX 安装程序创建的安装记录；
+  ; 用户必须确认卸载，
+  ; 若不符合预期可中止。
   StrCpy $0 0
   wix_loop:
     EnumRegKey $1 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
@@ -214,13 +214,13 @@ Function PageReinstall
     Goto compare_version
   wix_loop_done:
 
-  ; Check if there is an existing installation, if not, abort the reinstall page
+  ; 检查已有安装；不存在时跳过重新安装页面。
   ReadRegStr $R0 SHCTX "${UNINSTKEY}" ""
   ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
   ${IfThen} "$R0$R1" == "" ${|} Abort ${|}
 
-  ; Compare this installar version with the existing installation
-  ; and modify the messages presented to the user accordingly
+  ; 比较当前安装程序与已有安装的版本，
+  ; 据此调整向用户显示的消息。
   compare_version:
   StrCpy $R4 "$(older)"
   ${If} $WixMode = 1
@@ -232,19 +232,19 @@ Function PageReinstall
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
-  ; Reinstalling the same version
+  ; 重新安装相同版本
   ${If} $R0 = 0
     StrCpy $R1 "$(alreadyInstalledLong)"
     StrCpy $R2 "$(addOrReinstall)"
     StrCpy $R3 "$(uninstallApp)"
     !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(chooseMaintenanceOption)"
-  ; Upgrading
+  ; 升级
   ${ElseIf} $R0 = 1
     StrCpy $R1 "$(olderOrUnknownVersionInstalled)"
     StrCpy $R2 "$(uninstallBeforeInstalling)"
     StrCpy $R3 "$(dontUninstall)"
     !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(choowHowToInstall)"
-  ; Downgrading
+  ; 降级
   ${ElseIf} $R0 = -1
     StrCpy $R1 "$(newerVersionInstalled)"
     StrCpy $R2 "$(uninstallBeforeInstalling)"
@@ -258,12 +258,12 @@ Function PageReinstall
     Abort
   ${EndIf}
 
-  ; Skip showing the page if passive
+  ; 被动模式下跳过页面显示。
   ;
-  ; Note that we don't call this earlier at the begining
-  ; of this function because we need to populate some variables
-  ; related to current installed version if detected and whether
-  ; we are downgrading or not.
+  ; 此检查不放在函数开头，
+  ; 因为需要先填充检测到的当前安装版本
+  ; 以及是否正在降级
+  ; 等相关变量。
   ${If} $PassiveMode = 1
     Call PageLeaveReinstall
   ${Else}
@@ -280,15 +280,15 @@ Function PageReinstall
 
     ${NSD_CreateRadioButton} 30u 70u -30u 8u $R3
     Pop $R3
-    ; Disable this radio button if downgrading and downgrades are disabled
+    ; 正在降级且禁止降级时禁用此单选按钮。
     !if "${ALLOWDOWNGRADES}" == "false"
       ${IfThen} $R0 = -1 ${|} EnableWindow $R3 0 ${|}
     !endif
     ${NSD_OnClick} $R3 PageReinstallUpdateSelection
 
-    ; Check the first radio button if this the first time
-    ; we enter this page or if the second button wasn't
-    ; selected the last time we were on this page
+    ; 首次进入页面，或上次访问时
+    ; 未选择第二个按钮，
+    ; 则选中第一个单选按钮。
     ${If} $ReinstallPageCheck <> 2
       SendMessage $R2 ${BM_SETCHECK} ${BST_CHECKED} 0
     ${Else}
@@ -310,20 +310,20 @@ FunctionEnd
 Function PageLeaveReinstall
   ${NSD_GetState} $R2 $R1
 
-  ; If migrating from Wix, always uninstall
+  ; 从 WiX 迁移时始终卸载。
   ${If} $WixMode = 1
     Goto reinst_uninstall
   ${EndIf}
 
-  ; In update mode, always proceeds without uninstalling
+  ; 更新模式下始终直接继续，不卸载。
   ${If} $UpdateMode = 1
     Goto reinst_done
   ${EndIf}
 
-  ; $R0 holds whether same(0)/upgrading(1)/downgrading(-1) version
-  ; $R1 holds the radio buttons state:
-  ;   1 => first choice was selected
-  ;   0 => second choice was selected
+  ; $R0 保存版本关系：相同为 0，升级为 1，降级为 -1。
+  ; $R1 保存单选按钮状态：
+  ;   1 => 选择了第一项
+  ;   0 => 选择了第二项
   ${If} $R0 = 0 ; Same version, proceed
     ${If} $R1 = 1              ; User chose to add/reinstall
       Goto reinst_done
@@ -366,29 +366,29 @@ Function PageLeaveReinstall
 
     ${If} $0 <> 0
     ${OrIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
-      ; User cancelled wix uninstaller? return to select un/reinstall page
+      ; 用户取消 WiX 卸载时返回卸载或重装选择页。
       ${If} $WixMode = 1
       ${AndIf} $0 = 1602
         Abort
       ${EndIf}
 
-      ; User cancelled NSIS uninstaller? return to select un/reinstall page
+      ; 用户取消 NSIS 卸载时返回卸载或重装选择页。
       ${If} $0 = 1
         Abort
       ${EndIf}
 
-      ; Other erros? show generic error message and return to select un/reinstall page
+      ; 其他错误则显示通用错误消息，并返回卸载或重装选择页。
       MessageBox MB_ICONEXCLAMATION "$(unableToUninstall)"
       Abort
     ${EndIf}
   reinst_done:
 FunctionEnd
 
-; 5. Choose install directory page
+; 5. 选择安装目录页
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !insertmacro MUI_PAGE_DIRECTORY
 
-; 6. Start menu shortcut page
+; 6. 开始菜单快捷方式页
 Var AppStartMenuFolder
 !if "${STARTMENUFOLDER}" != ""
   !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
@@ -398,19 +398,19 @@ Var AppStartMenuFolder
 !endif
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
 
-; 7. Installation page
+; 7. 安装页
 !insertmacro MUI_PAGE_INSTFILES
 
-; 8. Finish page
+; 8. 完成页
 ;
-; Don't auto jump to finish page after installation page,
-; because the installation page has useful info that can be used debug any issues with the installer.
+; 安装页结束后不自动跳转完成页，
+; 因为安装页包含可用于调试安装问题的信息。
 !define MUI_FINISHPAGE_NOAUTOCLOSE
-; Use show readme button in the finish page as a button create a desktop shortcut
+; 将完成页的显示自述文件按钮用作创建桌面快捷方式按钮。
 !define MUI_FINISHPAGE_SHOWREADME
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "$(createDesktop)"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateOrUpdateDesktopShortcut
-; Show run app after installation.
+; 显示安装后运行应用选项。
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
@@ -420,20 +420,20 @@ Function RunMainBinary
   nsis_tauri_utils::RunAsUser "$INSTDIR\harness-shell-launcher.exe" ""
 FunctionEnd
 
-; Uninstaller Pages
-; 1. Confirm uninstall page
+; 卸载程序页面
+; 1. 确认卸载页
 Var DeleteAppDataCheckbox
 Var DeleteAppDataCheckboxState
 !define /ifndef WS_EX_LAYOUTRTL         0x00400000
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
 Function un.ConfirmShow ; Add add a `Delete app data` check box
-  ; $1 inner dialog HWND
-  ; $2 window DPI
-  ; $3 style
+  ; $1 为内部对话框 HWND
+  ; $2 为窗口 DPI
+  ; $3 为样式
   ; $4 x
   ; $5 y
-  ; $6 width
-  ; $7 height
+  ; $6 为宽度
+  ; $7 为高度
   FindWindow $1 "#32770" "" $HWNDPARENT ; Find inner dialog
   System::Call "user32::GetDpiForWindow(p r1) i .r2"
   ${If} $(^RTL) = 1
@@ -462,10 +462,10 @@ FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
 !insertmacro MUI_UNPAGE_CONFIRM
 
-; 2. Uninstalling Page
+; 2. 正在卸载页
 !insertmacro MUI_UNPAGE_INSTFILES
 
-;Languages
+; 语言
 {{#each languages}}
 !insertmacro MUI_LANGUAGE "{{this}}"
 {{/each}}
@@ -497,7 +497,7 @@ Function .onInit
   !insertmacro SetContext
 
   ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"
-    ; Set default install location
+    ; 设置默认安装位置
     !if "${INSTALLMODE}" == "perMachine"
       ${If} ${RunningX64}
         !if "${ARCH}" == "x64"
@@ -525,10 +525,10 @@ FunctionEnd
 
 
 Section EarlyChecks
-  ; Abort silent installer if downgrades is disabled
+  ; 禁止降级时中止静默安装。
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
-    ; If downgrading
+    ; 正在降级时
     ${If} $R0 = -1
       System::Call 'kernel32::AttachConsole(i -1)i.r0'
       ${If} $0 <> 0
@@ -544,7 +544,7 @@ Section EarlyChecks
 SectionEnd
 
 Section WebView2
-  ; Check if Webview2 is already installed and skip this section
+  ; 检查 WebView2 是否已安装，已安装则跳过本节。
   ${If} ${RunningX64}
     ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
   ${Else}
@@ -555,9 +555,9 @@ Section WebView2
   ${EndIf}
 
   ${If} $4 == ""
-    ; Webview2 installation
+    ; 安装 WebView2
     ;
-    ; Skip if updating
+    ; 更新时跳过
     ${If} $UpdateMode <> 1
       !if "${INSTALLWEBVIEW2MODE}" == "downloadBootstrapper"
         Delete "$TEMP\MicrosoftEdgeWebview2Setup.exe"
@@ -594,7 +594,7 @@ Section WebView2
 
       install_webview2:
         DetailPrint "$(installingWebview2)"
-        ; $6 holds the path to the webview2 installer
+        ; $6 保存 WebView2 安装程序路径。
         ExecWait "$6 ${WEBVIEW2INSTALLERARGS} /install" $1
         ${If} $1 = 0
           DetailPrint "$(webview2InstallSuccess)"
@@ -619,8 +619,8 @@ Section WebView2
             ReadRegStr $R1 HKCU "SOFTWARE\Microsoft\EdgeUpdate" "path"
           ${EndIf}
           ${If} $R1 != ""
-            ; Chromium updater docs: https://source.chromium.org/chromium/chromium/src/+/main:docs/updater/user_manual.md
-            ; Modified from "HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView\ModifyPath"
+            ; Chromium 更新程序文档：https://source.chromium.org/chromium/chromium/src/+/main:docs/updater/user_manual.md
+            ; 修改自注册表 HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Microsoft EdgeWebView\\ModifyPath。
             ExecWait `"$R1" /install appguid=${WEBVIEW2APPGUID}&needsadmin=true` $1
             ${If} $1 = 0
               DetailPrint "$(webview2InstallSuccess)"
@@ -644,10 +644,10 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-  ; Copy main executable
+  ; 复制主可执行文件
   File "${MAINBINARYSRCPATH}"
 
-  ; Copy resources
+  ; 复制资源
   {{#each resources_dirs}}
     CreateDirectory "$INSTDIR\\{{this}}"
   {{/each}}
@@ -655,19 +655,19 @@ Section Install
     File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
   {{/each}}
 
-  ; Copy external binaries
+  ; 复制外部二进制文件
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
   {{/each}}
 
-  ; Create file associations
+  ; 创建文件关联
   {{#each file_associations as |association| ~}}
     {{#each association.ext as |ext| ~}}
        !insertmacro APP_ASSOCIATE "{{ext}}" "{{or association.name ext}}" "{{association-description association.description ext}}" "$INSTDIR\${MAINBINARYNAME}.exe,0" "Open with ${PRODUCTNAME}" "$INSTDIR\${MAINBINARYNAME}.exe $\"%1$\""
     {{/each}}
   {{/each}}
 
-  ; Register deep links
+  ; 注册深层链接
   {{#each deep_link_protocols as |protocol| ~}}
     WriteRegStr SHCTX "Software\Classes\\{{protocol}}" "URL Protocol" ""
     WriteRegStr SHCTX "Software\Classes\\{{protocol}}" "" "URL:${BUNDLEID} protocol"
@@ -675,29 +675,29 @@ Section Install
     WriteRegStr SHCTX "Software\Classes\\{{protocol}}\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
   {{/each}}
 
-  ; Create uninstaller
+  ; 创建卸载程序
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
-  ; Save $INSTDIR in registry for future installations
+  ; 将 $INSTDIR 保存到注册表，供后续安装使用。
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR
 
   !if "${INSTALLMODE}" == "both"
-    ; Save install mode to be selected by default for the next installation such as updating
-    ; or when uninstalling
+    ; 保存安装模式，以便下次安装（例如更新）
+    ; 或卸载时默认选择。
     WriteRegStr SHCTX "${UNINSTKEY}" $MultiUser.InstallMode 1
   !endif
 
-  ; Remove old main binary if it doesn't match new main binary name
+  ; 旧主程序名称与新名称不同时移除旧主程序。
   ReadRegStr $OldMainBinaryName SHCTX "${UNINSTKEY}" "MainBinaryName"
   ${If} $OldMainBinaryName != ""
   ${AndIf} $OldMainBinaryName != "${MAINBINARYNAME}.exe"
     Delete "$INSTDIR\$OldMainBinaryName"
   ${EndIf}
 
-  ; Save current MAINBINARYNAME for future updates
+  ; 保存当前 MAINBINARYNAME，供后续更新使用。
   WriteRegStr SHCTX "${UNINSTKEY}" "MainBinaryName" "${MAINBINARYNAME}.exe"
 
-  ; Registry information for add/remove programs
+  ; 添加或删除程序所需的注册表信息
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayName" "${PRODUCTNAME}"
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayIcon" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\""
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
@@ -718,13 +718,13 @@ Section Install
     WriteRegStr SHCTX "${UNINSTKEY}" "HelpLink" "${HOMEPAGE}"
   !endif
 
-  ; Create start menu shortcut
+  ; 创建开始菜单快捷方式
   !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
     Call CreateOrUpdateStartMenuShortcut
   !insertmacro MUI_STARTMENU_WRITE_END
 
-  ; Create desktop shortcut for silent and passive installers
-  ; because finish page will be skipped
+  ; 为静默和被动安装创建桌面快捷方式，
+  ; 因为完成页会被跳过。
   ${If} $PassiveMode = 1
   ${OrIf} ${Silent}
     Call CreateOrUpdateDesktopShortcut
@@ -734,15 +734,15 @@ Section Install
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
-  ; Auto close this page for passive mode
+  ; 被动模式下自动关闭本页。
   ${If} $PassiveMode = 1
     SetAutoClose true
   ${EndIf}
 SectionEnd
 
 Function .onInstSuccess
-  ; Check for `/R` flag only in silent and passive installers because
-  ; GUI installer has a toggle for the user to (re)start the app
+  ; 仅在静默和被动安装中检查 /R 标志，
+  ; 图形安装界面已有供用户启动或重启应用的选项。
   ${If} $PassiveMode = 1
   ${OrIf} ${Silent}
     ${GetOptions} $CMDLINE "/R" $R0
@@ -781,28 +781,28 @@ Section Uninstall
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-  ; Delete the app directory and its content from disk
-  ; Copy main executable
+  ; 从磁盘删除应用目录及其内容。
+  ; 复制主可执行文件
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
 
-  ; Delete resources
+  ; 删除资源
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"
   {{/each}}
 
-  ; Delete external binaries
+  ; 删除外部二进制文件
   {{#each binaries}}
     Delete "$INSTDIR\\{{this}}"
   {{/each}}
 
-  ; Delete app associations
+  ; 删除应用文件关联
   {{#each file_associations as |association| ~}}
     {{#each association.ext as |ext| ~}}
       !insertmacro APP_UNASSOCIATE "{{ext}}" "{{or association.name ext}}"
     {{/each}}
   {{/each}}
 
-  ; Delete deep links
+  ; 删除深层链接
   {{#each deep_link_protocols as |protocol| ~}}
     ReadRegStr $R7 SHCTX "Software\Classes\\{{protocol}}\shell\open\command" ""
     ${If} $R7 == "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
@@ -811,7 +811,7 @@ Section Uninstall
   {{/each}}
 
 
-  ; Delete uninstaller
+  ; 删除卸载程序
   Delete "$INSTDIR\uninstall.exe"
 
   {{#each resources_ancestors}}
@@ -819,11 +819,11 @@ Section Uninstall
   {{/each}}
   RMDir "$INSTDIR"
 
-  ; Remove shortcuts if not updating
+  ; 非更新时移除快捷方式
   ${If} $UpdateMode <> 1
     !insertmacro DeleteAppUserModelId
 
-    ; Remove the single Launcher-owned start menu shortcut.
+    ; 移除唯一的 Launcher 开始菜单快捷方式。
     !insertmacro IsShortcutTarget "$SMPROGRAMS\Harness Shell.lnk" "$INSTDIR\harness-shell-launcher.exe"
     Pop $0
     ${If} $0 = 1
@@ -831,7 +831,7 @@ Section Uninstall
       Delete "$SMPROGRAMS\Harness Shell.lnk"
     ${EndIf}
 
-    ; Remove the Launcher-owned desktop shortcut.
+    ; 移除 Launcher 桌面快捷方式。
     !insertmacro IsShortcutTarget "$DESKTOP\Harness Shell.lnk" "$INSTDIR\harness-shell-launcher.exe"
     Pop $0
     ${If} $0 = 1
@@ -840,7 +840,7 @@ Section Uninstall
     ${EndIf}
   ${EndIf}
 
-  ; Remove registry information for add/remove programs
+  ; 移除添加或删除程序所需的注册表信息。
   !if "${INSTALLMODE}" == "both"
     DeleteRegKey SHCTX "${UNINSTKEY}"
   !else if "${INSTALLMODE}" == "perMachine"
@@ -849,23 +849,23 @@ Section Uninstall
     DeleteRegKey HKCU "${UNINSTKEY}"
   !endif
 
-  ; Removes the Autostart entry for ${PRODUCTNAME} from the HKCU Run key if it exists.
-  ; This ensures the program does not launch automatically after uninstallation if it exists.
-  ; If it doesn't exist, it does nothing.
-  ; We do this when not updating (to preserve the registry value on updates)
+  ; HKCU Run 键中存在 ${PRODUCTNAME} 自动启动项时将其移除，
+  ; 确保卸载后程序不会自动启动。
+  ; 该项不存在时不执行任何操作。
+  ; 仅在非更新时执行，以保留更新期间的注册表值。
   ${If} $UpdateMode <> 1
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   ${EndIf}
 
-  ; Delete app data if the checkbox is selected
-  ; and if not updating
+  ; 选中复选框且
+  ; 并非更新时删除应用数据。
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1
-    ; Clear the install location $INSTDIR from registry
+    ; 从注册表清除安装位置 $INSTDIR。
     DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty SHCTX "${MANUKEY}"
 
-    ; Clear the install language from registry
+    ; 从注册表清除安装语言。
     DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
     DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty HKCU "${MANUKEY}"
@@ -879,7 +879,7 @@ Section Uninstall
     !insertmacro NSIS_HOOK_POSTUNINSTALL
   !endif
 
-  ; Auto close if passive mode or updating
+  ; 被动模式或更新时自动关闭。
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
     SetAutoClose true
@@ -904,7 +904,7 @@ Function un.SkipIfPassive
 FunctionEnd
 
 Function CreateOrUpdateStartMenuShortcut
-  ; Harness Shell exposes exactly one user entry owned by the Launcher.
+  ; Harness Shell 仅暴露一个由 Launcher 拥有的用户入口。
   ${If} $WixMode = 0
     ${If} $UpdateMode = 1
     ${OrIf} $NoShortcutMode = 1
@@ -917,8 +917,8 @@ Function CreateOrUpdateStartMenuShortcut
 FunctionEnd
 
 Function CreateOrUpdateDesktopShortcut
-  ; We used to use product name as MAINBINARYNAME
-  ; migrate old shortcuts to target the new MAINBINARYNAME
+  ; 旧版使用产品名作为 MAINBINARYNAME，
+  ; 将旧快捷方式迁移为指向新的 MAINBINARYNAME。
   !insertmacro IsShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
   Pop $0
   ${If} $0 = 1
@@ -926,8 +926,8 @@ Function CreateOrUpdateDesktopShortcut
     Return
   ${EndIf}
 
-  ; Skip creating shortcut if in update mode or no shortcut mode
-  ; but always create if migrating from wix
+  ; 更新模式或无快捷方式模式下跳过创建快捷方式，
+  ; 但从 WiX 迁移时始终创建。
   ${If} $WixMode = 0
     ${If} $UpdateMode = 1
     ${OrIf} $NoShortcutMode = 1

@@ -12,6 +12,9 @@ export type AgentRunStatus =
   | "CANCELLED";
 
 export type ModelApiConfigInput = {
+  context_window_size: number;
+  context_compaction_threshold_ratio: number;
+  max_output_tokens: number;
   display_name: string;
   api_type: ApiType;
   base_url: string;
@@ -186,6 +189,9 @@ type WireModelApiConfig = WireModelApiConfigInput & {
 const toWireInput = (input: ModelApiConfigInput): WireModelApiConfigInput => ({
   display_name: input.display_name,
   api_type: input.api_type,
+  context_window_size: input.context_window_size,
+  context_compaction_threshold_ratio: input.context_compaction_threshold_ratio,
+  max_output_tokens: input.max_output_tokens,
   base_url: input.base_url,
   model: input.model,
   enabled: input.enabled,
@@ -201,6 +207,9 @@ const toWireTurnInput = (input: RunAgentTurnInput) => ({
 const fromWireConfig = (value: WireModelApiConfig): ModelApiConfig => ({
   display_name: value.display_name,
   api_type: value.api_type,
+  context_window_size: value.context_window_size,
+  context_compaction_threshold_ratio: value.context_compaction_threshold_ratio,
+  max_output_tokens: value.max_output_tokens,
   base_url: value.base_url,
   model: value.model,
   api_key_secret_ref: value.api_key_credential_id,

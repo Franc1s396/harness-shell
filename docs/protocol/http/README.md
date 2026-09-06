@@ -21,6 +21,22 @@
 - Manual SFTP binary chunk 只用 `application/octet-stream`；不存在 Base64 binary route、generic RPC、alternate transport 或 fallback。
 - 当前没有 HTTP authentication、TLS、remote bind、daemon 或 Windows Service 支持。
 
+## Provider 上下文配置
+
+`/v1/agent/api-configs` 的创建、更新、列表响应包含：
+
+```json
+{
+  "context_window_size": 128000,
+  "context_compaction_threshold_ratio": 0.75,
+  "max_output_tokens": 8192
+}
+```
+
+创建/更新省略字段采用上述默认值。token 字段必须为正 JS-safe 整数，比例为 0 与 1 之间的有限数，并满足 `1 <= floor(context_window_size * context_compaction_threshold_ratio) <= context_window_size - max_output_tokens`。UI 使用百分比编辑。此配置随本轮 Provider snapshot 冻结。
+
+上下文不新增 endpoint 或 SSE event。开始后的摘要失败、预算超限、摘要持久化校验失败分别以现有 failed event 携带 `CONTEXT_COMPACTION_FAILED`、`CONTEXT_BUDGET_EXCEEDED`、`CONTEXT_SUMMARY_INVALID` 及 safe_message。`CONTEXT_TOKENIZER_UNAVAILABLE` 是初始化失败，阻止 Backend READY。数据库升级为 fresh-only v7，旧数据目录不会迁移。
+
 ## Agent turn SSE
 
 `POST /v1/agent/turns` 保持原 JSON request body，并要求以下 header：

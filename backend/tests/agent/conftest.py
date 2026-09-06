@@ -14,7 +14,7 @@ from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 @dataclass(frozen=True, slots=True)
 class AgentStorage:
-    """Own one isolated Agent database and its plaintext record store for a test."""
+    """为测试拥有独立 Agent 数据库及其明文记录存储。"""
 
     database: RuntimeDatabase
     record_store: PlaintextRecordStore
@@ -24,7 +24,7 @@ class AgentStorage:
 
 @pytest.fixture
 def agent_storage(tmp_path: Path) -> AgentStorage:
-    """Create and deterministically close one schema-v6 Agent storage fixture."""
+    """创建并确定性关闭 Agent 存储 fixture。"""
 
     database = RuntimeDatabase.open_plaintext((tmp_path / "agent.sqlite3").resolve())
     record_store = PlaintextRecordStore(database)
@@ -41,7 +41,7 @@ def agent_storage(tmp_path: Path) -> AgentStorage:
 
 
 def valid_api_config_input() -> ModelApiConfigInput:
-    """Build one enabled Chat Completions configuration with an opaque key reference."""
+    """构建已启用且带不透明密钥引用的 Chat Completions 配置。"""
 
     return ModelApiConfigInput(
         display_name="test provider",

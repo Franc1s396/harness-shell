@@ -1,4 +1,4 @@
-"""Strict public identity request models for SSH operations."""
+"""SSH 操作的严格公开标识请求模型。"""
 
 from __future__ import annotations
 
@@ -8,27 +8,27 @@ from pydantic import BaseModel, ConfigDict
 
 
 class HostKeyInspectionRequest(BaseModel):
-    """Locate one profile whose direct or single-hop Host Key is inspected."""
+    """定位需要检查直连或单层跳板 Host Key 的配置。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    #: Target connection profile identity.
+    #: 目标连接配置标识。
     connection_id: UUID
 
 
 class SshConnectRequest(BaseModel):
-    """Locate one profile whose credentials Python resolves internally."""
+    """定位由 Python 内部解析凭据的配置。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    #: Target connection profile identity.
+    #: 目标连接配置标识。
     connection_id: UUID
 
 
 class SshSessionRequest(BaseModel):
-    """Locate one active SSH session."""
+    """定位活动 SSH 会话。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    #: Active SSH session identity.
+    #: 活动 SSH 会话标识。
     ssh_session_id: UUID

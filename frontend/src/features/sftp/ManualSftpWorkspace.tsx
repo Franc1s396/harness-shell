@@ -205,7 +205,7 @@ export function ManualSftpWorkspace({
             setDialog({ kind: "closed" });
           } catch (error) {
             if (normalizeManualSftpError(error).code === "SFTP_TARGET_EXISTS") {
-              // A separate confirmed command is required so Rust reacquires the target and hash.
+              // 需要单独确认后重新核对远程目标和哈希。
               setDialog({ kind: "renameOverwrite", entry, targetPath });
               return;
             }

@@ -1,4 +1,4 @@
-"""Canonical AsyncSSH Host Key capture and comparison."""
+"""规范 AsyncSSH Host Key 捕获与比较。"""
 
 from __future__ import annotations
 
@@ -105,6 +105,6 @@ class VerifiedHostKeyClient(asyncssh.SSHClient):
 
 
 def empty_known_hosts() -> asyncssh.SSHKnownHosts:
-    """Return a truthy, explicit empty store so AsyncSSH invokes our callback."""
+    """返回真值的显式空存储，让 AsyncSSH 调用本项目回调。"""
 
     return asyncssh.import_known_hosts("")

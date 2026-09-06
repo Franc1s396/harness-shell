@@ -12,7 +12,7 @@ from harness_shell_sidecar.web.errors import HttpProblem
 from harness_shell_sidecar.web.routes.manual_sftp import read_exact_binary_body
 
 def request_headers(**overrides: str) -> dict[str, str]:
-    """Create strict request headers for one HTTP application operation."""
+    """为 HTTP 应用操作创建严格请求头。"""
 
     headers = {"X-Request-ID": str(uuid4())}
     headers.update(overrides)
@@ -20,13 +20,13 @@ def request_headers(**overrides: str) -> dict[str, str]:
 
 
 def runtime_resources(client):
-    """Return the autonomous runtime resource graph."""
+    """返回自主初始化的运行时资源图。"""
 
     return client.app.state.runtime_owner.require_resources()
 
 
 class _ChunkApplication:
-    """Record raw chunks and return deterministic typed binary projections."""
+    """记录原始分块，并返回确定性 typed 二进制投影。"""
 
     def __init__(self) -> None:
         self.uploads: list[bytes] = []

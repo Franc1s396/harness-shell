@@ -31,7 +31,7 @@ from harness_shell_sidecar.agent.tools import (
     ],
 )
 def test_direct_danger_patterns_are_rejected(command: str) -> None:
-    """Reject exactly the approved direct dangerous command examples."""
+    """精确拒绝批准的直接危险命令示例。"""
 
     with pytest.raises(CommandRejected) as error:
         CommandSafetyReviewer().review(command)
@@ -44,7 +44,7 @@ def test_direct_danger_patterns_are_rejected(command: str) -> None:
     ["ls -la", "docker --version", "docker ps", "pwd", "uname -a"],
 )
 def test_ordinary_examples_pass_the_regex(command: str) -> None:
-    """Allow ordinary examples which do not match the approved regex."""
+    """允许未命中批准正则的普通示例。"""
 
     CommandSafetyReviewer().review(command)
 
@@ -61,14 +61,14 @@ def test_ordinary_examples_pass_the_regex(command: str) -> None:
     ],
 )
 def test_execute_command_arguments_are_strict(value: dict[str, object]) -> None:
-    """Reject implicit coercion, NUL, invalid lengths, and unknown options."""
+    """拒绝隐式强制转换、NUL、非法长度和未知选项。"""
 
     with pytest.raises(ValidationError):
         ExecuteCommandArguments.model_validate(value)
 
 
 def test_execute_command_arguments_preserve_original_text() -> None:
-    """Preserve whitespace and spelling before the safety regex sees a command."""
+    """命令进入安全正则前保留空白和原始拼写。"""
 
     command = "  printf 'MiXeD'  "
     validated = ExecuteCommandArguments(command=command)
@@ -77,13 +77,15 @@ def test_execute_command_arguments_preserve_original_text() -> None:
 
 
 def test_tool_message_uses_versioned_json_and_original_call_id() -> None:
-    """Encode one immutable envelope as JSON paired to the model tool call."""
+    """将不可变信封编码为 JSON，并与模型工具调用配对。"""
 
     envelope = CommandToolEnvelope(
         ok=True,
         code="COMMAND_COMPLETED",
         message="Remote command finished.",
         result=CommandExecutionResult(
+                stdout_truncation=dict(truncated=False, original_chars=0, retained_chars=0, omitted_chars=0),
+                stderr_truncation=dict(truncated=False, original_chars=6, retained_chars=6, omitted_chars=0),
             command="false",
             exit_code=1,
             exit_signal=None,
@@ -102,7 +104,7 @@ def test_tool_message_uses_versioned_json_and_original_call_id() -> None:
 
 
 def test_execute_command_tool_definition_is_provider_neutral_and_strict() -> None:
-    """Expose one reviewed schema without binding it to LangChain or an API shape."""
+    """暴露已审查 schema，不绑定 LangChain 或 API 结构。"""
 
     definition = build_execute_command_tool_definition()
 
@@ -110,7 +112,7 @@ def test_execute_command_tool_definition_is_provider_neutral_and_strict() -> Non
     assert definition.strict is True
     assert definition.parameters == {
         "additionalProperties": False,
-        "description": "Validate the only model-controlled argument accepted by the SSH tool.",
+        "description": "校验 SSH 工具唯一接受的模型控制参数。",
         "properties": {
             "command": {
                 "description": "Complete raw shell command passed without normalization.",
@@ -124,3 +126,20 @@ def test_execute_command_tool_definition_is_provider_neutral_and_strict() -> Non
         "title": "ExecuteCommandArguments",
         "type": "object",
     }
+
+
+def test_clip_output_preserves_unicode_prefix_and_metadata() -> None:
+    from harness_shell_sidecar.agent.tools import clip_output
+    prefix, meta = clip_output("中🙂" * 3001, 6000)
+    assert prefix == "中🙂" * 3000
+    assert meta.model_dump() == {"truncated": True, "original_chars": 6002,
+                                "retained_chars": 6000, "omitted_chars": 2}
+
+
+@pytest.mark.parametrize("length", [0, 5999, 6000, 6001])
+def test_clip_output_boundary(length: int) -> None:
+    from harness_shell_sidecar.agent.tools import clip_output
+    text, meta = clip_output("x" * length, 6000)
+    assert len(text) == min(length, 6000)
+    assert meta.truncated == (length > 6000)
+    assert meta.omitted_chars == max(length - 6000, 0)

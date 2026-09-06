@@ -14,13 +14,13 @@ from harness_shell_sidecar.web.errors import HttpProblem
 
 
 def headers(request_id: UUID | None = None) -> dict[str, str]:
-    """Create the required HTTP request-correlation header."""
+    """创建必需 HTTP 请求关联头。"""
 
     return {"X-Request-ID": str(request_id or uuid4())}
 
 
 def assert_correlated(response, request_id: UUID) -> dict[str, object]:
-    """Assert the header/body correlation invariant and return decoded JSON."""
+    """断言响应头与正文关联不变量，并返回解码 JSON。"""
 
     body = response.json()
     assert response.headers["X-Request-ID"] == str(request_id)
@@ -96,7 +96,7 @@ def test_dispatch_failures_preserve_fixed_http_status(
     error_code: str,
     expected_status: int,
 ) -> None:
-    """Keep stable dispatcher and domain failures in their fixed categories."""
+    """保持稳定 dispatcher 和领域失败归入固定类别。"""
 
     class RejectingDispatcher:
         async def dispatch(self, *_args, **_kwargs):

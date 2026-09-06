@@ -17,7 +17,7 @@ from harness_shell_sidecar.web.sse import encode_sse_event
 
 
 def _run(status: AgentRunStatus, *, error_code: str | None = None) -> AgentRun:
-    """Build one immutable durable Run snapshot for stream ownership tests."""
+    """为流所有权测试构建不可变持久化 Run 快照。"""
 
     now = datetime.now(UTC)
     return AgentRun(
@@ -34,7 +34,7 @@ def _run(status: AgentRunStatus, *, error_code: str | None = None) -> AgentRun:
 
 
 def test_encoder_writes_fixed_three_lines_with_lf() -> None:
-    """Catch framing changes that would make the strict React parser diverge."""
+    """捕捉会使严格 React 解析器产生偏差的分帧变化。"""
 
     event = AgentTurnTextDeltaEvent(
         request_id=UUID("10000000-0000-4000-8000-000000000001"),
@@ -54,7 +54,7 @@ def test_encoder_writes_fixed_three_lines_with_lf() -> None:
 
 
 class FakeTurnApplication:
-    """Drive one stream lifecycle without Provider, SSH, or persistence I/O."""
+    """不访问 Provider、SSH 或持久化 I/O，驱动流生命周期。"""
 
     def __init__(
         self,
@@ -63,7 +63,7 @@ class FakeTurnApplication:
         block_after_start: bool = False,
         delta_count: int = 1,
     ) -> None:
-        """Configure one deterministic preflight, cancellation, or queue scenario."""
+        """配置确定性预检、取消或队列场景。"""
 
         self.fail_before_start = fail_before_start
         self.block_after_start = block_after_start
@@ -82,7 +82,7 @@ class FakeTurnApplication:
         _params: Mapping[str, object],
         sink,
     ) -> None:
-        """Publish the configured lifecycle and expose producer backpressure."""
+        """发布配置的生命周期并暴露生产者背压。"""
 
         if self.fail_before_start:
             raise DispatchError("MODEL_API_CONFIG_NOT_FOUND", "missing")
@@ -110,7 +110,7 @@ class FakeTurnApplication:
 
 
 def _session(application: FakeTurnApplication) -> AgentTurnStreamSession:
-    """Create one isolated dispatcher-owned stream session."""
+    """创建独立且归 dispatcher 所有的流会话。"""
 
     return AgentTurnStreamSession(
         request_id=uuid4(),
@@ -121,7 +121,7 @@ def _session(application: FakeTurnApplication) -> AgentTurnStreamSession:
 
 
 def test_session_surfaces_preflight_failure_before_a_body_exists() -> None:
-    """Prevent HTTP 200 when application validation fails before durable RUNNING."""
+    """持久化 RUNNING 前应用校验失败时禁止 HTTP 200。"""
 
     async def scenario() -> None:
         session = _session(FakeTurnApplication(fail_before_start=True))
@@ -136,7 +136,7 @@ def test_session_surfaces_preflight_failure_before_a_body_exists() -> None:
 
 
 def test_session_first_body_frame_is_started() -> None:
-    """Make durable RUNNING correlation the first byte-visible stream event."""
+    """让持久化 RUNNING 关联成为首个字节可见流事件。"""
 
     async def scenario() -> None:
         session = _session(FakeTurnApplication())
@@ -152,7 +152,7 @@ def test_session_first_body_frame_is_started() -> None:
 
 
 def test_session_close_cancels_and_awaits_the_worker() -> None:
-    """Prevent a disconnected HTTP consumer from orphaning Agent work."""
+    """防止 HTTP 消费者断连后遗留 Agent 工作。"""
 
     async def scenario() -> None:
         application = FakeTurnApplication(block_after_start=True)
@@ -169,7 +169,7 @@ def test_session_close_cancels_and_awaits_the_worker() -> None:
 
 
 def test_queue_capacity_applies_backpressure_without_dropping_deltas() -> None:
-    """Block the producer at capacity and resume it after one consumer read."""
+    """容量满时阻塞生产者，消费者读取一次后恢复。"""
 
     async def scenario() -> None:
         application = FakeTurnApplication(delta_count=64)
@@ -191,10 +191,10 @@ def test_queue_capacity_applies_backpressure_without_dropping_deltas() -> None:
 
 
 def test_single_frame_limit_fails_without_truncating_delta() -> None:
-    """Reject an oversized visible event at the producer boundary."""
+    """在生产者边界拒绝超大可见事件。"""
 
     class OversizedApplication(FakeTurnApplication):
-        """Publish one delta which cannot fit in a single SSE frame."""
+        """发布无法装入单个 SSE 帧的增量。"""
 
         async def run(
             self,
@@ -202,7 +202,7 @@ def test_single_frame_limit_fails_without_truncating_delta() -> None:
             _params: Mapping[str, object],
             sink,
         ) -> None:
-            """Trigger the publisher's frame limit after started."""
+            """started 后触发发布器帧上限。"""
 
             await sink.started(self.run_snapshot)
             await sink.text_delta("x" * 65_536)
@@ -222,7 +222,7 @@ def test_single_frame_limit_fails_without_truncating_delta() -> None:
 
 
 def test_dispatcher_shutdown_interrupts_a_backpressured_producer() -> None:
-    """Converge shutdown even when no HTTP consumer drains a full queue."""
+    """即使没有 HTTP 消费者排空满队列也能收敛关闭。"""
 
     async def scenario() -> None:
         dispatcher = RequestDispatcher()
@@ -246,10 +246,10 @@ def test_dispatcher_shutdown_interrupts_a_backpressured_producer() -> None:
 
 
 def test_cancelling_start_cancels_and_awaits_the_worker() -> None:
-    """Do not retain application work when HTTP startup itself is cancelled."""
+    """HTTP 启动本身取消时不保留应用工作。"""
 
     class StartupBlockingApplication(FakeTurnApplication):
-        """Block before durable start so the route startup task can be cancelled."""
+        """在持久化启动前阻塞，让路由启动任务可被取消。"""
 
         async def run(
             self,
@@ -257,7 +257,7 @@ def test_cancelling_start_cancels_and_awaits_the_worker() -> None:
             _params: Mapping[str, object],
             _sink,
         ) -> None:
-            """Expose cancellation before the first event is published."""
+            """首个事件发布前暴露取消。"""
 
             self.started.set()
             try:
@@ -282,7 +282,7 @@ def test_cancelling_start_cancels_and_awaits_the_worker() -> None:
 
 
 def test_shutdown_converges_after_terminal_refills_a_full_queue() -> None:
-    """Keep a terminal-full producer under dispatcher cancellation ownership."""
+    """终止队列已满的生产者仍归 dispatcher 取消管理。"""
 
     async def scenario() -> None:
         dispatcher = RequestDispatcher()
@@ -309,7 +309,7 @@ def test_shutdown_converges_after_terminal_refills_a_full_queue() -> None:
 
 
 def test_duplicate_request_id_remains_active_until_terminal_is_sent() -> None:
-    """Reject correlation reuse while the terminal frame is still queued."""
+    """终止帧仍排队时拒绝复用关联标识。"""
 
     async def scenario() -> None:
         dispatcher = RequestDispatcher()
@@ -336,7 +336,7 @@ def test_duplicate_request_id_remains_active_until_terminal_is_sent() -> None:
 
 
 def test_dispatcher_capacity_releases_only_after_consumer_completion() -> None:
-    """Count a queued terminal stream until its consumer reaches clean EOF."""
+    """消费者到达正常 EOF 前，已入队终止流仍占用容量。"""
 
     async def scenario() -> None:
         dispatcher = RequestDispatcher(capacity=1)
@@ -362,4 +362,4 @@ def test_dispatcher_capacity_releases_only_after_consumer_completion() -> None:
 
 
 async def _no_op_work(_context: RequestContext) -> None:
-    """Complete one dispatcher capacity probe without application effects."""
+    """完成 dispatcher 容量探测，不产生应用副作用。"""

@@ -1,4 +1,4 @@
-"""Strict public model tests for user-operated manual SFTP."""
+"""用户手动 SFTP 的严格公共模型测试。"""
 
 from __future__ import annotations
 

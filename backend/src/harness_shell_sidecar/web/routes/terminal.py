@@ -1,4 +1,4 @@
-"""Typed HTTP control routes for interactive PTY session lifecycle."""
+"""交互式 PTY 会话生命周期的 typed HTTP 控制路由。"""
 
 from __future__ import annotations
 
@@ -24,26 +24,26 @@ from ..models import PtySessionResponse
 
 
 class PtyOpenRequest(BaseModel):
-    """Bind a new PTY to one active SSH session and initial geometry."""
+    """将新 PTY 绑定到活动 SSH 会话和初始尺寸。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    #: Active SSH session that will own the PTY channel.
+    #: 将拥有 PTY 通道的活动 SSH 会话。
     ssh_session_id: UUID
-    #: Initial terminal columns.
+    #: 初始终端列数。
     cols: PtyCols
-    #: Initial terminal rows.
+    #: 初始终端行数。
     rows: PtyRows
 
 
 class PtyResizeRequest(BaseModel):
-    """Describe a bounded PTY geometry update."""
+    """描述有界 PTY 尺寸更新。"""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    #: Updated terminal columns.
+    #: 更新后的终端列数。
     cols: PtyCols
-    #: Updated terminal rows.
+    #: 更新后的终端行数。
     rows: PtyRows
 
 
@@ -63,7 +63,7 @@ async def open_pty_session(
     request_id: CorrelationId,
     owner: Owner,
 ) -> PtySessionResponse:
-    """Open one PTY channel on an explicitly selected SSH session."""
+    """在显式选择的 SSH 会话上打开 PTY 通道。"""
 
     value = validate_json_model(payload, PtyOpenRequest, request_id)
     result = await dispatch_application(
@@ -87,7 +87,7 @@ async def resize_pty_session(
     request_id: CorrelationId,
     owner: Owner,
 ) -> PtySessionResponse:
-    """Resize one active PTY without exposing its byte stream over HTTP."""
+    """调整活动 PTY 大小，不通过 HTTP 暴露字节流。"""
 
     value = validate_json_model(payload, PtyResizeRequest, request_id)
     params = value.model_dump(mode="json")
@@ -110,7 +110,7 @@ async def close_pty_session(
     request_id: CorrelationId,
     owner: Owner,
 ) -> PtySessionResponse:
-    """Close one active PTY and return its terminal snapshot."""
+    """关闭活动 PTY 并返回终态快照。"""
 
     result = await dispatch_application(
         owner,

@@ -1,4 +1,4 @@
-"""Typed deterministic fakes shared by Agent graph and gateway tests."""
+"""Agent 图和网关测试共享的 typed 确定性替身。"""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ _RESPONSE_EVENT_ADAPTER = TypeAdapter(ResponseStreamEvent)
 
 
 class RecordingTurnSink:
-    """Record lifecycle events and exact visible deltas for one test turn."""
+    """记录测试轮次的生命周期事件和精确可见增量。"""
 
     def __init__(self) -> None:
-        """Create an empty event timeline and streamed-text buffer."""
+        """创建空事件时间线和流式文本缓冲区。"""
 
         self.events: list[tuple[str, AgentRun | str]] = []
         self.parts: list[str] = []
@@ -30,39 +30,39 @@ class RecordingTurnSink:
 
     @property
     def streamed_text(self) -> str:
-        """Join the exact visible deltas in arrival order."""
+        """按到达顺序拼接精确可见增量。"""
 
         return "".join(self.parts)
 
     async def started(self, run: AgentRun) -> None:
-        """Record the durable RUNNING snapshot."""
+        """记录持久化 RUNNING 快照。"""
 
         self.events.append(("started", run))
 
     async def text_delta(self, delta: str) -> None:
-        """Record one exact visible delta."""
+        """记录精确可见增量。"""
 
         self.parts.append(delta)
         self.events.append(("delta", delta))
 
     async def completed(self, run: AgentRun) -> None:
-        """Record the durable successful terminal snapshot."""
+        """记录持久化成功终态快照。"""
 
         self.events.append(("completed", run))
 
     async def failed(self, run: AgentRun, message: str) -> None:
-        """Record the durable terminal snapshot and its reviewed public message."""
+        """记录持久化终态快照及已审查公开消息。"""
 
         self.events.append(("failed", run))
         self.failure_messages.append(message)
 
 
 async def instant_sleep(_: float) -> None:
-    """Complete retry delays immediately in deterministic tests."""
+    """在确定性测试中立即完成重试延时。"""
 
 
 def make_tool_call(call_id: str, command: str) -> dict[str, object]:
-    """Build one canonical LangChain execute_command call."""
+    """构建规范 LangChain execute_command 调用。"""
 
     return {
         "name": "execute_command",
@@ -73,7 +73,7 @@ def make_tool_call(call_id: str, command: str) -> dict[str, object]:
 
 
 def make_turn_input(*, conversation_id: UUID | None = None) -> AgentTurnInput:
-    """Build a valid graph-service input with fresh opaque IDs."""
+    """使用新不透明 ID 构建合法图服务输入。"""
 
     return AgentTurnInput(
         conversation_id=conversation_id,
@@ -84,16 +84,16 @@ def make_turn_input(*, conversation_id: UUID | None = None) -> AgentTurnInput:
 
 
 class FakeAsyncStream:
-    """Yield one deterministic event sequence and record deterministic closure."""
+    """产出确定性事件序列并记录确定性关闭。"""
 
     def __init__(self, events: Sequence[object]) -> None:
-        """Copy one event sequence for a single SDK request."""
+        """为单个 SDK 请求复制事件序列。"""
 
         self._events = list(events)
         self.closed = False
 
     async def __aenter__(self) -> FakeAsyncStream:
-        """Return this stream as the request-owned context manager."""
+        """将此流作为请求拥有的上下文管理器返回。"""
 
         return self
 
@@ -103,17 +103,17 @@ class FakeAsyncStream:
         _error: BaseException | None,
         _traceback: object | None,
     ) -> None:
-        """Close the stream for success, failure, or cancellation."""
+        """在成功、失败或取消时关闭流。"""
 
         await self.close()
 
     def __aiter__(self) -> AsyncIterator[object]:
-        """Return a fresh async iterator over the queued events."""
+        """返回遍历队列事件的新异步迭代器。"""
 
         return self._iterate()
 
     async def _iterate(self) -> AsyncIterator[object]:
-        """Yield events or raise a queued exception in order."""
+        """按序产出事件或抛出排队的异常。"""
 
         for event in self._events:
             if isinstance(event, asyncio.Event):
@@ -124,16 +124,16 @@ class FakeAsyncStream:
             yield event
 
     async def close(self) -> None:
-        """Record idempotent stream closure."""
+        """记录幂等流关闭。"""
 
         self.closed = True
 
 
 class RecordingSDKResource:
-    """Return queued streams while recording exact official SDK keyword arguments."""
+    """返回排队的流，同时记录精确官方 SDK 关键字参数。"""
 
     def __init__(self, outcomes: Sequence[Sequence[object]]) -> None:
-        """Copy one event list for every expected create call."""
+        """为每次预期 create 调用复制事件列表。"""
 
         self._outcomes = [list(outcome) for outcome in outcomes]
         self.calls = 0
@@ -141,7 +141,7 @@ class RecordingSDKResource:
         self.streams: list[FakeAsyncStream] = []
 
     async def create(self, **kwargs: object) -> FakeAsyncStream:
-        """Return the next stream without contacting a Provider."""
+        """返回下一个流，不联系 Provider。"""
 
         self.calls += 1
         self.kwargs.append(dict(kwargs))
@@ -153,16 +153,16 @@ class RecordingSDKResource:
 
 
 class _FakeChatNamespace:
-    """Expose the official `client.chat.completions` resource path."""
+    """暴露官方 client.chat.completions 资源路径。"""
 
     def __init__(self, outcomes: Sequence[Sequence[object]]) -> None:
-        """Create the Chat Completions recording resource."""
+        """创建记录调用的 Chat Completions 资源。"""
 
         self.completions = RecordingSDKResource(outcomes)
 
 
 class FakeOpenAIClient:
-    """Expose independent Chat and Responses resources without network access."""
+    """无需网络即可暴露独立 Chat 和 Responses 资源。"""
 
     def __init__(
         self,
@@ -170,30 +170,30 @@ class FakeOpenAIClient:
         chat_outcomes: Sequence[Sequence[object]],
         responses_outcomes: Sequence[Sequence[object]],
     ) -> None:
-        """Create isolated resource queues and an observable close flag."""
+        """创建独立资源队列和可观察关闭标志。"""
 
         self.chat = _FakeChatNamespace(chat_outcomes)
         self.responses = RecordingSDKResource(responses_outcomes)
         self.closed = False
 
     async def close(self) -> None:
-        """Record deterministic client cleanup."""
+        """记录确定性客户端清理。"""
 
         self.closed = True
 
 
 class RecordingOpenAIClientBuilder:
-    """Return queued fake clients and record exact AsyncOpenAI constructor kwargs."""
+    """返回排队的客户端替身，记录精确 AsyncOpenAI 构造参数。"""
 
     def __init__(self, clients: Sequence[FakeOpenAIClient]) -> None:
-        """Copy the expected client sequence for independent Gateway invocations."""
+        """为独立网关调用复制预期客户端序列。"""
 
         self._clients = list(clients)
         self.calls = 0
         self.kwargs: list[dict[str, object]] = []
 
     def __call__(self, **kwargs: object) -> AsyncOpenAI:
-        """Return the next client through the production constructor type."""
+        """通过生产构造器类型返回下一个客户端。"""
 
         self.calls += 1
         self.kwargs.append(dict(kwargs))
@@ -203,23 +203,23 @@ class RecordingOpenAIClientBuilder:
 
 
 def chat_chunk(*, content: str | None = None, finish_reason: str | None = None, tool_calls: list[dict[str, object]] | None = None) -> ChatCompletionChunk:
-    """Build a concrete SDK Chat chunk, including all required transport fields."""
+    """构建具体 SDK Chat 分块，包含全部必需传输字段。"""
     from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
     return ChatCompletionChunk(id="chat-test", choices=[Choice(index=0, delta=ChoiceDelta(content=content, tool_calls=tool_calls), finish_reason=finish_reason)], created=0, model="test-model", object="chat.completion.chunk")
 
 
 def response_event(kind: str, sequence: int, **fields: object) -> ResponseStreamEvent:
-    """Validate a complete fixture through the installed official SDK event union."""
+    """通过已安装官方 SDK 事件联合类型校验完整 fixture。"""
     return _RESPONSE_EVENT_ADAPTER.validate_python({"type": kind, "sequence_number": sequence, **fields})
 
 
 def response_body(output: list[dict[str, object]], status: str = "completed") -> dict[str, object]:
-    """Supply the official response's required fields without a real Provider."""
+    """无需真实 Provider 即提供官方响应的必需字段。"""
     return dict(id="resp-test", created_at=0, model="test-model", object="response", output=output, status=status, parallel_tool_calls=False, tool_choice="auto", tools=[])
 
 
 def responses_events(message: AIMessage) -> list[object]:
-    """Translate a graph-level answer to complete typed Responses output events."""
+    """将图级回答转换为完整 typed Responses 输出事件。"""
     events: list[object] = []
     output: list[dict[str, object]] = []
     if message.tool_calls:
@@ -243,21 +243,21 @@ def responses_events(message: AIMessage) -> list[object]:
 
 
 class FakeModelSequence:
-    """Queue graph answers; each SDK resource request consumes one answer."""
+    """将图回答排队；每个 SDK 资源请求消费一个回答。"""
 
     def __init__(self, outcomes: Sequence[object] | None = None) -> None:
-        """Retain queued outcomes and exact serialized SDK input history."""
+        """保留排队结果和精确序列化 SDK 输入历史。"""
         self.outcomes = list(outcomes or [])
         self.calls = 0
         self.message_calls: list[list[dict[str, object]]] = []
         self.streams: list[FakeAsyncStream] = []
 
     def queue(self, *outcomes: object) -> None:
-        """Append answers without replacing prior history."""
+        """追加回答，不替换此前历史。"""
         self.outcomes.extend(outcomes)
 
     async def create_stream(self, responses: bool, **kwargs: object) -> FakeAsyncStream:
-        """Convert a queued answer to the selected protocol's concrete SDK events."""
+        """将排队回答转换为所选协议的具体 SDK 事件。"""
         self.calls += 1
         self.message_calls.append(list(kwargs["input" if responses else "messages"]))
         if not self.outcomes:
@@ -277,30 +277,30 @@ class FakeModelSequence:
 
 
 class _SequenceResource:
-    """Expose one concrete SDK resource backed by the graph outcome queue."""
+    """暴露由图结果队列支持的具体 SDK 资源。"""
 
     def __init__(self, sequence: FakeModelSequence, responses: bool) -> None:
-        """Bind a protocol without guessing from request content."""
+        """绑定协议，不从请求内容猜测。"""
         self.sequence = sequence
         self.responses = responses
 
     async def create(self, **kwargs: object) -> FakeAsyncStream:
-        """Record and consume one graph answer at the SDK boundary."""
+        """在 SDK 边界记录并消费图回答。"""
         return await self.sequence.create_stream(self.responses, **kwargs)
 
 
 class RecordingSequenceClientBuilder:
-    """Construct a fresh SDK fake per invocation while sharing graph outcomes."""
+    """每次调用创建新的 SDK 替身，同时共享图结果。"""
 
     def __init__(self, sequence: FakeModelSequence) -> None:
-        """Keep diagnostic credentials masked, like the earlier graph fixture."""
+        """与此前图 fixture 一样，隐藏诊断中的凭据。"""
         self.sequence = sequence
         self.calls = 0
         self.kwargs: dict[str, object] = {}
         self.clients: list[FakeOpenAIClient] = []
 
     def __call__(self, **kwargs: object) -> AsyncOpenAI:
-        """Record constructor metadata and inject the selected resource queues."""
+        """记录构造器元数据并注入选定资源队列。"""
         from pydantic import SecretStr
         self.calls += 1
         self.kwargs = {**kwargs, "api_key": SecretStr(kwargs["api_key"])}
@@ -312,22 +312,22 @@ class RecordingSequenceClientBuilder:
 
 
 class CancellationAwareModel(FakeModelSequence):
-    """Expose cancellation reaching an active SDK iterator to service tests."""
+    """向服务测试暴露取消到达活动 SDK 迭代器的状态。"""
 
     def __init__(self) -> None:
-        """Create observable lifecycle gates for the one blocking invocation."""
+        """为阻塞调用创建可观察生命周期门禁。"""
         super().__init__()
         self.started = asyncio.Event()
         self.stopped = asyncio.Event()
         self.release = asyncio.Event()
 
     async def create_stream(self, responses: bool, **kwargs: object) -> FakeAsyncStream:
-        """Return a stream whose iteration, rather than creation, blocks."""
+        """返回在迭代时而非创建时阻塞的流。"""
         owner = self
         class BlockingStream(FakeAsyncStream):
-            """Block until released or cancelled and record deterministic finalization."""
+            """阻塞至释放或取消，并记录确定性结束。"""
             async def _iterate(self) -> AsyncIterator[object]:
-                """Expose the active iteration lifetime to the owning fixture."""
+                """向所属 fixture 暴露活动迭代生命周期。"""
                 owner.started.set()
                 try:
                     await owner.release.wait()
@@ -342,7 +342,7 @@ class CancellationAwareModel(FakeModelSequence):
 
 
 def chat_events(message: AIMessage) -> list[object]:
-    """Translate a canonical graph answer into complete Chat completion events."""
+    """将规范图回答转换为完整 Chat completion 事件。"""
     import json
     if message.tool_calls:
         return [chat_chunk(tool_calls=[{"index": index, "id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": json.dumps(call["args"], separators=(",", ":"))}} for index, call in enumerate(message.tool_calls)]), chat_chunk(finish_reason="tool_calls")]

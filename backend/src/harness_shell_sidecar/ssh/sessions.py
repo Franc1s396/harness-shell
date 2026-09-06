@@ -1,4 +1,4 @@
-"""Opaque SSH session registry."""
+"""使用不透明标识的 SSH 会话注册表。"""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ class SshSessionRegistry:
         return self._sessions.get(session_id)
 
     def is_connected(self, session_id: UUID) -> bool:
-        """Return whether the owned target and optional jump transports remain open."""
+        """返回拥有的目标及可选跳板传输是否仍打开。"""
 
         session = self._sessions.get(session_id)
         if session is None or session.connection.is_closed():
@@ -107,7 +107,7 @@ class SshSessionRegistry:
         jump_profile_version: int | None,
         jump_host_key_fingerprint: str | None,
     ) -> tuple[SshSession, ...]:
-        """Match the complete authenticated endpoint chain frozen by an operation."""
+        """匹配操作冻结的完整认证端点链。"""
 
         return tuple(
             session
@@ -123,6 +123,7 @@ class SshSessionRegistry:
     async def close(self, session_id: UUID) -> SshSession | None:
         """依次关闭子 channel、目标连接和跳板，并保留首个清理错误。"""
 
+        # 1. 先从注册表移除会话，阻止新的业务操作取得待关闭连接。
         session = self._sessions.pop(session_id, None)
         if session is None:
             return None
@@ -133,6 +134,7 @@ class SshSessionRegistry:
             if first_error is None:
                 first_error = error
 
+        # 2. 先关闭并等待全部子通道，避免父传输先断开而遗留资源。
         channels = list(session.child_channels)
         for channel in channels:
             try:
@@ -151,6 +153,7 @@ class SshSessionRegistry:
         session.child_channels.clear()
 
         try:
+            # 3. 子通道收敛后关闭目标连接，再关闭其依赖的跳板连接。
             session.connection.close()
         except BaseException as exc:
             remember(exc)
@@ -168,6 +171,7 @@ class SshSessionRegistry:
                 await session.jump_connection.wait_closed()
             except BaseException as exc:
                 remember(exc)
+        # 4. 尝试全部清理后仍传播首个失败，不能把部分关闭报告为成功。
         if first_error is not None:
             raise first_error
         return session

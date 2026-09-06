@@ -1,4 +1,4 @@
-"""Hard encoded HTTP request and response size boundaries."""
+"""编码后的 HTTP 请求与响应大小硬边界。"""
 
 from __future__ import annotations
 
@@ -17,14 +17,14 @@ MAX_JSON_BYTES = MAX_JSON_BODY_BYTES
 
 
 class BodyLimitMiddleware(BaseHTTPMiddleware):
-    """Reject an encoded request body before FastAPI model validation."""
+    """在 FastAPI 模型校验前拒绝超限编码请求体。"""
 
     async def dispatch(
         self,
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        """Count the complete received body and never truncate or summarize it."""
+        """计算完整已接收正文，绝不截断或摘要。"""
 
         content_length = request.headers.get("content-length")
         if content_length is not None:
@@ -40,7 +40,7 @@ class BodyLimitMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _too_large(request: Request) -> Response:
-        """Return the bounded typed 413 response."""
+        """返回有界的 typed 413 响应。"""
 
         return problem_response(
             build_problem(
@@ -54,10 +54,10 @@ class BodyLimitMiddleware(BaseHTTPMiddleware):
 
 
 class ResponseLimitRoute(APIRoute):
-    """Reject an encoded JSON route response before ASGI sends any bytes."""
+    """ASGI 发送任何字节前拒绝超限编码 JSON 路由响应。"""
 
     def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
-        """Wrap the generated FastAPI route handler with a final byte check."""
+        """包装生成的 FastAPI 路由 handler，执行最终字节检查。"""
 
         original = super().get_route_handler()
 

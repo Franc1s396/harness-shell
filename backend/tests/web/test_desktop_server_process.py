@@ -71,7 +71,7 @@ def test_desktop_requires_zero_port_and_absolute_data_dir(
 def test_desktop_publishes_dynamic_port_and_control_byte_stops_cleanly(
     tmp_path: Path,
 ) -> None:
-    """Exercise the real inherited HANDLE protocol without stdout signaling."""
+    """覆盖真实继承 HANDLE 协议，不使用 stdout 发信号。"""
 
     control_read_fd, control_write_fd = os.pipe()
     ready_read_fd, ready_write_fd = os.pipe()
@@ -121,7 +121,7 @@ def test_desktop_publishes_dynamic_port_and_control_byte_stops_cleanly(
     ready_result: queue.Queue[bytes | BaseException] = queue.Queue(maxsize=1)
 
     def read_ready_frame() -> None:
-        """Read exactly one bounded frame without blocking the test deadline."""
+        """读取且仅读取一个有界帧，不阻塞测试截止时间。"""
 
         try:
             length_prefix = _read_exact(ready_read_fd, 4)
@@ -164,7 +164,7 @@ def test_desktop_publishes_dynamic_port_and_control_byte_stops_cleanly(
 
 
 def _read_exact(fd: int, length: int) -> bytes:
-    """Read one exact byte count or fail on premature pipe EOF."""
+    """读取指定精确字节数，管道提前 EOF 时失败。"""
 
     chunks: list[bytes] = []
     remaining = length

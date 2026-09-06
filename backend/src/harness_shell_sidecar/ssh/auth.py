@@ -1,4 +1,4 @@
-"""In-memory SSH authentication material parsing."""
+"""内存中的 SSH 认证材料解析。"""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ def build_auth_options(
     private_key: bytes | bytearray | None = None,
     passphrase: bytes | bytearray | None = None,
 ) -> dict:
+    # 1. 密码分支严格解码秘密，并显式关闭 SSH agent 与密钥认证入口。
     if auth_kind == "password":
         if password is None:
             raise _auth_error(
@@ -37,6 +38,7 @@ def build_auth_options(
             "agent_path": None,
         }
 
+    # 2. 私钥分支要求密钥材料，并在已知加密格式缺少口令时提前失败。
     if private_key is None:
         raise _auth_error(
             "PRIVATE_KEY_REQUIRED",
@@ -50,6 +52,7 @@ def build_auth_options(
             "encrypted private key requires a passphrase",
         )
     try:
+        # 3. 交给 AsyncSSH 导入私钥，将解析失败映射为不含秘密的认证错误。
         key = asyncssh.import_private_key(
             key_bytes,
             passphrase=None if passphrase is None else bytes(passphrase),
@@ -96,7 +99,7 @@ def _private_key_is_encrypted(data: bytes) -> bool | None:
 
 
 def _auth_error(error_code: str, message: str) -> SshRuntimeError:
-    """Build one authentication failure without copying credential material."""
+    """构建认证失败，不复制凭据材料。"""
 
     return SshRuntimeError(
         error_code,

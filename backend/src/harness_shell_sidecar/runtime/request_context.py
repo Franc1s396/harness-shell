@@ -1,4 +1,4 @@
-"""Transport-independent request identity and cooperative cancellation."""
+"""独立于传输的请求标识与协作式取消。"""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ from uuid import UUID
 
 
 class RequestCancelledError(RuntimeError):
-    """Signal that the dispatcher-owned cancel event won before dispatch."""
+    """表示 dispatcher 拥有的取消事件在派发前已触发。"""
 
 
 @dataclass(frozen=True, slots=True)
 class RequestContext:
-    """Carry one request identity and its dispatcher-owned cancel signal."""
+    """携带请求标识及 dispatcher 拥有的取消信号。"""
 
-    #: Stable identity shared by the inbound adapter, application, and response.
+    #: 入站适配器、应用和响应共享的稳定标识。
     request_id: UUID
-    #: Dispatcher-owned signal checked before an external side effect begins.
+    #: dispatcher 拥有的信号，在外部副作用开始前检查。
     cancelled: asyncio.Event
 
     def require_active(self) -> None:
-        """Raise the stable dispatch cancellation error once cancellation wins."""
+        """取消先发生时抛出稳定派发取消错误。"""
 
         if self.cancelled.is_set():
             raise RequestCancelledError(

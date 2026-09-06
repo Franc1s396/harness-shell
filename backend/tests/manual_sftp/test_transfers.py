@@ -1,4 +1,4 @@
-"""Upload and download state-machine tests for manual SFTP."""
+"""手动 SFTP 上传和下载状态机测试。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ TARGET_PATH = "/home/demo/data.bin"
 
 
 class FakeFileHandle:
-    """Sequential public SFTP file-handle API over shared bytes."""
+    """在共享字节上实现顺序公共 SFTP 文件句柄 API。"""
 
     def __init__(self, remote: "FakeRemote", path: str, mode: str) -> None:
         self.remote = remote
@@ -57,7 +57,7 @@ class FakeFileHandle:
 
 
 class FakeSftpClient:
-    """One isolated channel over shared deterministic remote state."""
+    """共享确定性远程状态上的独立通道。"""
 
     version = 3
 
@@ -114,7 +114,7 @@ class FakeSftpClient:
 
 
 class FakeConnection:
-    """Create a fresh SFTP client for each isolated operation channel."""
+    """为每个独立操作通道创建新 SFTP 客户端。"""
 
     def __init__(self, remote: "FakeRemote") -> None:
         self.remote = remote
@@ -125,7 +125,7 @@ class FakeConnection:
 
 
 class FakeRemote:
-    """Shared remote filesystem state and observable mutation calls."""
+    """共享远程文件系统状态及可观察变更调用。"""
 
     def __init__(self, files: dict[str, bytes] | None = None) -> None:
         self.files = dict(files or {})
@@ -138,7 +138,7 @@ class FakeRemote:
 
 
 def managers(tmp_path: Path, remote: FakeRemote):
-    """Build transfer managers bound to one live SSH session."""
+    """构建绑定活动 SSH 会话的传输管理器。"""
 
     database = RuntimeDatabase.open_plaintext(
         (tmp_path / "runtime.sqlite3").resolve()
@@ -369,12 +369,12 @@ def test_upload_operation_id_is_never_reused_after_begin_or_abort(
 def test_transfer_chunk_requests_use_thirty_second_deadlines(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Upload and download chunks have their own 30-second request deadline."""
+    """上传和下载分块各有独立的 30 秒请求截止时间。"""
 
     observed_deadlines: list[int] = []
 
     class RecordedTimeout:
-        """Record requested deadlines while allowing the real fake I/O to complete."""
+        """记录请求的截止时间，并允许替身 I/O 完成。"""
 
         def __init__(self, seconds: int) -> None:
             self._seconds = seconds
@@ -509,7 +509,7 @@ def test_zero_byte_download_finishes_without_empty_chunk(tmp_path: Path) -> None
 def test_download_operation_id_is_already_finalized_after_terminal_state(
     tmp_path: Path,
 ) -> None:
-    """Finished and aborted download IDs differ from active duplicate requests."""
+    """已完成和已中止下载 ID 与活动重复请求不同。"""
 
     async def scenario() -> None:
         for terminal_action in ("finish", "abort"):

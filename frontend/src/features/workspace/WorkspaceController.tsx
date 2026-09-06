@@ -463,7 +463,7 @@ export function WorkspaceController() {
     if (status.state !== "READY" || !status.session_id) {
       throw sessionNotReadyError(status);
     }
-    // The successful connect result is authoritative for the persisted Host Key.
+    // 成功连接结果是持久化 Host Key 的权威依据。
     setConnectionChecks((checks) => ({
       ...checks,
       [profile.connection_id]: status,
@@ -1370,7 +1370,7 @@ export function WorkspaceController() {
                 try {
                   await manualSftp.cancelOperation(operationId);
                 } catch (error) {
-                  // A failed cancel leaves the SSH session and transfer lifecycle unchanged.
+                  // 取消失败时保持 SSH 会话与传输生命周期不变。
                   setDisconnectTransferDecision((current) =>
                     current
                       ? {

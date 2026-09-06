@@ -37,7 +37,7 @@ MAX_JSON_RESPONSE_BYTES = 1_048_576
 
 @dataclass(slots=True)
 class FakeAgentService:
-    """Record one handler invocation and return, cancel, or raise deterministically."""
+    """记录 handler 调用，并确定性返回、取消或抛出异常。"""
 
     outcome: AgentTurnResult | Exception
     wait_for_cancel: bool = False
@@ -54,7 +54,7 @@ class FakeAgentService:
         expected_config: object,
         event_sink: object,
     ) -> AgentTurnResult:
-        """Capture decoded values without exposing them through handler errors."""
+        """捕获解码值，不通过 handler 错误暴露。"""
 
         self.requests.append(request)
         self.api_keys.append(api_key.get_secret_value())
@@ -80,13 +80,13 @@ def application_frame(
     params: dict[str, object],
     request_id: UUID | None = None,
 ) -> tuple[UUID, str, dict[str, object]]:
-    """Build dispatcher arguments without constructing a transport envelope."""
+    """构建 dispatcher 参数，不构造传输信封。"""
 
     return request_id or uuid4(), method, params
 
 
 def _result() -> AgentTurnResult:
-    """Build a successful fake turn result."""
+    """构建成功轮次结果替身。"""
 
     return AgentTurnResult(
         conversation_id=uuid4(),
@@ -101,7 +101,7 @@ def _result() -> AgentTurnResult:
 def _turn_params(
     api_config_id: UUID,
 ) -> dict[str, object]:
-    """Build the identity-only public turn payload."""
+    """构建仅包含标识的公开轮次载荷。"""
 
     return {
         "conversation_id": None,
@@ -116,7 +116,7 @@ def _dispatcher(
     service: FakeAgentService,
     cipher: RuntimeCredentialCipher | None = None,
 ) -> RequestDispatcher:
-    """Register all Agent handlers against real config storage and a fake turn service."""
+    """基于真实配置存储和轮次服务替身注册全部 Agent handler。"""
 
     dispatcher = RequestDispatcher()
     credential_ids = agent_storage.database.execute(
@@ -152,7 +152,7 @@ def _registered(
     agent_storage: AgentStorage,
     service: FakeAgentService,
 ) -> tuple[RequestDispatcher, object]:
-    """Return both the shared dispatcher and explicit turn application."""
+    """返回共享 dispatcher 和显式轮次应用。"""
 
     dispatcher = RequestDispatcher()
     config_rows = agent_storage.database.execute(
@@ -186,7 +186,7 @@ def _registered(
 def test_turn_uses_explicit_application_inside_dispatcher_ownership(
     agent_storage: AgentStorage,
 ) -> None:
-    """Keep streaming turns out of the buffered JSON dispatcher handler map."""
+    """流式轮次不进入缓冲 JSON dispatcher handler 映射。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -213,7 +213,7 @@ def encrypted_api_key(
     cipher: RuntimeCredentialCipher,
     secret: str,
 ) -> dict[str, object]:
-    """Encrypt one API key for direct dispatcher aggregate tests."""
+    """为直接 dispatcher 聚合测试加密 API Key。"""
 
     public_key = cipher.public_key()
     aes_key = bytes(range(32))
@@ -254,7 +254,7 @@ def test_api_config_repository_errors_are_allowlisted_and_redacted(
     repository_code: str,
     expected_code: str,
 ) -> None:
-    """Expose only stable config errors and never repository diagnostics."""
+    """只暴露稳定配置错误，绝不暴露仓库诊断。"""
 
     async def scenario() -> None:
         def fail_list() -> list[object]:
@@ -293,7 +293,7 @@ def test_agent_turn_rejects_strict_payload_errors(
     agent_storage: AgentStorage,
     mutation: dict[str, object],
 ) -> None:
-    """Reject unknown fields and malformed identifiers or secret encodings."""
+    """拒绝未知字段、格式错误的标识或秘密编码。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -323,7 +323,7 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Close the configuration race before provider invocation."""
+    """在 Provider 调用前封闭配置竞态。"""
 
     async def scenario() -> None:
         disabled = agent_storage.api_configs.create(
@@ -378,7 +378,7 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
 def test_agent_turn_decodes_key_without_returning_a_json_result(
     agent_storage: AgentStorage,
 ) -> None:
-    """Pass a short-lived SecretStr while leaving output ownership to the sink."""
+    """传递短生命周期 SecretStr，输出所有权仍归 sink。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -407,7 +407,7 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
     agent_storage: AgentStorage,
     error_code: str,
 ) -> None:
-    """Preserve stable codes for unavailable sessions and safety failures."""
+    """保留会话不可用与安全失败的稳定错误码。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -438,7 +438,7 @@ def test_agent_service_errors_map_to_safe_dispatch_codes(
 def test_agent_turn_shutdown_cancellation_flows_through_dispatcher(
     agent_storage: AgentStorage,
 ) -> None:
-    """Use shutdown cancellation and return a durable CANCELLED result."""
+    """使用关闭取消并返回持久化 CANCELLED 结果。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -469,7 +469,7 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Map unknown failures without logging or returning sensitive exception text."""
+    """映射未知失败，不记录或返回敏感异常文本。"""
 
     async def scenario() -> None:
         marker = "remote-output-marker-77"
@@ -501,7 +501,7 @@ def test_unexpected_turn_error_never_exposes_key_or_output_marker(
 def test_api_config_handlers_round_trip_without_secret_bytes(
     agent_storage: AgentStorage,
 ) -> None:
-    """Create aggregate credentials while exposing only references in results."""
+    """创建聚合凭据，结果中只暴露引用。"""
 
     async def scenario() -> None:
         cipher = RuntimeCredentialCipher.generate()
@@ -536,7 +536,7 @@ def test_api_config_handlers_round_trip_without_secret_bytes(
 def test_application_never_serializes_a_service_result(
     agent_storage: AgentStorage,
 ) -> None:
-    """Keep even a large fake service result out of the application return value."""
+    """即使服务替身结果很大，也不进入应用返回值。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())

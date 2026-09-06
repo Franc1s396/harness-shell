@@ -15,6 +15,9 @@ const config: ModelApiConfig = {
   api_config_id: "config-1",
   display_name: "Production",
   api_type: "RESPONSES",
+  context_window_size: 128000,
+  context_compaction_threshold_ratio: 0.75,
+  max_output_tokens: 8192,
   base_url: "https://api.example/v1",
   model: "gpt-5",
   api_key_secret_ref: "credential-must-never-render",
@@ -23,8 +26,19 @@ const config: ModelApiConfig = {
   updated_at: "2026-08-31T00:00:00Z",
 };
 
+afterEach(cleanup);
+
+it("shows persisted context budget fields", () => {
+  render(<AgentProviderDialog open mode="edit" config={{...config,
+    context_window_size: 64000, context_compaction_threshold_ratio: 0.5,
+    max_output_tokens: 4096}} busy={false} error={null}
+    onClose={vi.fn()} onSubmit={vi.fn()} />);
+  expect(screen.getByLabelText("Context window size")).toHaveValue(64000);
+  expect(screen.getByLabelText("Compaction threshold (%)")).toHaveValue(50);
+  expect(screen.getByLabelText("Maximum output tokens")).toHaveValue(4096);
+});
+
 describe("AgentProviderDialog", () => {
-  afterEach(cleanup);
 
   it("never renders the stored credential reference and clears a failed replacement secret", async () => {
     const onSubmit = vi.fn(async () => {
@@ -51,12 +65,18 @@ describe("AgentProviderDialog", () => {
     expect(key).toHaveAttribute("type", "password");
     expect(key).toHaveValue("");
     fireEvent.change(key, { target: { value: "replacement" } });
+    fireEvent.change(screen.getByLabelText("Context window size"), { target: { value: "64000" } });
+    fireEvent.change(screen.getByLabelText("Compaction threshold (%)"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("Maximum output tokens"), { target: { value: "4096" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(key).toHaveValue(""));
     expect(screen.getByLabelText("Display name")).toHaveValue("Production");
+    expect(screen.getByLabelText("Context window size")).toHaveValue(64000);
+    expect(screen.getByLabelText("Compaction threshold (%)")).toHaveValue(50);
+    expect(screen.getByLabelText("Maximum output tokens")).toHaveValue(4096);
     expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({ displayName: "Production" }),
+      expect.objectContaining({ displayName: "Production", contextWindowSize: "64000", contextCompactionThresholdPercent: "50", maxOutputTokens: "4096" }),
       "replacement",
     );
   });
@@ -66,6 +86,9 @@ describe("AgentProviderDialog", () => {
       validateProviderDraft(
         {
           displayName: "Production",
+          contextWindowSize: "128000",
+          contextCompactionThresholdPercent: "75",
+          maxOutputTokens: "8192",
           apiType: "RESPONSES",
           baseUrl: "ssh://api.example",
           model: "gpt-5",
@@ -79,6 +102,9 @@ describe("AgentProviderDialog", () => {
       validateProviderDraft(
         {
           displayName: "Production",
+          contextWindowSize: "128000",
+          contextCompactionThresholdPercent: "75",
+          maxOutputTokens: "8192",
           apiType: "RESPONSES",
           baseUrl: "https://api.example/v1",
           model: "gpt-5",
@@ -116,4 +142,23 @@ describe("AgentProviderDialog", () => {
     expect(screen.getByLabelText("Display name")).toHaveValue("Draft Provider");
     expect(onSubmit).not.toHaveBeenCalled();
   });
+});
+
+
+it.each([
+  ["contextWindowSize", ""], ["contextWindowSize", "1.5"],
+  ["contextWindowSize", "9007199254740992"],
+  ["contextCompactionThresholdPercent", "NaN"],
+  ["contextCompactionThresholdPercent", " "],
+  ["contextCompactionThresholdPercent", "100"],
+  ["contextCompactionThresholdPercent", "99"],
+  ["maxOutputTokens", "128000"], ["maxOutputTokens", "0"],
+])("rejects invalid budget %s=%s", (field, value) => {
+  const draft = {
+    displayName: "Production", apiType: "RESPONSES" as const,
+    baseUrl: "https://api.example/v1", model: "gpt-5", enabled: true,
+    contextWindowSize: "128000", contextCompactionThresholdPercent: "75", maxOutputTokens: "8192",
+    [field]: value,
+  };
+  expect(validateProviderDraft(draft, "", "edit")).toHaveProperty(field, "INVALID");
 });

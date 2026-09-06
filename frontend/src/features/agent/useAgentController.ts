@@ -177,8 +177,8 @@ export function useAgentController(
       ) {
         return;
       }
-      // Reserve synchronously because React has not published RUNNING yet; this
-      // prevents a second Enter/click from starting another turn for the tab.
+      // React 尚未发布 RUNNING，因此同步预留状态，
+      // 避免第二次 Enter 或点击为同一标签页启动另一轮。
       turnReservationsRef.current.add(tabId);
 
       try {
@@ -232,8 +232,8 @@ export function useAgentController(
           model: config.model,
           updatedAt: config.updated_at,
         };
-        // Freeze the verified Provider and Session identities before crossing
-        // the per-tab stream boundary. The reducer token owns completion.
+        // 跨越每标签页流边界前冻结已验证的 Provider 和 Session 标识；
+        // 完成处理由 reducer token 管理。
         dispatch({
           type: "run/start",
           tabId,

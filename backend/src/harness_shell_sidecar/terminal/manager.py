@@ -1,4 +1,4 @@
-"""Binary-safe interactive PTY lifecycle over established SSH sessions."""
+"""基于已建立 SSH 会话、保留二进制数据的交互式 PTY 生命周期。"""
 
 from __future__ import annotations
 
@@ -75,6 +75,7 @@ class PtyManager:
     ) -> PtySession:
         """创建二进制 PTY channel，并启动双流读取与关闭监控任务。"""
 
+        # 1. 绑定显式活动 SSH 会话，创建前拒绝失效父连接。
         owner = self._ssh_sessions.get(ssh_session_id)
         if owner is None:
             raise PtyManagerError(
@@ -90,6 +91,7 @@ class PtyManager:
             rows=rows,
             state="OPEN",
         )
+        # 2. 创建二进制 PTY 并立即登记为 SSH 子通道。
         process = await owner.connection.create_process(
             term_type="xterm-256color",
             term_size=(cols, rows),
@@ -105,6 +107,7 @@ class PtyManager:
             monitor=None,
             closed=closed,
         )
+        # 3. 记录 PTY 所有权，再启动双流读取和唯一关闭监控任务。
         self._sessions[pty_session_id] = state
         state.readers = (
             asyncio.create_task(self._read_stream(state, process.stdout)),
@@ -139,10 +142,12 @@ class PtyManager:
     async def close(self, pty_session_id: UUID) -> PtySession:
         """先发送 EOF 等待优雅关闭，超时后强制关闭并等待收敛。"""
 
+        # 1. 对活动 PTY 发送 EOF，给远程进程两秒优雅退出时间。
         state = self._require_open(pty_session_id)
         state.process.stdin.write_eof()
         try:
             await asyncio.wait_for(state.closed.wait(), timeout=2)
+        # 2. 超时后强制关闭通道，并继续等待监控任务完成资源收敛。
         except TimeoutError:
             state.process.close()
             await state.process.wait_closed()
@@ -198,8 +203,10 @@ class PtyManager:
         """等待 PTY 结束、发布关闭事件，并从双重所有权索引清理资源。"""
 
         try:
+            # 1. 等待两个输出流排空，再确认远程进程已关闭。
             await asyncio.gather(*state.readers)
             await state.process.wait_closed()
+            # 2. 更新关闭快照并发布退出事件，让 UI 看到完整终态。
             state.session = state.session.model_copy(update={"state": "CLOSED"})
             await self._event_listener(
                 {
@@ -209,6 +216,7 @@ class PtyManager:
                     "exit_signal": state.process.exit_signal,
                 }
             )
+        # 3. 无论监控是否失败，移除两层索引并唤醒关闭等待者。
         finally:
             state.owner.child_channels.discard(state.process)
             self._sessions.pop(state.session.pty_session_id, None)

@@ -143,7 +143,7 @@ def runtime_context(tmp_path: Path):
 @pytest.fixture
 def connect_direct(runtime_context: RuntimeContext, lab: LabConfig):
     async def connect():
-        """Trust and connect directly to the host-facing jump node."""
+        """信任并直连面向主机的跳板节点。"""
 
         profile = runtime_context.create_profile(
             name="direct-manual-sftp",

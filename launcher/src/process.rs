@@ -23,7 +23,7 @@ use crate::{error::LauncherError, job::WindowsJob};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProcessStartError;
 
-/// A resumed child whose process tree was assigned to the Launcher Job while suspended.
+/// 已恢复运行的子进程，其进程树在挂起时已加入 Launcher Job。
 pub struct DesktopProcess {
     process: OwnedHandle,
     process_id: u32,
@@ -210,7 +210,7 @@ fn command_line(executable: &OsStr, arguments: &[OsString]) -> Vec<u16> {
     result
 }
 
-/// Apply the Windows C runtime quoting rules so Python receives exact argument boundaries.
+/// 应用 Windows C runtime 引号规则，确保 Python 收到精确参数边界。
 fn append_quoted(output: &mut Vec<u16>, value: &OsStr) {
     output.push(b'"' as u16);
     let mut backslashes = 0usize;

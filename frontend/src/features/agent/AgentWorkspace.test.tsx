@@ -6,13 +6,16 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelApiConfig } from "../../api/agent";
-import type { AgentTabState } from "./agent-state";
+import { agentReducer, type AgentTabState, type AgentState } from "./agent-state";
 import { AgentWorkspace, type AgentWorkspaceProps } from "./AgentWorkspace";
 
 const config: ModelApiConfig = {
   api_config_id: "config-1",
   display_name: "Production",
   api_type: "RESPONSES",
+  context_window_size: 128000,
+  context_compaction_threshold_ratio: 0.75,
+  max_output_tokens: 8192,
   base_url: "https://api.example/v1",
   model: "gpt-5",
   api_key_secret_ref: "credential-ref",
@@ -540,5 +543,43 @@ describe("AgentWorkspace", () => {
     );
 
     expect(messageList!.scrollTop).toBe(720);
+  });
+});
+
+
+describe("context compaction display isolation", () => {
+  afterEach(cleanup);
+  it("preserves historical text through started, thinking, and main answer completion", () => {
+    const provider = runningTab.activeRun!.provider;
+    const history: AgentTabState["messages"] = [
+      { id: "old-user", kind: "user", text: "Earlier inspection request" },
+      { id: "old-answer", kind: "assistant", text: "Earlier verified result", run: {
+        agentRunId: "old-run", status: "COMPLETED", reactIteration: 0,
+        sshSessionId: "ssh-1", provider,
+      } },
+    ];
+    let state: AgentState = { tabs: { tab: { ...idleTab, messages: history } } };
+    state = agentReducer(state, { type: "run/start", tabId: "tab", requestToken: "request-1",
+      sshSessionId: "ssh-1", provider, userMessageId: "new-user", userMessage: "Continue inspection" });
+    const identity = { schema_version: 1 as const, request_id: "request-id-1",
+      conversation_id: "conversation-1", agent_run_id: "run-1" };
+    state = agentReducer(state, { type: "run/stream-started", tabId: "tab", requestToken: "request-1",
+      event: { ...identity, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 } });
+    const workspace = renderWorkspace({ tab: state.tabs.tab });
+    expect(screen.getByRole("status")).toBeVisible();
+    expect(screen.getByText("Earlier inspection request")).toBeVisible();
+    expect(screen.getByText("Earlier verified result")).toBeVisible();
+    expect(state.tabs.tab.messages.slice(0, 2)).toEqual(history);
+    // 后端摘要不发出事件，只有主回答进入此 reducer。
+    state = agentReducer(state, { type: "run/text-delta", tabId: "tab", requestToken: "request-1",
+      event: { ...identity, type: "agent.turn.text_delta", sequence: 1, delta: "New main answer" } });
+    state = agentReducer(state, { type: "run/complete", tabId: "tab", requestToken: "request-1", messageId: "new-answer",
+      event: { ...identity, type: "agent.turn.completed", sequence: 2, status: "COMPLETED", react_iteration: 0, error_code: null } });
+    workspace.view.rerender(<AgentWorkspace {...workspace.props} tab={state.tabs.tab} />);
+    expect(state.tabs.tab.messages.slice(0, 2)).toEqual(history);
+    expect(state.tabs.tab.messages).toHaveLength(4);
+    expect(screen.getByText("Earlier verified result")).toBeVisible();
+    expect(screen.getByText("New main answer")).toBeVisible();
+    expect(screen.queryByText(/HISTORICAL_CONTEXT_SUMMARY/)).not.toBeInTheDocument();
   });
 });

@@ -22,7 +22,7 @@ $agentTemp = Join-Path $env:TEMP "harness-shell-m3-agent-$PID"
     (Join-Path $backendRoot 'tests\agent') `
     (Join-Path $backendRoot 'tests\web\test_agent_routes.py') `
     (Join-Path $backendRoot 'tests\runtime\test_dispatcher.py') `
-    (Join-Path $backendRoot 'tests\storage\test_database.py') -q
+    (Join-Path $backendRoot 'tests\storage') -q
 if ($LASTEXITCODE -ne 0) { throw 'Focused Agent Python tests failed' }
 
 Write-Output '[3/4] Python CredentialRepository ownership'

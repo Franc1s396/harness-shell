@@ -1,4 +1,4 @@
-"""Public credential cipher and plaintext repository API."""
+"""公开凭据加解密与明文仓库 API。"""
 
 from .cipher import CredentialCipherError, RuntimeCredentialCipher, zeroize
 from .models import (

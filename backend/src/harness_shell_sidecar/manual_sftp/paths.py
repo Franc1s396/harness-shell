@@ -1,4 +1,4 @@
-"""Fail-closed validation for remote POSIX paths and basenames."""
+"""对远程 POSIX 路径和单个名称执行严格失败校验。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from .errors import ManualSftpError
 
 
 def validate_remote_path(path: str) -> str:
-    """Return an already-valid absolute POSIX path without normalizing it."""
+    """返回已合法的 POSIX 绝对路径，不做规范化。"""
 
     if not isinstance(path, str) or not path.startswith("/") or "\x00" in path:
         raise ManualSftpError(
@@ -16,7 +16,7 @@ def validate_remote_path(path: str) -> str:
 
 
 def validate_basename(name: str) -> str:
-    """Return one unambiguous remote path component without rewriting it."""
+    """返回无歧义的单个远程路径分量，不改写内容。"""
 
     if (
         not isinstance(name, str)
@@ -31,7 +31,7 @@ def validate_basename(name: str) -> str:
 
 
 def join_remote_path(directory: str, name: str) -> str:
-    """Join validated POSIX components without canonicalizing user input."""
+    """拼接已校验的 POSIX 分量，不规范化用户输入。"""
 
     validated_directory = validate_remote_path(directory)
     validated_name = validate_basename(name)

@@ -1,4 +1,4 @@
-"""Strict public models shared by manual SFTP handlers and services."""
+"""手动 SFTP handler 与服务共享的严格公共模型。"""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ EntryType = Literal["file", "directory", "symlink", "other"]
 
 
 class StrictModel(BaseModel):
-    """Reject unknown fields and coercion at every manual-SFTP boundary."""
+    """在每个手动 SFTP 边界拒绝未知字段和类型强制转换。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
 class ManualSftpContext(StrictModel):
-    """Describe one explicitly bound live SSH session without exposing secrets."""
+    """描述显式绑定的活动 SSH 会话，不暴露秘密。"""
 
     ssh_session_id: UUID = Field(description="Bound live SSH session identifier.")
     connection_id: UUID = Field(description="Connection profile behind the session.")
@@ -33,7 +33,7 @@ class ManualSftpContext(StrictModel):
 
 
 class RemoteEntry(StrictModel):
-    """Expose no-follow remote metadata safe for the WebView."""
+    """暴露可安全提供给 WebView 的不跟随链接远程元数据。"""
 
     name: str = Field(description="Single remote basename in the listed directory.")
     path: str = Field(description="Validated absolute POSIX path.")
@@ -51,7 +51,7 @@ class RemoteEntry(StrictModel):
 
 
 class ListingBatch(StrictModel):
-    """Return one bounded page from a short-lived listing cursor."""
+    """从短生命周期列表游标返回有界分页。"""
 
     listing_id: UUID
     path: str
@@ -63,7 +63,7 @@ class ListingBatch(StrictModel):
 
 
 class TransferSnapshot(StrictModel):
-    """Freeze one remote target for later compare-before-mutate checks."""
+    """冻结远程目标，以便后续变更前比较校验。"""
 
     path: str
     exists: bool
@@ -74,7 +74,7 @@ class TransferSnapshot(StrictModel):
 
 
 class RemoteFileHash(StrictModel):
-    """Return a complete remote-file hash tied to a verified snapshot."""
+    """返回关联已验证快照的完整远程文件哈希。"""
 
     path: str
     snapshot: TransferSnapshot
@@ -83,7 +83,7 @@ class RemoteFileHash(StrictModel):
 
 
 class UploadReady(StrictModel):
-    """Describe an exclusive remote upload temporary file ready for chunks."""
+    """描述可接收分块的独占远程上传临时文件。"""
 
     operation_id: UUID
     temp_path: str
@@ -92,7 +92,7 @@ class UploadReady(StrictModel):
 
 
 class UploadChunkAck(StrictModel):
-    """Acknowledge exactly one sequential upload chunk."""
+    """确认且仅确认一个顺序上传分块。"""
 
     operation_id: UUID
     sequence: ChunkSequence
@@ -101,7 +101,7 @@ class UploadChunkAck(StrictModel):
 
 
 class DownloadReady(StrictModel):
-    """Freeze one remote download source before returning any bytes."""
+    """在返回任何字节前冻结远程下载源。"""
 
     operation_id: UUID
     path: str
@@ -113,7 +113,7 @@ class DownloadReady(StrictModel):
 
 
 class DownloadChunk(StrictModel):
-    """Return one raw binary download chunk and exact next position."""
+    """返回原始二进制下载分块和精确下一位置。"""
 
     operation_id: UUID
     sequence: ChunkSequence
@@ -124,7 +124,7 @@ class DownloadChunk(StrictModel):
 
 
 class DeletePlanSummary(StrictModel):
-    """Expose only complete no-follow recursive-delete plan metadata."""
+    """仅暴露完整且不跟随链接的递归删除计划元数据。"""
 
     delete_plan_id: UUID
     operation_id: UUID
@@ -139,7 +139,7 @@ class DeletePlanSummary(StrictModel):
 
 
 class OperationTerminalProjection(StrictModel):
-    """Return one trustworthy terminal result or explicit uncertainty."""
+    """返回可信终态结果或明确的不确定状态。"""
 
     operation_id: UUID
     state: Literal[
@@ -153,7 +153,7 @@ class OperationTerminalProjection(StrictModel):
 
 
 class RecoverySummary(StrictModel):
-    """Expose a safe summary of one remote-only recovery record."""
+    """暴露仅含远程状态的恢复记录安全摘要。"""
 
     recovery_id: UUID
     operation_id: UUID
@@ -176,7 +176,7 @@ class RecoverySummary(StrictModel):
 
 
 class MutationProgressProjection(StrictModel):
-    """Publish a safe manual mutation phase without local paths or raw errors."""
+    """发布安全的手动变更阶段，不含本地路径或原始错误。"""
 
     operation_id: UUID
     kind: Literal["mkdir", "rename", "remove", "recursive_delete", "recovery"]
@@ -190,7 +190,7 @@ class MutationProgressProjection(StrictModel):
 
 
 class DeleteManifestEntry(StrictModel):
-    """Persist one no-follow canonical recursive-delete manifest entry."""
+    """持久化不跟随链接的规范递归删除清单条目。"""
 
     path: str
     entry_type: EntryType

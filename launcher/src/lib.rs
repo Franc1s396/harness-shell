@@ -22,14 +22,14 @@ use process::DesktopProcess;
 const BACKEND_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const BACKEND_GRACEFUL_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Start Backend, validate readiness, start UI, then supervise the fixed exit ordering.
+/// 启动 Backend、验证就绪、启动 UI，再监督固定退出顺序。
 pub fn run(config: LauncherConfig) -> Result<(), LauncherError> {
     config.validate_installed_components()?;
     std::fs::create_dir_all(&config.data_dir)
         .map_err(|_| LauncherError::DataDirectoryFailed)?;
 
-    // Declared before the Job so error-path destruction kills children before
-    // joining the stderr reader that waits for the inherited writer to close.
+    // 在 Job 之前声明，确保错误路径析构时先终止子进程，
+    // 再等待依赖继承写入端关闭的 stderr 读取线程。
     let mut backend_log = BackendLogCapture::create(&config.data_dir)?;
     let job = WindowsJob::create()?;
     let mut pipes = ControlPipes::create()?;
@@ -84,7 +84,7 @@ pub fn run(config: LauncherConfig) -> Result<(), LauncherError> {
             }
         }
         value if value == WAIT_OBJECT_0 + 1 => {
-            // Never respawn. The UI owns the visible fatal-disconnect state and may exit later.
+            // 绝不重新拉起；UI 负责展示致命断连状态，可以稍后退出。
             pipes.close_control();
             ui.wait()?;
         }

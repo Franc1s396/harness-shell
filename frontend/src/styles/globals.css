@@ -47,22 +47,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border: 0;
 }
 
-.agent-scrollbar::-webkit-scrollbar {
+/* Share the Agent scrollbar across WebView2 scroll regions, including horizontal overflow.
+   Do not mix scrollbar-color/scrollbar-width with these WebKit pseudo-elements. */
+::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
-.agent-scrollbar::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-.agent-scrollbar::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: var(--color-ink-dim);
   background-clip: content-box;
   border: 2px solid transparent;
   border-radius: 999px;
 }
 
-.agent-scrollbar::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: var(--color-ink-muted);
   background-clip: content-box;
 }

@@ -15,7 +15,7 @@ def test_agent_command_runs_only_on_bound_real_openssh_session(
     runtime_context,
     lab,
 ) -> None:
-    """Execute on the selected direct or ProxyJump session in the SSH lab."""
+    """在 SSH Lab 选定直连或 ProxyJump 会话上执行。"""
 
     async def scenario() -> None:
         connector: Callable[[], Awaitable[tuple]] = request.getfixturevalue(
@@ -47,7 +47,7 @@ def test_agent_command_runs_only_on_bound_real_openssh_session(
         assert owner.child_channels == set()
 
     async def bounded_scenario() -> None:
-        """Bound real SSH I/O and always close the isolated runtime."""
+        """约束真实 SSH I/O，并始终关闭独立运行时。"""
 
         try:
             async with asyncio.timeout(20):
@@ -64,7 +64,7 @@ def test_agent_real_openssh_timeout_closes_bound_channel(
     runtime_context,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Exercise the timeout cleanup path against a real non-PTY OpenSSH channel."""
+    """使用真实非 PTY OpenSSH 通道覆盖超时清理路径。"""
 
     async def scenario() -> None:
         _profile, status = await connect_direct()
@@ -103,7 +103,7 @@ def test_agent_real_openssh_cancellation_closes_bound_channel(
     connect_direct,
     runtime_context,
 ) -> None:
-    """Cancel a real command and retain Session ownership through channel cleanup."""
+    """取消真实命令，在通道清理期间保留 Session 所有权。"""
 
     async def scenario() -> None:
         _profile, status = await connect_direct()

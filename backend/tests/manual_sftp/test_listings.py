@@ -1,4 +1,4 @@
-"""Manual SFTP channel, listing, and metadata service tests."""
+"""手动 SFTP 通道、列表和元数据服务测试。"""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def attrs(
     mtime: int | None = 1_770_000_000,
     mtime_ns: int | None = 123,
 ):
-    """Build the public AsyncSSH attribute shape used by the service."""
+    """构建服务使用的 AsyncSSH 公共属性结构。"""
 
     return SimpleNamespace(
         permissions=mode,
@@ -65,14 +65,14 @@ def attrs(
 
 @dataclass(slots=True)
 class FakeName:
-    """One deterministic SFTP directory entry."""
+    """确定性的 SFTP 目录条目。"""
 
     filename: str | bytes
     attrs: object
 
 
 class FakeRemoteFile:
-    """Bounded in-memory remote file used by SHA-256 tests."""
+    """供 SHA-256 测试使用的有界内存远程文件。"""
 
     def __init__(self, payload: bytes) -> None:
         self._payload = payload
@@ -93,7 +93,7 @@ class FakeRemoteFile:
 
 
 class FakeSftpClient:
-    """Expose only the public AsyncSSH client methods consumed by Task 2."""
+    """仅暴露服务使用的 AsyncSSH 公共客户端方法。"""
 
     version = 3
 
@@ -140,7 +140,7 @@ class FakeSftpClient:
 
 
 class FakeConnection:
-    """Return one isolated SFTP client per requested channel."""
+    """每个请求通道返回独立 SFTP 客户端。"""
 
     def __init__(self, clients: list[FakeSftpClient]) -> None:
         self.clients = clients
@@ -151,7 +151,7 @@ class FakeConnection:
 
 
 def sessions_with(*clients: FakeSftpClient):
-    """Register one live SSH session backed by deterministic SFTP clients."""
+    """注册由确定性 SFTP 客户端支持的活动 SSH 会话。"""
 
     sessions = SshSessionRegistry()
     owner = sessions.register(
@@ -273,7 +273,7 @@ def test_listing_detects_entry_limit_and_unsupported_filename(
 def test_listing_limit_lookahead_ignores_dot_entries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only real entries may cause the bounded-listing look-ahead to overflow."""
+    """只有真实条目才能使有界列表的前瞻读取超限。"""
 
     async def scenario() -> None:
         monkeypatch.setattr(
@@ -305,7 +305,7 @@ def test_listing_limit_lookahead_ignores_dot_entries(
 
 
 def test_browse_metadata_listing_and_hash_map_permission_denial_to_stable_code() -> None:
-    """Each read boundary must expose AsyncSSH permission rejection as one safe code."""
+    """每个读取边界都必须将 AsyncSSH 权限拒绝暴露为安全错误码。"""
 
     class BrowseDeniedClient(FakeSftpClient):
         async def getcwd(self) -> bytes:
@@ -363,10 +363,10 @@ def test_browse_metadata_listing_and_hash_map_permission_denial_to_stable_code()
 
 
 def test_listing_permission_denial_survives_iterator_and_lease_cleanup_failures() -> None:
-    """Cleanup runs but cannot replace the primary permission-denied domain failure."""
+    """清理仍执行，但不能覆盖主要权限拒绝领域失败。"""
 
     class PermissionDeniedIterator:
-        """Raise typed denial from iteration and a distinct failure during close."""
+        """迭代时抛出 typed 拒绝，关闭时抛出不同失败。"""
 
         def __init__(self) -> None:
             self.closed = False
@@ -464,10 +464,10 @@ def test_hash_rechecks_snapshot_and_honors_cancellation() -> None:
 def test_hash_uses_a_fresh_60_second_window_for_each_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The hash has only per-read progress windows, never one total deadline."""
+    """哈希只有每次读取的进展窗口，没有整体截止时间。"""
 
     class TimeoutProbe:
-        """Record every timeout context without advancing wall-clock time."""
+        """记录每个超时上下文，不推进真实时钟。"""
 
         def __init__(self) -> None:
             self.windows: list[int | float] = []
@@ -508,7 +508,7 @@ def test_metadata_timeout_closes_the_sftp_channel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class BlockingClient(FakeSftpClient):
-        """Never complete lstat before the configured metadata deadline."""
+        """在配置的元数据截止时间前始终不完成 lstat。"""
 
         async def lstat(self, path: bytes):
             assert isinstance(path, bytes)
@@ -533,12 +533,12 @@ def test_metadata_timeout_closes_the_sftp_channel(
 
 
 async def _event(_payload: dict) -> None:
-    """Accept no-op service events in Task 2 tests."""
+    """在读取测试中接收不执行操作的服务事件。"""
 
 
 def test_service_close_all_attempts_listing_upload_and_download_owners() -> None:
     class CloseProbe:
-        """Record close order and optionally fail after recording."""
+        """记录关闭顺序，并可在记录后失败。"""
 
         def __init__(self, label: str, order: list[str], *, fail: bool = False) -> None:
             self.label = label

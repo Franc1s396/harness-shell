@@ -19,13 +19,13 @@ SFTP_CHUNK_BYTES = 256 * 1024
 
 
 async def _ignore_event(_payload: dict) -> None:
-    """Accept safe progress events while integration tests inspect remote state."""
+    """集成测试检查远程状态时接收安全进展事件。"""
 
     _write_event_evidence(_payload)
 
 
 def _write_event_evidence(payload: dict) -> None:
-    """Append typed event evidence only when the automated gate requests it."""
+    """只有自动门禁请求时才追加 typed 事件证据。"""
 
     evidence_path = os.environ.get("HARNESS_MANUAL_SFTP_EVENT_EVIDENCE")
     if evidence_path is None:
@@ -35,7 +35,7 @@ def _write_event_evidence(payload: dict) -> None:
 
 
 def _service(runtime_context) -> ManualSftpService:
-    """Build a manual-SFTP owner over the fixture's live SSH session registry."""
+    """基于 fixture 活动 SSH 会话注册表构建手动 SFTP 管理者。"""
 
     return ManualSftpService(
         runtime_context.runtime.sessions,
@@ -45,7 +45,7 @@ def _service(runtime_context) -> ManualSftpService:
 
 
 def _snapshot(entry: RemoteEntry, *, sha256: str | None = None) -> TransferSnapshot:
-    """Project no-follow metadata into the mutation compare snapshot."""
+    """将不跟随链接元数据投影为变更比较快照。"""
 
     return TransferSnapshot(
         path=entry.path,
@@ -63,7 +63,7 @@ async def _upload(
     remote_path: str,
     payload: bytes,
 ) -> None:
-    """Upload one payload through the complete preflight/chunk/commit sequence."""
+    """通过完整预检、分块和提交序列上传载荷。"""
 
     target = await service.upload_preflight(session_id, remote_path)
     operation_id = uuid4()
@@ -102,7 +102,7 @@ async def _download(
     session_id: UUID,
     remote_path: str,
 ) -> bytes:
-    """Download one complete remote file and verify the terminal digest."""
+    """下载完整远程文件并验证终态摘要。"""
 
     operation_id = uuid4()
     ready = await service.download_begin(
@@ -137,7 +137,7 @@ async def _download(
 
 
 async def _write_external(runtime_context, session_id: UUID, path: str, data: bytes) -> None:
-    """Simulate a second SFTP client changing a target in the accepted race model."""
+    """在接受的竞态模型内模拟第二个 SFTP 客户端变更目标。"""
 
     owner = runtime_context.runtime.sessions.get(session_id)
     assert owner is not None
@@ -149,7 +149,7 @@ async def _write_external(runtime_context, session_id: UUID, path: str, data: by
 async def _delete_tree(
     service: ManualSftpService, session_id: UUID, remote_path: str
 ) -> None:
-    """Delete one integration tree through the encrypted manifest/tombstone flow."""
+    """通过明文清单和墓碑流程删除集成测试树。"""
 
     plan = await service.delete_preflight(uuid4(), session_id, remote_path)
     terminal = await service.delete_execute(plan.delete_plan_id)
@@ -311,7 +311,7 @@ def test_manual_sftp_real_openssh_round_trip_and_safety_contracts(
             await service.close_all()
 
     async def bounded_scenario() -> None:
-        """Fail the real-I/O scenario instead of allowing an unbounded hang."""
+        """真实 I/O 场景超时则失败，不允许无限挂起。"""
 
         try:
             async with asyncio.timeout(30):
@@ -367,7 +367,7 @@ def test_manual_sftp_real_openssh_permission_and_cross_device_fail_closed(
             await service.close_all()
 
     async def bounded_scenario() -> None:
-        """Fail the injected-error scenario instead of allowing an unbounded hang."""
+        """注入错误场景超时则失败，不允许无限挂起。"""
 
         try:
             async with asyncio.timeout(30):

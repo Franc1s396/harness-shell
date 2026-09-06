@@ -42,7 +42,7 @@ def _run_lifecycle_records(
     caplog: pytest.LogCaptureFixture,
     agent_run_id: UUID,
 ) -> list[logging.LogRecord]:
-    """Return lifecycle records for one durable Run in emission order."""
+    """按发出顺序返回持久化 Run 生命周期记录。"""
 
     return [
         record
@@ -55,7 +55,7 @@ def _run_lifecycle_records(
 
 @dataclass(slots=True)
 class BlockingExecutor:
-    """Block tool execution and expose whether outer cancellation finalized it."""
+    """阻塞工具执行，并暴露外层取消是否使其结束。"""
 
     started: asyncio.Event = field(default_factory=asyncio.Event)
     stopped: asyncio.Event = field(default_factory=asyncio.Event)
@@ -67,7 +67,7 @@ class BlockingExecutor:
         _command: str,
         _cancelled: asyncio.Event,
     ) -> CommandToolEnvelope:
-        """Wait until released or cancelled and always report finalization."""
+        """等待释放或取消，并始终报告结束。"""
 
         self.started.set()
         try:
@@ -83,7 +83,7 @@ def _service(
     executor: CommandExecutor,
     session_is_available: Callable[[UUID], bool] = lambda _session_id: True,
 ) -> AgentService:
-    """Build AgentService with real stores and deterministic remote boundaries."""
+    """使用真实存储和确定性远程边界构建 AgentService。"""
 
     return AgentService(
         agent_storage.api_configs,
@@ -106,7 +106,7 @@ async def _run_turn(
     cancelled: asyncio.Event,
     event_sink: RecordingTurnSink | None = None,
 ) -> AgentTurnResult:
-    """Run with the exact configuration snapshot observed by the handler."""
+    """使用 handler 观察到的精确配置快照执行。"""
 
     config = agent_storage.api_configs.get(turn.api_config_id)
     assert config is not None
@@ -124,7 +124,7 @@ def test_model_failure_marks_run_failed_exactly_once(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Convert one model exception into one terminal Run transition."""
+    """将模型异常转换为一次 Run 终态转换。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -141,7 +141,7 @@ def test_model_failure_marks_run_failed_exactly_once(
             status: AgentRunStatus,
             error_code: str | None,
         ) -> AgentRun:
-            """Record terminal transitions while delegating to the real repository."""
+            """委托真实仓库执行时记录终态转换。"""
 
             statuses.append(status)
             return real_finish(agent_run_id, status, error_code)
@@ -185,7 +185,7 @@ def test_tool_failure_marks_run_failed_exactly_once(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Convert an unexpected executor failure into one terminal transition."""
+    """将意外执行器失败转换为一次终态转换。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -205,7 +205,7 @@ def test_tool_failure_marks_run_failed_exactly_once(
             status: AgentRunStatus,
             error_code: str | None,
         ) -> AgentRun:
-            """Record terminal transitions while delegating to the real repository."""
+            """委托真实仓库执行时记录终态转换。"""
 
             statuses.append(status)
             return real_finish(agent_run_id, status, error_code)
@@ -236,7 +236,7 @@ def test_tool_failure_marks_run_failed_exactly_once(
 def test_success_publishes_started_text_and_completed_after_durable_finish(
     agent_storage: AgentStorage,
 ) -> None:
-    """Expose exact visible text between durable RUNNING and COMPLETED snapshots."""
+    """在持久化 RUNNING 与 COMPLETED 快照之间暴露精确可见文本。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -279,7 +279,7 @@ def test_success_publishes_started_text_and_completed_after_durable_finish(
 def test_same_conversation_turns_are_serialized(
     agent_storage: AgentStorage,
 ) -> None:
-    """Prevent a second turn from loading history while the first remains active."""
+    """首轮仍活动时阻止第二轮加载历史。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -327,7 +327,7 @@ def test_cancellation_is_returned_as_cancelled_run(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Map user cancellation to a durable CANCELLED result without final text."""
+    """将用户取消映射为持久化 CANCELLED 结果，不带最终文本。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -365,7 +365,7 @@ def test_cancellation_is_returned_as_cancelled_run(
 def test_outer_task_cancellation_marks_run_cancelled(
     agent_storage: AgentStorage,
 ) -> None:
-    """Persist a terminal Run when the dispatcher cancels the service task."""
+    """dispatcher 取消服务任务时持久化 Run 终态。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -397,7 +397,7 @@ def test_outer_task_cancellation_marks_run_cancelled(
 def test_outer_task_cancellation_during_tool_marks_run_cancelled(
     agent_storage: AgentStorage,
 ) -> None:
-    """Persist cancellation and await tool cleanup during dispatcher shutdown."""
+    """dispatcher 关闭时持久化取消并等待工具清理。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -432,7 +432,7 @@ def test_outer_task_cancellation_during_tool_marks_run_cancelled(
 def test_missing_or_disabled_api_config_fails_before_run_creation(
     agent_storage: AgentStorage,
 ) -> None:
-    """Reject unusable provider configurations before creating durable Agent runs."""
+    """创建持久化 Agent Run 前拒绝不可用 Provider 配置。"""
 
     async def scenario() -> None:
         service = _service(
@@ -477,7 +477,7 @@ def test_missing_or_disabled_api_config_fails_before_run_creation(
 def test_missing_session_fails_before_conversation_run_or_model_call(
     agent_storage: AgentStorage,
 ) -> None:
-    """Require the authoritative connected Session before any durable turn work."""
+    """任何持久化轮次工作前要求权威已连接 Session。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -516,7 +516,7 @@ def test_missing_session_fails_before_conversation_run_or_model_call(
 def test_queued_turn_rejects_config_change_before_starting_second_run(
     agent_storage: AgentStorage,
 ) -> None:
-    """Compare the full handler snapshot again after acquiring the conversation lock."""
+    """取得会话锁后再次比较完整 handler 快照。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -577,7 +577,7 @@ def test_successful_turn_removes_unused_conversation_lock(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Avoid retaining one lock entry for every historical conversation."""
+    """避免为每个历史会话永久保留锁条目。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -615,7 +615,7 @@ def test_react_limit_logs_one_failed_terminal_lifecycle(
     agent_storage: AgentStorage,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Treat LIMIT_REACHED as the single failed terminal lifecycle event."""
+    """将 LIMIT_REACHED 作为唯一失败终态生命周期事件。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -653,7 +653,7 @@ def test_react_limit_logs_one_failed_terminal_lifecycle(
 def test_oversized_final_response_marks_run_failed_before_returning_error(
     agent_storage: AgentStorage,
 ) -> None:
-    """Keep the durable Run terminal state consistent with transport rejection."""
+    """保持持久化 Run 终态与传输拒绝一致。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())
@@ -688,7 +688,7 @@ def test_response_budget_uses_final_react_iteration(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reject the exact boundary which fits iteration zero but not iteration 128."""
+    """拒绝恰好容纳第零次却无法容纳第 128 次迭代的边界。"""
 
     async def scenario() -> None:
         config = agent_storage.api_configs.create(valid_api_config_input())

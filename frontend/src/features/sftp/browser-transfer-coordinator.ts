@@ -242,8 +242,8 @@ export class BrowserTransferCoordinator {
     remotePath: string,
     suggestedName: string,
   ): Promise<TransferPreparationSummary | null> {
-    // Calling the async gateway executes its picker invocation synchronously up
-    // to the gateway's first await, preserving transient user activation.
+    // 调用异步网关会同步执行文件选择器，直到首次 await，
+    // 从而保留短暂的用户激活状态。
     const targetPromise = this.gateway.selectDownloadTarget(suggestedName);
     const target = await targetPromise;
     if (target === null) return null;
@@ -464,8 +464,8 @@ export class BrowserTransferCoordinator {
     this.preparations.clear();
     const active = this.active;
     if (active === null) return;
-    // Page teardown cannot prove a cancelled HTTP outcome, so it only drops
-    // local ownership and leaves Python's remote recovery record authoritative.
+    // 页面销毁无法证明已取消 HTTP 请求的结果，因此只释放
+    // 本地所有权，Python 远程恢复记录仍是权威来源。
     active.suppressRemoteAbort = true;
     active.abortController.abort();
     await abortWritable(active);
@@ -678,8 +678,8 @@ async function abortWritable(active: ActiveTransfer): Promise<void> {
   try {
     await writable.abort();
   } catch {
-    // The local stream has no durable recovery contract. Remote state remains
-    // independently authoritative and the original transfer error is retained.
+    // 本地流没有持久化恢复契约；远程状态仍保持独立权威，
+    // 并保留原始传输错误。
   }
 }
 

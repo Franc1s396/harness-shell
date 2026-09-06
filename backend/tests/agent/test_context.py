@@ -17,13 +17,14 @@ from harness_shell_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import make_tool_call
+from harness_shell_sidecar.agent.context_models import ContextMessage
 
 
 def _new_run_after_history(
     agent_storage: AgentStorage,
     history: list[AIMessage | HumanMessage | ToolMessage],
 ) -> tuple[UUID, AgentRun]:
-    """Persist one terminal old Run and return its conversation and fresh Run."""
+    """持久化旧 Run 终态，并返回其会话和新 Run。"""
 
     config = agent_storage.api_configs.create(valid_api_config_input())
     conversation_id = agent_storage.conversations.create_conversation()
@@ -54,7 +55,7 @@ def _new_run_after_history(
 def test_unmatched_tool_call_is_closed_before_new_human_message(
     agent_storage: AgentStorage,
 ) -> None:
-    """Persist an interruption ToolMessage before the next user message."""
+    """在下一用户消息之前持久化中断 ToolMessage。"""
 
     ai = AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")])
     conversation_id, new_run = _new_run_after_history(agent_storage, [ai])
@@ -81,7 +82,7 @@ def test_unmatched_tool_call_is_closed_before_new_human_message(
 def test_completed_tool_call_is_not_synthetically_repaired(
     agent_storage: AgentStorage,
 ) -> None:
-    """Append only the new HumanMessage when the prior call already has a result."""
+    """此前调用已有结果时只追加新 HumanMessage。"""
 
     history = [
         AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")]),
@@ -106,7 +107,7 @@ def test_completed_tool_call_is_not_synthetically_repaired(
 def test_each_unmatched_call_id_gets_one_interruption_result(
     agent_storage: AgentStorage,
 ) -> None:
-    """Close every call on the final interrupted AIMessage without dispatching it."""
+    """补齐最后一个中断 AIMessage 中的所有调用，不派发执行。"""
 
     ai = AIMessage(
         content="",
@@ -138,7 +139,7 @@ def test_interruption_results_and_human_message_are_atomic(
     agent_storage: AgentStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Roll back both repair and user input if either record write fails."""
+    """任一记录写入失败时同时回滚修复和用户输入。"""
 
     ai = AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")])
     conversation_id, new_run = _new_run_after_history(agent_storage, [ai])
@@ -146,7 +147,7 @@ def test_interruption_results_and_human_message_are_atomic(
     calls = 0
 
     def fail_human_record(record: PlaintextRecord) -> None:
-        """Allow synthetic repair persistence and fail the following HumanMessage."""
+        """允许合成修复持久化，再让后续 HumanMessage 写入失败。"""
 
         nonlocal calls
         calls += 1
@@ -168,57 +169,19 @@ def test_interruption_results_and_human_message_are_atomic(
     ).fetchall() == [("AI",)]
 
 
-def test_trim_keeps_last_twenty_human_turns_with_all_ai_and_tool_messages() -> None:
-    """Drop only complete old Human-led turns while preserving selected tool flow."""
-
-    messages: list[AnyMessage] = []
-    for turn in range(1, 22):
-        messages.append(HumanMessage(content=f"human-{turn}"))
-        if turn == 2:
-            messages.extend(
-                [
-                    AIMessage(
-                        content="",
-                        tool_calls=[make_tool_call("call-2", "pwd")],
-                    ),
-                    ToolMessage(content="result-2", tool_call_id="call-2"),
-                ]
-            )
-        messages.append(AIMessage(content=f"answer-{turn}"))
-
-    trimmed = ContextService.trim_for_model(messages)
-
-    assert trimmed[0] == SYSTEM_MESSAGE
-    assert [
-        message.content for message in trimmed if isinstance(message, HumanMessage)
-    ] == [
-        "human-2",
-        "human-3",
-        "human-4",
-        "human-5",
-        "human-6",
-        "human-7",
-        "human-8",
-        "human-9",
-        "human-10",
-        "human-11",
-        "human-12",
-        "human-13",
-        "human-14",
-        "human-15",
-        "human-16",
-        "human-17",
-        "human-18",
-        "human-19",
-        "human-20",
-        "human-21",
-    ]
-    assert "answer-1" not in [message.content for message in trimmed]
-    assert trimmed[1:] == messages[2:]
+def test_projection_keeps_every_unsummarized_turn() -> None:
+    records = []
+    for turn in range(21):
+        records.extend([ContextMessage(len(records) + 1, uuid4(), HumanMessage(content=str(turn))),
+                        ContextMessage(len(records) + 2, uuid4(), AIMessage(content="answer"))])
+    projected = ContextService.project(records, None)
+    assert projected[0] == SYSTEM_MESSAGE
+    assert len(projected) == 43
+    assert projected[1].content == "0"
 
 
 def test_system_message_is_first_and_appears_exactly_once() -> None:
-    """Replace any persisted SystemMessage with the one canonical prompt source."""
+    """使用唯一权威提示词替换持久化 SystemMessage。"""
 
     messages = [
         SystemMessage(content="stale prompt"),
@@ -226,14 +189,14 @@ def test_system_message_is_first_and_appears_exactly_once() -> None:
         AIMessage(content="answer-1"),
     ]
 
-    trimmed = ContextService.trim_for_model(messages)
+    trimmed = ContextService.project([ContextMessage(i + 1, uuid4(), message) for i, message in enumerate(messages)], None)
 
     assert trimmed[0] == SYSTEM_MESSAGE
     assert sum(isinstance(message, SystemMessage) for message in trimmed) == 1
 
 
 def test_system_message_sets_internal_operations_behavior_contract() -> None:
-    """Keep the experimental Agent's model-visible safety behavior explicit."""
+    """明确实验性 Agent 面向模型的安全行为。"""
 
     content = SYSTEM_MESSAGE.content
 
@@ -248,3 +211,20 @@ def test_system_message_sets_internal_operations_behavior_contract() -> None:
         "预览影响范围 → 说明风险 → 请求确认 → 执行 → 验证 → 提供回滚或恢复信息"
         in content
     )
+
+
+@pytest.mark.parametrize("historical_turns", [3, 4])
+def test_compaction_boundary_keeps_three_complete_turns_and_tool_pairs(historical_turns: int) -> None:
+    records: list[ContextMessage] = []
+    for turn in range(historical_turns):
+        run_id = uuid4()
+        call_id = f"call-{turn}"
+        for message in [HumanMessage(content=f"user-{turn}"),
+                        AIMessage(content="", tool_calls=[make_tool_call(call_id, "pwd")]),
+                        ToolMessage(content="done", tool_call_id=call_id)]:
+            records.append(ContextMessage(len(records) + 1, run_id, message))
+    records.append(ContextMessage(len(records) + 1, uuid4(), HumanMessage(content="current")))
+    prefix = ContextService.compactable_prefix(records)
+    assert len(prefix) == (0 if historical_turns == 3 else 3)
+    if prefix:
+        assert prefix[-1].message.tool_call_id == prefix[-2].message.tool_calls[0]["id"]

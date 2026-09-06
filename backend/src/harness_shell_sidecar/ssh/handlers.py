@@ -1,4 +1,4 @@
-"""Validated dispatcher handlers for direct SSH lifecycle operations."""
+"""直连 SSH 生命周期操作的已校验 dispatcher handler。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def register_ssh_handlers(
     runtime: _SshRuntimeProtocol,
     credential_service: CredentialService,
 ) -> None:
-    """Register identity-only SSH operations with internal secret resolution."""
+    """注册仅传标识、内部解析秘密的 SSH 操作。"""
 
     async def inspect_host_key(
         context: RequestContext,

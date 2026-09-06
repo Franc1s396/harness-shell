@@ -1,4 +1,4 @@
-"""Typed HTTP route groups."""
+"""typed HTTP 路由分组。"""
 
 from .agent import router as agent_router
 from .connections import router as connections_router

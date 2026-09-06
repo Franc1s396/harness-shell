@@ -17,7 +17,7 @@ from .conftest import reserve_then_release_loopback_port
 
 
 def headers() -> dict[str, str]:
-    """Create one valid HTTP request identity."""
+    """创建合法 HTTP 请求标识。"""
 
     return {"X-Request-ID": str(uuid4())}
 
