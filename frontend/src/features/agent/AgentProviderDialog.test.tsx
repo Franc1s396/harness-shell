@@ -28,11 +28,13 @@ const config: ModelApiConfig = {
 
 afterEach(cleanup);
 
-it("shows persisted context budget fields", () => {
+it("hides persisted context budgets until advanced settings are expanded", () => {
   render(<AgentProviderDialog open mode="edit" config={{...config,
     context_window_size: 64000, context_compaction_threshold_ratio: 0.5,
     max_output_tokens: 4096}} busy={false} error={null}
     onClose={vi.fn()} onSubmit={vi.fn()} />);
+  expect(screen.queryByLabelText("Context window size")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
   expect(screen.getByLabelText("Context window size")).toHaveValue(64000);
   expect(screen.getByLabelText("Compaction threshold (%)")).toHaveValue(50);
   expect(screen.getByLabelText("Maximum output tokens")).toHaveValue(4096);
@@ -64,6 +66,7 @@ describe("AgentProviderDialog", () => {
     const key = screen.getByLabelText("API Key");
     expect(key).toHaveAttribute("type", "password");
     expect(key).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
     fireEvent.change(key, { target: { value: "replacement" } });
     fireEvent.change(screen.getByLabelText("Context window size"), { target: { value: "64000" } });
     fireEvent.change(screen.getByLabelText("Compaction threshold (%)"), { target: { value: "50" } });
@@ -161,4 +164,25 @@ it.each([
     [field]: value,
   };
   expect(validateProviderDraft(draft, "", "edit")).toHaveProperty(field, "INVALID");
+});
+
+
+it("preserves collapsed budget values and expands invalid budgets on submit", async () => {
+  const onSubmit = vi.fn(async () => undefined);
+  render(<AgentProviderDialog open mode="edit" config={config} busy={false}
+    error={null} onClose={vi.fn()} onSubmit={onSubmit} />);
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+    contextWindowSize: "128000", contextCompactionThresholdPercent: "75", maxOutputTokens: "8192",
+  }), ""));
+  const toggle = screen.getByRole("button", { name: "Advanced settings" });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(toggle);
+  fireEvent.change(screen.getByLabelText("Maximum output tokens"), { target: { value: "0" } });
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByLabelText("Maximum output tokens")).toHaveValue(0);
+  expect(screen.getByText("Invalid value")).toBeVisible();
+  expect(onSubmit).toHaveBeenCalledTimes(1);
 });

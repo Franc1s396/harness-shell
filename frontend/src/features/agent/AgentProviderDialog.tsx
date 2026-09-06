@@ -100,9 +100,11 @@ export function AgentProviderDialog(props: AgentProviderDialogProps) {
     createDraft(props.config),
   );
   const [apiKey, setApiKey] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [errors, setErrors] = useState<ProviderFormErrors>({});
 
   useEffect(() => {
+    setAdvancedOpen(false);
     if (!props.open) {
       setApiKey("");
       setErrors({});
@@ -123,6 +125,9 @@ export function AgentProviderDialog(props: AgentProviderDialogProps) {
     event.preventDefault();
     const validation = validateProviderDraft(draft, apiKey, props.mode);
     setErrors(validation);
+    if (validation.contextWindowSize || validation.contextCompactionThresholdPercent || validation.maxOutputTokens) {
+      setAdvancedOpen(true);
+    }
     if (Object.keys(validation).length > 0) {
       setApiKey("");
       return;
@@ -179,16 +184,6 @@ export function AgentProviderDialog(props: AgentProviderDialogProps) {
             }
           />
         </FormField>
-        {(["contextWindowSize", "contextCompactionThresholdPercent", "maxOutputTokens"] as const).map((field) => (
-          <FormField key={field} id={`provider-${field}`}
-            label={t(`settings.modelProviders.${field}`)} error={validationMessage(errors[field])}>
-            <input type="number" step={field === "contextCompactionThresholdPercent" ? "any" : "1"}
-              className="rounded border border-line bg-input px-3 py-2 text-ink"
-              value={draft[field]} disabled={props.busy}
-              onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))} />
-          </FormField>
-        ))}
-        <p className="text-xs text-ink-dim">{t("settings.modelProviders.contextBudgetHelp")}</p>
         <FormField id="provider-api-type" label={t("settings.modelProviders.apiType")}>
           <select
             className="rounded border border-line bg-input px-3 py-2 text-ink"
@@ -277,6 +272,28 @@ export function AgentProviderDialog(props: AgentProviderDialogProps) {
           />
           {t("settings.modelProviders.enabled")}
         </label>
+        <section className="border-t border-line pt-3">
+          <Button variant="ghost" className="flex w-full items-center justify-between"
+            aria-expanded={advancedOpen} aria-controls="provider-context-settings"
+            disabled={props.busy} onClick={() => setAdvancedOpen((current) => !current)}>
+            {t("settings.modelProviders.advancedSettings")}
+            <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span>
+          </Button>
+          <div id="provider-context-settings" hidden={!advancedOpen}>
+            {advancedOpen ? <div className="mt-3 grid gap-4">
+              {(["contextWindowSize", "contextCompactionThresholdPercent", "maxOutputTokens"] as const).map((field) => (
+                <FormField key={field} id={`provider-${field}`}
+                  label={t(`settings.modelProviders.${field}`)} error={validationMessage(errors[field])}>
+                  <input type="number" step={field === "contextCompactionThresholdPercent" ? "any" : "1"}
+                    className="rounded border border-line bg-input px-3 py-2 text-ink"
+                    value={draft[field]} disabled={props.busy}
+                    onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))} />
+                </FormField>
+              ))}
+              <p className="text-xs text-ink-dim">{t("settings.modelProviders.contextBudgetHelp")}</p>
+            </div> : null}
+          </div>
+        </section>
         {props.error ? (
           <p role="alert" className="text-sm text-danger">
             <strong>{props.error.code}</strong>: {props.error.message}
