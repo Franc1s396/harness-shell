@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 import base64
 import json
@@ -13,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import SecretStr
 
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepositoryError
+from harness_shell_sidecar.agent.api_configs import ApiConfigRepository, ApiConfigRepositoryError
 from harness_shell_sidecar.agent.contracts import (
     AgentRunStatus,
     AgentTurnInput,
@@ -119,7 +121,7 @@ def _dispatcher(
     """基于真实配置存储和轮次服务替身注册全部 Agent handler。"""
 
     dispatcher = RequestDispatcher()
-    credential_ids = agent_storage.database.execute(
+    credential_ids = sql(agent_storage.database,
         "SELECT api_key_credential_id FROM model_api_configs"
     ).fetchall()
     for (credential_id_text,) in credential_ids:
@@ -139,9 +141,7 @@ def _dispatcher(
             )
     register_agent_handlers(
         dispatcher,
-        agent_storage.api_configs,
         service,
-        CredentialRepository(agent_storage.record_store),
         cipher or RuntimeCredentialCipher.generate(),
         agent_storage.database,
     )
@@ -155,7 +155,7 @@ def _registered(
     """返回共享 dispatcher 和显式轮次应用。"""
 
     dispatcher = RequestDispatcher()
-    config_rows = agent_storage.database.execute(
+    config_rows = sql(agent_storage.database,
         "SELECT api_key_credential_id FROM model_api_configs"
     ).fetchall()
     for (credential_id_text,) in config_rows:
@@ -174,9 +174,7 @@ def _registered(
         )
     application = register_agent_handlers(
         dispatcher,
-        agent_storage.api_configs,
         service,
-        CredentialRepository(agent_storage.record_store),
         RuntimeCredentialCipher.generate(),
         agent_storage.database,
     )
@@ -257,10 +255,10 @@ def test_api_config_repository_errors_are_allowlisted_and_redacted(
     """只暴露稳定配置错误，绝不暴露仓库诊断。"""
 
     async def scenario() -> None:
-        def fail_list() -> list[object]:
+        def fail_list(self) -> list[object]:
             raise ApiConfigRepositoryError(repository_code, "secret database marker")
 
-        monkeypatch.setattr(agent_storage.api_configs, "list", fail_list)
+        monkeypatch.setattr(ApiConfigRepository, "list", fail_list)
         dispatcher = _dispatcher(agent_storage, FakeAgentService(_result()))
 
         with pytest.raises(DispatchError) as error:
@@ -349,18 +347,18 @@ def test_agent_turn_rechecks_enabled_config_and_credential_reference(
             agent_storage,
             FakeAgentService(_result()),
         )
-        real_get = agent_storage.api_configs.get
+        real_get = ApiConfigRepository.get
         get_count = 0
 
-        def changed_get(api_config_id: UUID):
+        def changed_get(self, api_config_id: UUID):
             nonlocal get_count
             get_count += 1
-            config = real_get(api_config_id)
+            config = real_get(self, api_config_id)
             if get_count == 2 and config is not None:
                 return config.model_copy(update={"model": "changed-model"})
             return config
 
-        monkeypatch.setattr(agent_storage.api_configs, "get", changed_get)
+        monkeypatch.setattr(ApiConfigRepository, "get", changed_get)
         with pytest.raises(DispatchError) as changed_error:
             await dispatcher.execute(
                 uuid4(),

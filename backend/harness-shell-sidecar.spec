@@ -24,7 +24,9 @@ hiddenimports = sorted(
 )
 datas = collect_data_files(
     "harness_shell_sidecar",
-    includes=["storage/migrations/*.sql"],
+    includes=["storage/alembic/env.py", "storage/alembic/script.py.mako",
+              "storage/alembic/versions/*.py"],
+    include_py_files=True,
 )
 
 datas += [(str(BACKEND_ROOT / "build" / "tokenizer"), "harness_shell_sidecar/agent/tokenizer_data")]

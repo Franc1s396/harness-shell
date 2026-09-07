@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import sqlite3
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.orm import Session
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from .database import RuntimeDatabase
+from .orm import RuntimeRecordRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,90 +37,41 @@ class PlaintextRecord:
 
 
 class PlaintextRecordStore:
-    """管理 schema v7 通用明文运行时记录的 CRUD。"""
+    """借用当前操作 Session 读写明文记录，不提交或关闭事务。"""
 
-    _database: RuntimeDatabase
-
-    def __init__(self, database: RuntimeDatabase) -> None:
-        """将存储绑定到 Runtime 拥有的共享数据库连接。"""
-
-        # 所有仓库结束后，由 Runtime 管理者关闭共享连接。
-        self._database = database
-
-    @property
-    def connection(self) -> sqlite3.Connection:
-        """提供共享连接以支持仓库级原子事务。"""
-
-        return self._database.connection
+    def __init__(self, session: Session) -> None:
+        """Session 生命周期由应用操作拥有。"""
+        self._session = session  # 只在当前操作中使用，不跨 await 保存。
 
     def put(self, record: PlaintextRecord) -> None:
-        """插入或更新载荷，同时保留创建时间戳。"""
-
+        """更新 payload，保留首次创建时间。"""
         now = _utc_now()
-        self._database.execute(
-            """
-            INSERT INTO runtime_records(
-                record_type, record_id, schema_version, payload,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(record_type, record_id) DO UPDATE SET
-                schema_version = excluded.schema_version,
-                payload = excluded.payload,
-                updated_at = excluded.updated_at
-            """,
-            (
-                record.record_type,
-                record.record_id,
-                record.schema_version,
-                record.payload,
-                now,
-                now,
-            ),
-        )
+        statement = insert(RuntimeRecordRow).values(
+            record_type=record.record_type, record_id=record.record_id,
+            schema_version=record.schema_version, payload=record.payload,
+            created_at=now, updated_at=now)
+        self._session.execute(statement.on_conflict_do_update(
+            index_elements=[RuntimeRecordRow.record_type, RuntimeRecordRow.record_id],
+            set_={"schema_version": statement.excluded.schema_version,
+                  "payload": statement.excluded.payload, "updated_at": statement.excluded.updated_at}))
 
     def get(self, record_type: str, record_id: str) -> PlaintextRecord | None:
-        """返回精确组合键记录；不存在时返回 None。"""
-
-        row = self._database.execute(
-            """
-            SELECT schema_version, payload
-            FROM runtime_records
-            WHERE record_type = ? AND record_id = ?
-            """,
-            (record_type, record_id),
-        ).fetchone()
-        if row is None:
-            return None
-        schema_version, payload = row
-        return PlaintextRecord(record_type, record_id, schema_version, payload)
+        """返回已物化载荷，不向调用者泄露 ORM 实例。"""
+        row = self._session.get(RuntimeRecordRow, (record_type, record_id), populate_existing=True)
+        return None if row is None else PlaintextRecord(row.record_type, row.record_id, row.schema_version, row.payload)
 
     def delete(self, record_type: str, record_id: str) -> bool:
-        """删除精确组合键记录，并报告其原先是否存在。"""
-
-        cursor = self._database.execute(
-            "DELETE FROM runtime_records WHERE record_type = ? AND record_id = ?",
-            (record_type, record_id),
-        )
-        return cursor.rowcount == 1
+        """删除组合键记录并报告它原先是否存在。"""
+        result = self._session.execute(delete(RuntimeRecordRow).where(
+            RuntimeRecordRow.record_type == record_type, RuntimeRecordRow.record_id == record_id))
+        return result.rowcount == 1
 
     def list_ids(self, record_type: str) -> Sequence[str]:
-        """按稳定字典序返回命名空间内的 ID。"""
-
-        rows = self._database.execute(
-            """
-            SELECT record_id
-            FROM runtime_records
-            WHERE record_type = ?
-            ORDER BY record_id
-            """,
-            (record_type,),
-        ).fetchall()
-        return tuple(row[0] for row in rows)
+        """按稳定字典顺序物化命名空间中的标识。"""
+        return tuple(self._session.scalars(select(RuntimeRecordRow.record_id).where(
+            RuntimeRecordRow.record_type == record_type).order_by(RuntimeRecordRow.record_id)))
 
 
 def _utc_now() -> str:
-    """为记录生命周期元数据返回毫秒级 UTC 时间戳。"""
-
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
-        "+00:00", "Z"
-    )
+    """生成现有协议的毫秒级 UTC 时间。"""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")

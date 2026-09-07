@@ -31,6 +31,7 @@ from .contracts import (
     ModelApiConfig,
 )
 from .conversations import ConversationRepository
+from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 from .streaming import AgentTextDeltaSink
 from .tools import (
     CommandRejected,
@@ -105,7 +106,7 @@ class AgentGraphDependencies:
     """集中保存编译后图捕获的长期非秘密协作者。"""
 
     #: 完整权威历史和 Run 生命周期的管理者。
-    conversations: ConversationRepository
+    database: RuntimeDatabase
     #: 负责中断历史修复与模型窗口投影。
     context: ContextService
     #: 双 API 模型调用网关。
@@ -206,8 +207,7 @@ def build_agent_graph(
     policy = AgentContextPolicy()
     budget = dependencies.budget if dependencies.budget is not None else ContextBudget(
         load_local_encoding(tokenizer_resource_dir(), policy.tokenizer_encoding), policy)
-    summaries = ContextSummaryRepository(dependencies.conversations.database)
-    compactor = ContextCompactor(summaries, budget, dependencies.gateway)
+    compactor = ContextCompactor(dependencies.database, budget, dependencies.gateway)
 
     async def load_context(
         state: AgentGraphState,
@@ -222,9 +222,10 @@ def build_agent_graph(
             runtime.context.user_message,
         )
         # 2. 同时加载带序号历史和独立摘要，供后续压缩及模型投影使用。
-        return {"messages": messages,
-                "records": dependencies.conversations.load_context_messages(state["conversation_id"]),
-                "summary": summaries.load(state["conversation_id"])}
+        with dependencies.database.read_session() as session:
+            return {"messages": messages,
+                    "records": ConversationRepository(session, PlaintextRecordStore(session)).load_context_messages(state["conversation_id"]),
+                    "summary": ContextSummaryRepository(session).load(state["conversation_id"])}
 
     async def compact_context(
         state: AgentGraphState, runtime: Runtime[AgentGraphContext],
@@ -270,11 +271,12 @@ def build_agent_graph(
             "request_identity": budget.request_identity(runtime.context.api_config),
         }
         # 3. AI 回复先入库，再用真实序号更新 graph 历史，之后才允许路由到工具执行。
-        sequence = dependencies.conversations.append_message(
-            state["agent_run_id"],
-            state["conversation_id"],
-            message,
-        )
+        with dependencies.database.write_session() as session:
+            sequence = ConversationRepository(session, PlaintextRecordStore(session)).append_message(
+                state["agent_run_id"],
+                state["conversation_id"],
+                message,
+            )
         return {"messages": [message], "records": [*state["records"],
             ContextMessage(sequence, state["agent_run_id"], message)]}
 
@@ -316,7 +318,8 @@ def build_agent_graph(
 
         if state["react_iteration"] >= 128:
             return {"last_error_code": "REACT_LIMIT_REACHED"}
-        run = dependencies.conversations.increment_iteration(state["agent_run_id"])
+        with dependencies.database.write_session() as session:
+            run = ConversationRepository(session, PlaintextRecordStore(session)).increment_iteration(state["agent_run_id"])
         return {
             "react_iteration": run.react_iteration,
             "last_error_code": None,
@@ -385,11 +388,12 @@ def build_agent_graph(
             )
             messages = [tool_message(call["id"], envelope)]
         # 3. 原子保存全部工具结果，再按真实序号更新图历史并继续模型循环。
-        sequences = dependencies.conversations.append_messages_atomic(
-            state["agent_run_id"],
-            state["conversation_id"],
-            messages,
-        )
+        with dependencies.database.write_session() as session:
+            sequences = ConversationRepository(session, PlaintextRecordStore(session)).append_messages_atomic(
+                state["agent_run_id"],
+                state["conversation_id"],
+                messages,
+            )
         return {"messages": messages, "records": [*state["records"],
             *(ContextMessage(sequence, state["agent_run_id"], message)
               for sequence, message in zip(sequences, messages, strict=True))]}
@@ -426,16 +430,18 @@ def build_agent_graph(
             for call in _last_ai_message(state).tool_calls
         ]
         # 2. 先持久化拒绝消息，再把 Run 转为 LIMIT_REACHED。
-        sequences = dependencies.conversations.append_messages_atomic(
-            state["agent_run_id"],
-            state["conversation_id"],
-            messages,
-        )
-        dependencies.conversations.finish_run(
-            state["agent_run_id"],
-            AgentRunStatus.LIMIT_REACHED,
-            "REACT_LIMIT_REACHED",
-        )
+        with dependencies.database.write_session() as session:
+            sequences = ConversationRepository(session, PlaintextRecordStore(session)).append_messages_atomic(
+                state["agent_run_id"],
+                state["conversation_id"],
+                messages,
+            )
+        with dependencies.database.write_session() as session:
+            ConversationRepository(session, PlaintextRecordStore(session)).finish_run(
+                state["agent_run_id"],
+                AgentRunStatus.LIMIT_REACHED,
+                "REACT_LIMIT_REACHED",
+            )
         # 3. 返回终态补丁，不再调用模型或 SSH。
         return {
             "messages": messages,

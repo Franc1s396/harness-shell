@@ -35,9 +35,10 @@ def profile_input(name: str, **overrides: object) -> ConnectionProfileInput:
 
 @pytest.fixture
 def repository(tmp_path: Path):
-    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
+    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
     try:
-        yield ConnectionRepository(database)
+        with database.write_session() as session:
+            yield ConnectionRepository(session)
     finally:
         database.close()
 
@@ -142,10 +143,10 @@ def test_profile_update_rejects_version_exhaustion(
     repository: ConnectionRepository,
 ) -> None:
     created = repository.create(profile_input("created"))
-    repository._database.execute(
-        "UPDATE connection_profiles SET version = ? WHERE connection_id = ?",
-        (2**53 - 1, str(created.connection_id)),
-    )
+    from sqlalchemy import update
+    from harness_shell_sidecar.storage.orm import ConnectionProfileRow
+    repository._session.execute(update(ConnectionProfileRow).where(
+        ConnectionProfileRow.connection_id == str(created.connection_id)).values(version=2**53 - 1))
 
     with pytest.raises(ConnectionRepositoryError) as raised:
         repository.update(created.connection_id, profile_input("blocked"))

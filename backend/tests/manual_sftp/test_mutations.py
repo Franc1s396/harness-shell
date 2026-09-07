@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 import errno
 import hashlib
@@ -232,10 +234,10 @@ def manager_with_operations(
 ) -> tuple[RuntimeDatabase, SshSession, MutationManager, ManualSftpOperationStore]:
     """构建变更管理器，同时暴露明文操作存储。"""
 
-    database = RuntimeDatabase.open_plaintext(
+    database = RuntimeDatabase.open(
         (tmp_path / "runtime.sqlite3").resolve()
     )
-    operations = ManualSftpOperationStore(PlaintextRecordStore(database))
+    operations = ManualSftpOperationStore(database)
     sessions = SshSessionRegistry()
     owner = sessions.register(
         CONNECTION_ID,
@@ -271,7 +273,7 @@ def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
         target_path = ROOT + "/existing-target.txt"
         target_payload = b"existing target"
         remote.nodes[target_path] = Node("file", target_payload)
-        database = RuntimeDatabase.open_plaintext(
+        database = RuntimeDatabase.open(
             (tmp_path / "runtime.sqlite3").resolve()
         )
         sessions = SshSessionRegistry()
@@ -284,7 +286,7 @@ def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
         )
         uploads = UploadManager(
             SftpChannelFactory(sessions),
-            ManualSftpOperationStore(PlaintextRecordStore(database)),
+            ManualSftpOperationStore(database),
         )
         try:
             snapshot = await uploads.preflight(owner.ssh_session_id, target_path)

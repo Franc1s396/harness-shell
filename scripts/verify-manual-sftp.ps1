@@ -83,7 +83,7 @@ try {
     }
 }
 
-Write-Output '[5/5] Plaintext schema-v7 remote recovery evidence'
+Write-Output '[5/5] Plaintext Alembic-baseline remote recovery evidence'
 & $pythonExe (Join-Path $workspaceRoot 'tests\ssh_lab\check-runtime-evidence.py') $evidenceRoot --manual-sftp
 if ($LASTEXITCODE -ne 0) { throw 'Manual SFTP runtime database evidence is incomplete' }
 

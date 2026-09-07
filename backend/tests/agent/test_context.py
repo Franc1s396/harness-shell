@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from harness_shell_sidecar.storage import PlaintextRecordStore
+
+from ..storage_support import RepositoryClient, sql
+
 import json
 from uuid import UUID, uuid4
 
@@ -60,7 +64,7 @@ def test_unmatched_tool_call_is_closed_before_new_human_message(
     ai = AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")])
     conversation_id, new_run = _new_run_after_history(agent_storage, [ai])
 
-    messages = ContextService(agent_storage.conversations).load_new_turn(
+    messages = ContextService(agent_storage.database).load_new_turn(
         new_run.agent_run_id,
         conversation_id,
         "continue",
@@ -73,7 +77,7 @@ def test_unmatched_tool_call_is_closed_before_new_human_message(
     )
     assert isinstance(messages[-1], HumanMessage)
     assert messages[-1].content == "continue"
-    rows = agent_storage.database.execute(
+    rows = sql(agent_storage.database,
         "SELECT message_type, tool_call_id FROM agent_messages ORDER BY sequence"
     ).fetchall()
     assert rows == [("AI", None), ("TOOL", "call-1"), ("HUMAN", None)]
@@ -90,7 +94,7 @@ def test_completed_tool_call_is_not_synthetically_repaired(
     ]
     conversation_id, new_run = _new_run_after_history(agent_storage, history)
 
-    messages = ContextService(agent_storage.conversations).load_new_turn(
+    messages = ContextService(agent_storage.database).load_new_turn(
         new_run.agent_run_id,
         conversation_id,
         "continue",
@@ -118,7 +122,7 @@ def test_each_unmatched_call_id_gets_one_interruption_result(
     )
     conversation_id, new_run = _new_run_after_history(agent_storage, [ai])
 
-    messages = ContextService(agent_storage.conversations).load_new_turn(
+    messages = ContextService(agent_storage.database).load_new_turn(
         new_run.agent_run_id,
         conversation_id,
         "do not resume",
@@ -130,7 +134,7 @@ def test_each_unmatched_call_id_gets_one_interruption_result(
         json.loads(message.content)["code"] == "PREVIOUS_TOOL_CALL_INTERRUPTED"
         for message in synthetic
     )
-    assert agent_storage.database.execute(
+    assert sql(agent_storage.database,
         "SELECT COUNT(*) FROM agent_messages"
     ).fetchone() == (4,)
 
@@ -143,28 +147,28 @@ def test_interruption_results_and_human_message_are_atomic(
 
     ai = AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")])
     conversation_id, new_run = _new_run_after_history(agent_storage, [ai])
-    real_put = agent_storage.record_store.put
+    real_put = PlaintextRecordStore.put
     calls = 0
 
-    def fail_human_record(record: PlaintextRecord) -> None:
+    def fail_human_record(self: PlaintextRecordStore, record: PlaintextRecord) -> None:
         """允许合成修复持久化，再让后续 HumanMessage 写入失败。"""
 
         nonlocal calls
         calls += 1
         if calls == 2:
             raise RuntimeError("injected human record failure")
-        real_put(record)
+        real_put(self, record)
 
-    monkeypatch.setattr(agent_storage.record_store, "put", fail_human_record)
+    monkeypatch.setattr(PlaintextRecordStore, "put", fail_human_record)
 
     with pytest.raises(RuntimeError, match="injected human record failure"):
-        ContextService(agent_storage.conversations).load_new_turn(
+        ContextService(agent_storage.database).load_new_turn(
             new_run.agent_run_id,
             conversation_id,
             "continue",
         )
 
-    assert agent_storage.database.execute(
+    assert sql(agent_storage.database,
         "SELECT message_type FROM agent_messages ORDER BY sequence"
     ).fetchall() == [("AI",)]
 

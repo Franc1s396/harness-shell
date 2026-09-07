@@ -109,6 +109,10 @@ def _run_server(
         """Uvicorn 启动后发布唯一桌面就绪帧。"""
 
         if desktop_control is not None:
+            # 仅在初始化成功后启动阻塞读取；失败路径没有活动 FileIO 读锁。
+            # 初始化期间已到达的父进程控制字节或 EOF 会在这里立即被消费。
+            assert watcher is not None
+            watcher.start()
             desktop_control.publish_ready(
                 instance_id=instance_id,
                 port=bound_port,
@@ -139,18 +143,17 @@ def _run_server(
             name="desktop-control-watcher",
             daemon=True,
         )
-        watcher.start()
 
     try:
         # 4. 使用已绑定监听器运行；退出时关闭监听器并检查控制线程错误。
         server.run(sockets=[listener])
     finally:
         listener.close()
-    if watcher is not None:
+    if watcher is not None and watcher.ident is not None:
         watcher.join(timeout=1)
     if control_error:
         raise control_error[0]
-    return 0
+    return 0 if server.started else 1
 
 
 def serve(*, port: int, data_dir: Path) -> int:

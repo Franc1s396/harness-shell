@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient
+
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,8 +79,8 @@ class FakeConnector:
 
 
 def setup_runtime(tmp_path: Path, connector: FakeConnector):
-    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
-    repo = ConnectionRepository(database)
+    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    repo = RepositoryClient(database, ConnectionRepository)
     value = repo.create(
         ConnectionProfileInput(
             display_name="retry",
@@ -98,7 +100,7 @@ def setup_runtime(tmp_path: Path, connector: FakeConnector):
             value.connection_id, value.host, value.port, connector.host_key
         )
     )
-    return database, value, SshRuntime(repo, connector=connector)
+    return database, value, SshRuntime(database, connector=connector)
 
 
 def test_retryable_pre_auth_connection_failure_retries_exactly_once(
@@ -213,7 +215,7 @@ def test_profile_change_after_secret_resolution_blocks_network_io(
     async def scenario() -> None:
         connector = FakeConnector(asyncssh.generate_private_key("ssh-ed25519"), [])
         database, value, runtime = setup_runtime(tmp_path, connector)
-        repo = runtime._repository
+        repo = RepositoryClient(database, ConnectionRepository)
         try:
             repo.update(
                 value.connection_id,

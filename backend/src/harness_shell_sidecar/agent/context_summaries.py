@@ -3,17 +3,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
+from harness_shell_sidecar.storage import PlaintextRecordStore
 from .context_models import ContextSummary, ContextError
 from .conversations import ConversationRepository
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.orm import Session
+from harness_shell_sidecar.storage.orm import AgentContextSummaryRow
 
 
 class ContextSummaryRepository:
     """借用运行时数据库，使用短事务原子替换摘要。"""
-    def __init__(self, database: RuntimeDatabase) -> None:
+    def __init__(self, session: Session) -> None:
         """绑定仓库，不额外打开数据库连接。"""
-        self._database = database  # 运行时拥有的连接；此处不负责关闭。
-        self._history = ConversationRepository(database, PlaintextRecordStore(database))  # 用于校验的只读视图。
+        self._session = session  # 当前操作拥有的 Session；本仓库不提交。
+        self._history = ConversationRepository(session, PlaintextRecordStore(session))  # 用于校验的只读视图。
 
     def _validate_boundary(self, conversation_id: UUID, sequence: int, source_run_id: UUID) -> None:
         """拒绝跨会话、覆盖当前轮或工具未配对的摘要边界。"""
@@ -50,9 +54,11 @@ class ContextSummaryRepository:
     def load(self, conversation_id: UUID) -> ContextSummary | None:
         """加载并校验唯一当前摘要，区分缺失与损坏。"""
         # 1. 读取会话当前摘要；只有确实不存在记录时才返回 None。
-        row = self._database.execute(
-            "SELECT revision, covered_through_sequence, summary_text, source_run_id, created_at, updated_at "
-            "FROM agent_context_summaries WHERE conversation_id = ?", (str(conversation_id),)).fetchone()
+        row = self._session.execute(select(AgentContextSummaryRow.revision,
+            AgentContextSummaryRow.covered_through_sequence, AgentContextSummaryRow.summary_text,
+            AgentContextSummaryRow.source_run_id, AgentContextSummaryRow.created_at,
+            AgentContextSummaryRow.updated_at).where(
+            AgentContextSummaryRow.conversation_id == str(conversation_id))).first()
         if row is None:
             return None
         # 2. 解析并校验持久化字段；损坏记录必须报错，不能当作“没有摘要”。
@@ -71,32 +77,23 @@ class ContextSummaryRepository:
                          covered_through_sequence: int, summary_text: str,
                          source_run_id: UUID) -> ContextSummary:
         """模型调用和估算结束后，在一个短事务内比较并替换摘要。"""
-        # 1. 模型请求和预算检查已在事务外完成；此处只开启一个短写事务。
-        connection = self._database.connection
-        connection.execute("BEGIN IMMEDIATE")
-        try:
-            # 2. 重新读取当前版本，拒绝过期写入、空摘要或没有向前推进的覆盖边界。
-            previous = self.load(conversation_id)
-            revision = previous.revision if previous else 0
-            if (revision != expected_revision or not summary_text.strip()
-                    or (previous and covered_through_sequence <= previous.covered_through_sequence)):
-                raise ContextError("CONTEXT_SUMMARY_INVALID", "summary replacement is stale or invalid")
-            # 3. 校验候选边界，并保留首次创建时间；每次成功替换递增 revision。
-            self._validate_boundary(conversation_id, covered_through_sequence, source_run_id)
-            now = datetime.now(timezone.utc)
-            created = previous.created_at if previous else now
-            # 4. 只新增或替换独立摘要记录，不删除或改写原始对话消息。
-            connection.execute(
-                "INSERT INTO agent_context_summaries VALUES (?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(conversation_id) DO UPDATE SET revision=excluded.revision, "
-                "covered_through_sequence=excluded.covered_through_sequence, summary_text=excluded.summary_text, "
-                "source_run_id=excluded.source_run_id, updated_at=excluded.updated_at",
-                (str(conversation_id), revision + 1, covered_through_sequence, summary_text,
-                 str(source_run_id), created.isoformat(), now.isoformat()))
-            # 5. 提交成功后才返回新摘要；任一步异常均回滚并向外传播。
-            connection.execute("COMMIT")
-            return ContextSummary(conversation_id, revision + 1, covered_through_sequence,
-                                  summary_text, source_run_id, created, now)
-        except BaseException:
-            connection.execute("ROLLBACK")
-            raise
+        # 1. 调用者已开启短写事务；再次校验 revision 和历史边界。
+        previous = self.load(conversation_id)
+        revision = previous.revision if previous else 0
+        if (revision != expected_revision or not summary_text.strip()
+                or (previous and covered_through_sequence <= previous.covered_through_sequence)):
+            raise ContextError("CONTEXT_SUMMARY_INVALID", "summary replacement is stale or invalid")
+        self._validate_boundary(conversation_id, covered_through_sequence, source_run_id)
+        now = datetime.now(timezone.utc)
+        created = previous.created_at if previous else now
+        statement = insert(AgentContextSummaryRow).values(conversation_id=str(conversation_id),
+            revision=revision + 1, covered_through_sequence=covered_through_sequence,
+            summary_text=summary_text, source_run_id=str(source_run_id),
+            created_at=created.isoformat(), updated_at=now.isoformat())
+        # 2. 同一事务只替换摘要，历史消息保持不变；应用层负责最终提交。
+        self._session.execute(statement.on_conflict_do_update(
+            index_elements=[AgentContextSummaryRow.conversation_id],
+            set_={name: getattr(statement.excluded, name) for name in (
+                "revision", "covered_through_sequence", "summary_text", "source_run_id", "updated_at")}))
+        return ContextSummary(conversation_id, revision + 1, covered_through_sequence,
+                              summary_text, source_run_id, created, now)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 from uuid import uuid4
 
 import pytest
@@ -76,11 +78,11 @@ def test_api_config_repository_rejects_delete_while_run_references_config(
 ) -> None:
     created = agent_storage.api_configs.create(valid_api_config_input())
     conversation_id = uuid4()
-    agent_storage.database.execute(
+    sql(agent_storage.database,
         "INSERT INTO agent_conversations(conversation_id, created_at, updated_at) VALUES (?, ?, ?)",
         (str(conversation_id), "2026-08-30T00:00:00.000000Z", "2026-08-30T00:00:00.000000Z"),
     )
-    agent_storage.database.execute(
+    sql(agent_storage.database,
         """
         INSERT INTO agent_runs(
             agent_run_id, conversation_id, ssh_session_id, api_config_id,

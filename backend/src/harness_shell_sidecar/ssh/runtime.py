@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import asyncssh
 
 from harness_shell_sidecar.connections import ConnectionRepository
+from harness_shell_sidecar.storage import RuntimeDatabase
 
 from .auth import build_auth_options
 from .errors import ConnectionStatus, SshRuntimeError
@@ -30,14 +31,14 @@ class SshRuntime:
 
     def __init__(
         self,
-        repository: ConnectionRepository,
+        database: RuntimeDatabase,
         *,
         connector: Callable[..., Awaitable[Any]] = asyncssh.connect,
         status_listener: StatusListener | None = None,
     ) -> None:
         """注入连接仓储与状态监听器，并创建空会话注册表。"""
 
-        self._repository = repository  # 读取连接配置和受信任 Host Key。
+        self._database = database  # 读取连接配置和受信任 Host Key。
         self._connector = connector  # AsyncSSH 连接工厂；测试可替换为 Fake。
         self._status_listener = status_listener  # 向桌面端发布状态事件的回调。
         self.sessions = SshSessionRegistry()  # 对 PTY/exec/SFTP 暴露的活动会话。
@@ -65,7 +66,8 @@ class SshRuntime:
             correlation_id,
             expected_connection_id=jump_connection_id,
         )
-        active_jump_key = self._repository.active_host_key(jump.connection_id)
+        with self._database.read_session() as session:
+            active_jump_key = ConnectionRepository(session).active_host_key(jump.connection_id)
         if active_jump_key is None:
             return await self._inspect_profile(jump, correlation_id)
 
@@ -111,7 +113,8 @@ class SshRuntime:
                 profile.host, profile.port, **options
             )
         except HostKeyObserved as observed:
-            active = self._repository.active_host_key(profile.connection_id)
+            with self._database.read_session() as session:
+                active = ConnectionRepository(session).active_host_key(profile.connection_id)
             if active is None:
                 return self._status(
                     profile.connection_id,
@@ -203,7 +206,8 @@ class SshRuntime:
                 jump_passphrase=jump_passphrase,
             )
 
-        active_host_key = self._repository.active_host_key(connection_id)
+        with self._database.read_session() as session:
+            active_host_key = ConnectionRepository(session).active_host_key(connection_id)
         if active_host_key is None:
             return await self._inspect_profile(profile, correlation_id)
 
@@ -278,7 +282,8 @@ class SshRuntime:
         """验证跳板和目标两个端点后建立单层 ProxyJump 会话。"""
 
         # 1. 优先确认跳板 Host Key，未信任时只返回跳板候选。
-        active_jump_key = self._repository.active_host_key(jump.connection_id)
+        with self._database.read_session() as session:
+            active_jump_key = ConnectionRepository(session).active_host_key(jump.connection_id)
         if active_jump_key is None:
             return await self._inspect_profile(jump, correlation_id)
 
@@ -289,7 +294,8 @@ class SshRuntime:
             passphrase=jump_passphrase,
         )
         # 2. 目标未信任时仅通过已验证跳板检查目标，并关闭临时跳板连接。
-        active_target_key = self._repository.active_host_key(profile.connection_id)
+        with self._database.read_session() as session:
+            active_target_key = ConnectionRepository(session).active_host_key(profile.connection_id)
         if active_target_key is None:
             jump_connection = await self._open_verified(
                 jump,
@@ -414,7 +420,8 @@ class SshRuntime:
     def _profile(self, connection_id: UUID, correlation_id: UUID):
         """读取必需连接配置，并把缺失转换为结构化 SSH 错误。"""
 
-        profile = self._repository.get(connection_id)
+        with self._database.read_session() as session:
+            profile = ConnectionRepository(session).get(connection_id)
         if profile is None:
             raise SshRuntimeError(
                 "CONNECTION_NOT_FOUND",

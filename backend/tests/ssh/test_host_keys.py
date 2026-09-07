@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,8 +77,8 @@ def profile(repository: ConnectionRepository, port: int):
 
 
 def repository(tmp_path: Path):
-    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
-    return database, ConnectionRepository(database)
+    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    return database, RepositoryClient(database, ConnectionRepository)
 
 
 def test_first_observation_returns_candidate_before_authentication(tmp_path: Path) -> None:
@@ -87,7 +89,7 @@ def test_first_observation_returns_candidate_before_authentication(tmp_path: Pat
         database, repo = repository(tmp_path)
         try:
             value = profile(repo, server.get_port())
-            runtime = SshRuntime(repo)
+            runtime = SshRuntime(database)
             status = await runtime.inspect_host_key(value.connection_id)
             assert status.state == "HOST_KEY_REQUIRED"
             assert status.host_key_candidate is not None
@@ -126,7 +128,7 @@ def test_changed_host_key_fails_before_authentication(
                     first_key,
                 )
             )
-            runtime = SshRuntime(repo)
+            runtime = SshRuntime(database)
             inspection = await runtime.inspect_host_key(value.connection_id)
             assert inspection.state == "FAILED"
             assert inspection.error_code == "HOST_KEY_CHANGED"
@@ -169,7 +171,7 @@ def test_exact_host_key_connects_and_disconnects_cleanly(tmp_path: Path) -> None
                     host_key,
                 )
             )
-            runtime = SshRuntime(repo)
+            runtime = SshRuntime(database)
             status = await runtime.connect(value.connection_id, password=b"secret")
             assert status.state == "READY"
             assert status.session_id is not None

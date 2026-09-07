@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 import hashlib
 import stat
@@ -140,10 +142,10 @@ class FakeRemote:
 def managers(tmp_path: Path, remote: FakeRemote):
     """构建绑定活动 SSH 会话的传输管理器。"""
 
-    database = RuntimeDatabase.open_plaintext(
+    database = RuntimeDatabase.open(
         (tmp_path / "runtime.sqlite3").resolve()
     )
-    records = ManualSftpOperationStore(PlaintextRecordStore(database))
+    records = ManualSftpOperationStore(database)
     sessions = SshSessionRegistry()
     owner = sessions.register(
         CONNECTION_ID,

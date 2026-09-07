@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
 from uuid import UUID
 
 from harness_shell_sidecar.connections import (
@@ -12,19 +11,8 @@ from harness_shell_sidecar.connections import (
 )
 
 from .cipher import zeroize
-from .models import CredentialKind
-from .repository import CredentialRepositoryError
-
-
-class _CredentialRepositoryProtocol(Protocol):
-    """描述服务使用的按类型校验秘密查询接口。"""
-
-    def resolve(
-        self,
-        credential_id: UUID,
-        expected_kind: CredentialKind,
-    ) -> bytearray:
-        """返回经过用途检查的可变凭据缓冲区。"""
+from .repository import CredentialRepositoryError, CredentialRepository
+from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 
 
 class CredentialServiceError(RuntimeError):
@@ -78,18 +66,14 @@ class ResolvedSshConnect:
 class CredentialService:
     """快照配置、解析精确凭据类型并拒绝竞态。"""
 
-    _connections: ConnectionRepository
-    _credentials: _CredentialRepositoryProtocol
 
     def __init__(
         self,
-        connections: ConnectionRepository,
-        credentials: _CredentialRepositoryProtocol,
+        database: RuntimeDatabase,
     ) -> None:
         """绑定 Runtime 拥有的仓库，不接管生命周期。"""
 
-        self._connections = connections
-        self._credentials = credentials
+        self._database = database  # 短 Session 的工厂，不保存秘密或 Session。
 
     def build_ssh_connect(self, connection_id: UUID) -> ResolvedSshConnect:
         """基于稳定配置版本解析直连与单层跳板凭据。"""
@@ -148,7 +132,8 @@ class CredentialService:
     def _required_profile(self, connection_id: UUID) -> ConnectionProfile:
         """加载必需配置；不存在时返回稳定错误。"""
 
-        profile = self._connections.get(connection_id)
+        with self._database.read_session() as session:
+            profile = ConnectionRepository(session).get(connection_id)
         if profile is None:
             raise CredentialServiceError(
                 "CONNECTION_NOT_FOUND",
@@ -164,31 +149,35 @@ class CredentialService:
         """仅解析配置声明的精确凭据类型。"""
 
         if profile.auth_kind == "password":
-            password = self._credentials.resolve(
-                profile.credential_id,
-                "ssh_password",
-            )
+            with self._database.read_session() as session:
+                password = CredentialRepository(PlaintextRecordStore(session)).resolve(
+                    profile.credential_id,
+                    "ssh_password",
+                )
             allocated.append(password)
             return password, None, None
 
-        private_key = self._credentials.resolve(
-            profile.credential_id,
-            "imported_private_key",
-        )
+        with self._database.read_session() as session:
+            private_key = CredentialRepository(PlaintextRecordStore(session)).resolve(
+                profile.credential_id,
+                "imported_private_key",
+            )
         allocated.append(private_key)
         passphrase = None
         if profile.passphrase_credential_id is not None:
-            passphrase = self._credentials.resolve(
-                profile.passphrase_credential_id,
-                "private_key_passphrase",
-            )
+            with self._database.read_session() as session:
+                passphrase = CredentialRepository(PlaintextRecordStore(session)).resolve(
+                    profile.passphrase_credential_id,
+                    "private_key_passphrase",
+                )
             allocated.append(passphrase)
         return None, private_key, passphrase
 
     def _require_same_version(self, snapshot: ConnectionProfile) -> None:
         """拒绝凭据解析后发生的删除或任何成功更新。"""
 
-        current = self._connections.get(snapshot.connection_id)
+        with self._database.read_session() as session:
+            current = ConnectionRepository(session).get(snapshot.connection_id)
         if current is None or current.version != snapshot.version:
             raise CredentialServiceError(
                 "CONNECTION_PROFILE_CHANGED",

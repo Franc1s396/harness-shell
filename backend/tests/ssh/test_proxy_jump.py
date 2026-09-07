@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,8 +111,8 @@ class ProxyConnector:
 
 
 def setup_profiles(tmp_path: Path, connector: ProxyConnector):
-    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
-    repository = ConnectionRepository(database)
+    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
+    repository = RepositoryClient(database, ConnectionRepository)
     jump = repository.create(
         ConnectionProfileInput(
             display_name="jump",
@@ -139,7 +141,7 @@ def setup_profiles(tmp_path: Path, connector: ProxyConnector):
             favorite=False,
         )
     )
-    runtime = SshRuntime(repository, connector=connector)
+    runtime = SshRuntime(database, connector=connector)
     return database, repository, jump, target, runtime
 
 
@@ -340,7 +342,7 @@ def test_nested_jump_is_rejected_before_network_io(tmp_path: Path) -> None:
                 favorite=False,
             )
         )
-        database.execute(
+        sql(database,
             "UPDATE connection_profiles SET proxy_jump_id = ? WHERE connection_id = ?",
             (str(third.connection_id), str(jump.connection_id)),
         )

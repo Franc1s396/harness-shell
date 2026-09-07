@@ -1,4 +1,6 @@
 """摘要写入保留权威消息，并拒绝过期覆盖边界。"""
+
+from ..storage_support import RepositoryClient, sql
 from uuid import uuid4
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage
@@ -19,7 +21,7 @@ def test_summary_commit_preserves_history_and_rejects_stale_writer(agent_storage
     current = repo.start_run(conversation, uuid4(), config.api_config_id)
     repo.append_message(current.agent_run_id, conversation, HumanMessage(content="next"))
     before = repo.load_messages(conversation)
-    summaries = ContextSummaryRepository(agent_storage.database)
+    summaries = RepositoryClient(agent_storage.database, ContextSummaryRepository)
     args = dict(conversation_id=conversation, expected_revision=0,
         covered_through_sequence=2, summary_text="Completed inspection.", source_run_id=current.agent_run_id)
     saved = summaries.commit_candidate(**args)
@@ -39,7 +41,7 @@ def test_summary_cannot_cover_current_user(agent_storage: AgentStorage) -> None:
     run = repo.start_run(conversation, uuid4(), config.api_config_id)
     repo.append_message(run.agent_run_id, conversation, HumanMessage(content="current"))
     with pytest.raises(ContextError):
-        ContextSummaryRepository(agent_storage.database).commit_candidate(
+        RepositoryClient(agent_storage.database, ContextSummaryRepository).commit_candidate(
             conversation_id=conversation, expected_revision=0, covered_through_sequence=1,
             summary_text="bad", source_run_id=run.agent_run_id)
 
@@ -56,6 +58,6 @@ def test_summary_source_cannot_cover_its_own_completed_turn(agent_storage: Agent
     current = repo.start_run(conversation, uuid4(), config.api_config_id)
     repo.append_message(current.agent_run_id, conversation, HumanMessage(content="next"))
     with pytest.raises(ContextError, match="source turn"):
-        ContextSummaryRepository(agent_storage.database).commit_candidate(
+        RepositoryClient(agent_storage.database, ContextSummaryRepository).commit_candidate(
             conversation_id=conversation, expected_revision=0, covered_through_sequence=2,
             summary_text="invalid source", source_run_id=old.agent_run_id)

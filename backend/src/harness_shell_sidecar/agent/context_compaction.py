@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from .context import ContextService
 from .context_models import ContextMessage, ContextSummary, ContextError
 from .context_summaries import ContextSummaryRepository
+from harness_shell_sidecar.storage import RuntimeDatabase
 from .context_budget import ContextBudget
 from .contracts import ModelApiConfig
 from .executor import AgentCancelled
@@ -59,10 +60,10 @@ def build_summary_messages(old_summary: ContextSummary | None,
 
 class ContextCompactor:
     """负责最多三次尝试的策略，不拥有权威历史或 UI 流。"""
-    def __init__(self, summaries: ContextSummaryRepository, budget: ContextBudget,
+    def __init__(self, database: RuntimeDatabase, budget: ContextBudget,
                  gateway: SummaryInvoker, *, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
         """借用协作者和可取消的重试时钟。"""
-        self._summaries = summaries  # 运行时数据库中的当前摘要仓库。
+        self._database = database  # 运行时数据库中的当前摘要仓库。
         self._budget = budget  # 输入估算器和准入策略。
         self._gateway = gateway  # 不连接 UI sink 的单请求摘要接口。
         self._sleep = sleep  # 与取消信号竞争并被等待回收的重试延时。
@@ -120,7 +121,8 @@ class ContextCompactor:
         # 7. 提交前再次检查取消；以旧 revision 校验并原子保存，原始对话消息保持不变。
         if cancelled.is_set():
             raise AgentCancelled()
-        return self._summaries.commit_candidate(conversation_id=conversation_id,
-            expected_revision=summary.revision if summary else 0,
-            covered_through_sequence=candidate.covered_through_sequence,
-            summary_text=text, source_run_id=source_run_id)
+        with self._database.write_session() as session:
+            return ContextSummaryRepository(session).commit_candidate(conversation_id=conversation_id,
+                expected_revision=summary.revision if summary else 0,
+                covered_through_sequence=candidate.covered_through_sequence,
+                summary_text=text, source_run_id=source_run_id)

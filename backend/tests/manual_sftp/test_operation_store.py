@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 from pathlib import Path
 from uuid import UUID
 
@@ -20,11 +22,11 @@ CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000302")
 def open_store(tmp_path: Path):
     """打开明文操作存储及拥有它的数据库。"""
 
-    database = RuntimeDatabase.open_plaintext(
+    database = RuntimeDatabase.open(
         (tmp_path / "runtime.sqlite3").resolve()
     )
-    records = PlaintextRecordStore(database)
-    return database, records, ManualSftpOperationStore(records)
+    records = RepositoryClient(database, PlaintextRecordStore)
+    return database, records, ManualSftpOperationStore(database)
 
 
 def record(operation_id: UUID, state: str) -> RemoteOperationRecord:

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from harness_shell_sidecar.agent.conversations import ConversationRepository
+
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 import json
 import logging
@@ -85,15 +89,13 @@ def _service(
 ) -> AgentService:
     """使用真实存储和确定性远程边界构建 AgentService。"""
 
-    return AgentService(
-        agent_storage.api_configs,
-        agent_storage.conversations,
+    return AgentService(agent_storage.database,
         executor,
         ModelGateway(
             client_builder=RecordingSequenceClientBuilder(model),
             sleep=instant_sleep,
         ),
-        ContextService(agent_storage.conversations),
+        ContextService(agent_storage.database),
         session_is_available,
     )
 
@@ -133,10 +135,11 @@ def test_model_failure_marks_run_failed_exactly_once(
         turn = make_turn_input().model_copy(
             update={"api_config_id": config.api_config_id}
         )
-        real_finish = agent_storage.conversations.finish_run
+        real_finish = ConversationRepository.finish_run
         statuses: list[AgentRunStatus] = []
 
         def count_finish(
+            self: ConversationRepository,
             agent_run_id: UUID,
             status: AgentRunStatus,
             error_code: str | None,
@@ -144,9 +147,9 @@ def test_model_failure_marks_run_failed_exactly_once(
             """委托真实仓库执行时记录终态转换。"""
 
             statuses.append(status)
-            return real_finish(agent_run_id, status, error_code)
+            return real_finish(self, agent_run_id, status, error_code)
 
-        monkeypatch.setattr(agent_storage.conversations, "finish_run", count_finish)
+        monkeypatch.setattr(ConversationRepository, "finish_run", count_finish)
         caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
         event_sink = RecordingTurnSink()
 
@@ -197,10 +200,11 @@ def test_tool_failure_marks_run_failed_exactly_once(
         turn = make_turn_input().model_copy(
             update={"api_config_id": config.api_config_id}
         )
-        real_finish = agent_storage.conversations.finish_run
+        real_finish = ConversationRepository.finish_run
         statuses: list[AgentRunStatus] = []
 
         def count_finish(
+            self: ConversationRepository,
             agent_run_id: UUID,
             status: AgentRunStatus,
             error_code: str | None,
@@ -208,9 +212,9 @@ def test_tool_failure_marks_run_failed_exactly_once(
             """委托真实仓库执行时记录终态转换。"""
 
             statuses.append(status)
-            return real_finish(agent_run_id, status, error_code)
+            return real_finish(self, agent_run_id, status, error_code)
 
-        monkeypatch.setattr(agent_storage.conversations, "finish_run", count_finish)
+        monkeypatch.setattr(ConversationRepository, "finish_run", count_finish)
 
         event_sink = RecordingTurnSink()
         result = await _run_turn(
@@ -383,7 +387,7 @@ def test_outer_task_cancellation_marks_run_cancelled(
         try:
             with pytest.raises(asyncio.CancelledError):
                 await task
-            row = agent_storage.database.execute(
+            row = sql(agent_storage.database,
                 "SELECT status, error_code FROM agent_runs"
             ).fetchone()
             assert row == ("CANCELLED", "AGENT_CANCELLED")
@@ -419,7 +423,7 @@ def test_outer_task_cancellation_during_tool_marks_run_cancelled(
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert executor.stopped.is_set()
-            row = agent_storage.database.execute(
+            row = sql(agent_storage.database,
                 "SELECT status, error_code FROM agent_runs"
             ).fetchone()
             assert row == ("CANCELLED", "AGENT_CANCELLED")
@@ -467,7 +471,7 @@ def test_missing_or_disabled_api_config_fails_before_run_creation(
                 event_sink=RecordingTurnSink(),
             )
         assert disabled_error.value.error_code == "MODEL_API_CONFIG_DISABLED"
-        assert agent_storage.database.execute(
+        assert sql(agent_storage.database,
             "SELECT COUNT(*) FROM agent_runs"
         ).fetchone() == (0,)
 
@@ -503,10 +507,10 @@ def test_missing_session_fails_before_conversation_run_or_model_call(
 
         assert error.value.error_code == "SSH_SESSION_UNAVAILABLE"
         assert model.calls == 0
-        assert agent_storage.database.execute(
+        assert sql(agent_storage.database,
             "SELECT COUNT(*) FROM agent_conversations"
         ).fetchone() == (0,)
-        assert agent_storage.database.execute(
+        assert sql(agent_storage.database,
             "SELECT COUNT(*) FROM agent_runs"
         ).fetchone() == (0,)
 
@@ -565,7 +569,7 @@ def test_queued_turn_rejects_config_change_before_starting_second_run(
         assert first_result.status is AgentRunStatus.COMPLETED
         assert error.value.error_code == "MODEL_API_CONFIG_CHANGED"
         assert model.calls == 1
-        assert agent_storage.database.execute(
+        assert sql(agent_storage.database,
             "SELECT COUNT(*) FROM agent_runs"
         ).fetchone() == (1,)
         assert service._conversation_locks == {}
@@ -676,7 +680,7 @@ def test_oversized_final_response_marks_run_failed_before_returning_error(
 
         assert result.error_code == "AGENT_RESPONSE_TOO_LARGE"
         assert [name for name, _value in event_sink.events][-1] == "failed"
-        row = agent_storage.database.execute(
+        row = sql(agent_storage.database,
             "SELECT status, error_code FROM agent_runs"
         ).fetchone()
         assert row == ("FAILED", "AGENT_RESPONSE_TOO_LARGE")
@@ -744,7 +748,7 @@ def test_response_budget_uses_final_react_iteration(
 
         assert result.error_code == "AGENT_RESPONSE_TOO_LARGE"
         assert [name for name, _value in event_sink.events][-1] == "failed"
-        row = agent_storage.database.execute(
+        row = sql(agent_storage.database,
             "SELECT status, react_iteration, error_code FROM agent_runs"
         ).fetchone()
         assert row == ("FAILED", 128, "AGENT_RESPONSE_TOO_LARGE")

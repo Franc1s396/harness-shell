@@ -39,7 +39,7 @@ def _service(runtime_context) -> ManualSftpService:
 
     return ManualSftpService(
         runtime_context.runtime.sessions,
-        runtime_context.records,
+        runtime_context.database,
         _ignore_event,
     )
 

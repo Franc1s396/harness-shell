@@ -15,6 +15,7 @@ from langchain_core.messages import (
 )
 
 from .conversations import ConversationRepository
+from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 from .context_models import ContextMessage, ContextSummary
 
 DEFAULT_SYSTEM_PROMPT = """
@@ -58,10 +59,10 @@ SYSTEM_MESSAGE = SystemMessage(
 class ContextService:
     """负责历史修复和独立的滚动摘要模型投影。"""
 
-    def __init__(self, conversations: ConversationRepository) -> None:
+    def __init__(self, database: RuntimeDatabase) -> None:
         """绑定权威对话仓库，不依赖 SSH。"""
 
-        self._conversations = conversations  # 完整权威历史的管理者。
+        self._database = database  # 完整权威历史的管理者。
 
     def load_new_turn(
         self,
@@ -71,17 +72,19 @@ class ContextService:
     ) -> list[AnyMessage]:
         """先原子补齐中断调用，再持久化新的 HumanMessage。"""
 
-        messages = self._conversations.load_messages(conversation_id)
-        additions: list[AnyMessage] = [
-            *_interrupted_tool_messages(messages),
-            HumanMessage(content=user_text),
-        ]
-        self._conversations.append_messages_atomic(
-            agent_run_id,
-            conversation_id,
-            additions,
-        )
-        return [*messages, *additions]
+        with self._database.write_session() as session:
+            repository = ConversationRepository(session, PlaintextRecordStore(session))
+            messages = repository.load_messages(conversation_id)
+            additions: list[AnyMessage] = [
+                *_interrupted_tool_messages(messages),
+                HumanMessage(content=user_text),
+            ]
+            repository.append_messages_atomic(
+                agent_run_id,
+                conversation_id,
+                additions,
+            )
+            return [*messages, *additions]
 
     @staticmethod
     def project(records: Sequence[ContextMessage], summary: ContextSummary | None) -> list[AnyMessage]:

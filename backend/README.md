@@ -16,7 +16,7 @@ harness-shell-sidecar.exe desktop --port 0 --data-dir <absolute> --control-read-
 
 Desktop mode 绑定动态 loopback port，通过 inherited ready pipe 报告端口，并在 control pipe 收到 Launcher 的 graceful signal 后退出。它不扫描端口、不 reconnect、不 respawn。
 
-Runtime SQLite 只接受全新 schema v6。旧 schema 不会迁移，并在修改文件前失败。schema v6 是 plaintext：credential、Agent message/output、remote recovery 与其他业务 payload 可能明文落盘。诊断信息只写日志目录，不再写 SQLite Audit/Trace 表。
+Runtime SQLite 使用同步 SQLAlchemy 2.0 ORM 与短 Session。启动时 Alembic 从全新库建立 `0001_initial` 或升级已知 revision，全部 DDL、版本和自检原子提交；旧 schema v7 不接管，未知版本直接拒绝。业务表保留 STRICT，仍是 plaintext：credential、Agent message/output、remote recovery 与其他业务 payload 可能明文落盘。诊断信息只写日志目录，不再写 SQLite Audit/Trace 表。
 
 构建与测试：
 
@@ -25,4 +25,4 @@ Runtime SQLite 只接受全新 schema v6。旧 schema 不会迁移，并在修�
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_sidecar.ps1
 ```
 
-打包固定 Python 3.12.13 与 `x86_64-pc-windows-msvc`，依赖来自 `build-requirements.lock`。生成的 `build/`、`dist/` 与复制到 Tauri binaries 的 `.exe` 不得提交。测试和 packaged loopback smoke 不等于 Desktop、真实 Provider、生产 SSH 或部署验收。
+打包固定 Python 3.12.14 与 `x86_64-pc-windows-msvc`，依赖来自 `build-requirements.lock`。生成的 `build/`、`dist/` 与复制到 Tauri binaries 的 `.exe` 不得提交。测试和 packaged loopback smoke 不等于 Desktop、真实 Provider、生产 SSH 或部署验收。

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore
+from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore, RuntimeDatabase
 
 from .errors import ManualSftpError
 from .models import (
@@ -83,83 +83,76 @@ class DeletePlanRecord(StrictModel):
 class ManualSftpOperationStore:
     """返回领域状态前校验每条明文操作记录。"""
 
-    def __init__(self, records: PlaintextRecordStore) -> None:
-        """绑定共享的 schema v7 明文记录存储。"""
+    def __init__(self, database: RuntimeDatabase) -> None:
+        """绑定数据库工厂，每次领域操作拥有独立短事务。"""
 
-        self._records = records
+        self._database = database  # 每次领域存储操作创建短 Session。
 
     def put(self, record: RemoteOperationRecord) -> None:
         """原子插入或替换完整严格 JSON 记录。"""
 
-        self._records.put(
-            PlaintextRecord(
-                RECORD_TYPE,
-                str(record.operation_id),
-                RECORD_SCHEMA_VERSION,
-                record.model_dump_json().encode("utf-8"),
+        with self._database.write_session() as session:
+            PlaintextRecordStore(session).put(
+                PlaintextRecord(
+                    RECORD_TYPE,
+                    str(record.operation_id),
+                    RECORD_SCHEMA_VERSION,
+                    record.model_dump_json().encode("utf-8"),
+                )
             )
-        )
 
     def get(self, operation_id: UUID) -> RemoteOperationRecord | None:
         """严格解码 UTF-8 JSON，校验记录内容及标识。"""
 
-        stored = self._records.get(RECORD_TYPE, str(operation_id))
-        if stored is None:
-            return None
-        if stored.schema_version != RECORD_SCHEMA_VERSION:
-            raise _operation_record_error("The operation record schema is unsupported.")
-        try:
-            record = RemoteOperationRecord.model_validate_json(
-                _validated_json_text(stored.payload)
-            )
-        except (UnicodeDecodeError, ValueError, ValidationError) as error:
-            raise _operation_record_error("The operation record is invalid.") from error
-        if record.operation_id != operation_id:
-            raise _operation_record_error("The operation record identity is invalid.")
-        return record
+        with self._database.read_session() as session:
+            stored = PlaintextRecordStore(session).get(RECORD_TYPE, str(operation_id))
+        return _decode_operation(stored, operation_id)
 
     def delete(self, operation_id: UUID) -> bool:
         """通过组合标识删除操作记录。"""
 
-        return self._records.delete(RECORD_TYPE, str(operation_id))
+        with self._database.write_session() as session:
+            return PlaintextRecordStore(session).delete(RECORD_TYPE, str(operation_id))
 
     def list_non_terminal(self) -> tuple[RemoteOperationRecord, ...]:
         """按稳定创建顺序返回已校验的非终态记录。"""
 
         result: list[RemoteOperationRecord] = []
-        for record_id in self._records.list_ids(RECORD_TYPE):
-            try:
-                operation_id = UUID(record_id)
-            except (TypeError, ValueError) as error:
-                raise _operation_record_error(
-                    "The operation record identity is invalid."
-                ) from error
-            record = self.get(operation_id)
-            if record is None:
-                raise _operation_record_error(
-                    "The operation record disappeared during listing."
-                )
-            if record.state not in TERMINAL_STATES:
-                result.append(record)
+        with self._database.read_session() as session:
+            store = PlaintextRecordStore(session)
+            for record_id in store.list_ids(RECORD_TYPE):
+                try:
+                    operation_id = UUID(record_id)
+                except (TypeError, ValueError) as error:
+                    raise _operation_record_error(
+                        "The operation record identity is invalid."
+                    ) from error
+                record = _decode_operation(store.get(RECORD_TYPE, record_id), operation_id)
+                if record is None:
+                    raise _operation_record_error("The operation record disappeared during listing.")
+                if record.state not in TERMINAL_STATES:
+                    result.append(record)
         result.sort(key=lambda value: (value.created_at, str(value.operation_id)))
         return tuple(result)
 
     def put_delete_plan(self, plan: DeletePlanRecord) -> None:
         """持久化完整的一次性删除计划和规范清单。"""
 
-        self._records.put(
-            PlaintextRecord(
-                DELETE_PLAN_RECORD_TYPE,
-                str(plan.delete_plan_id),
-                RECORD_SCHEMA_VERSION,
-                plan.model_dump_json().encode("utf-8"),
+        with self._database.write_session() as session:
+            PlaintextRecordStore(session).put(
+                PlaintextRecord(
+                    DELETE_PLAN_RECORD_TYPE,
+                    str(plan.delete_plan_id),
+                    RECORD_SCHEMA_VERSION,
+                    plan.model_dump_json().encode("utf-8"),
+                )
             )
-        )
 
     def get_delete_plan(self, delete_plan_id: UUID) -> DeletePlanRecord | None:
         """解码并校验明文删除计划。"""
 
-        stored = self._records.get(DELETE_PLAN_RECORD_TYPE, str(delete_plan_id))
+        with self._database.read_session() as session:
+            stored = PlaintextRecordStore(session).get(DELETE_PLAN_RECORD_TYPE, str(delete_plan_id))
         if stored is None:
             return None
         if stored.schema_version != RECORD_SCHEMA_VERSION:
@@ -177,6 +170,23 @@ class ManualSftpOperationStore:
                 "The recursive-delete plan identity is invalid."
             )
         return plan
+
+
+def _decode_operation(stored: PlaintextRecord | None, operation_id: UUID) -> RemoteOperationRecord | None:
+    """校验已经物化的记录，供单项读取与同一快照的列表读取共用。"""
+    if stored is None:
+        return None
+    if stored.schema_version != RECORD_SCHEMA_VERSION:
+        raise _operation_record_error("The operation record schema is unsupported.")
+    try:
+        record = RemoteOperationRecord.model_validate_json(
+            _validated_json_text(stored.payload)
+        )
+    except (UnicodeDecodeError, ValueError, ValidationError) as error:
+        raise _operation_record_error("The operation record is invalid.") from error
+    if record.operation_id != operation_id:
+        raise _operation_record_error("The operation record identity is invalid.")
+    return record
 
 
 def _validated_json_text(payload: bytes) -> str:

@@ -1,4 +1,6 @@
 """滚动摘要只重试有限次数，并保留原始历史。"""
+
+from ..storage_support import RepositoryClient, sql
 import asyncio
 from uuid import uuid4
 from collections.abc import Sequence
@@ -60,9 +62,9 @@ def test_compaction_retries_and_preserves_messages(agent_storage: AgentStorage, 
     current = repo.start_run(conversation, uuid4(), config.api_config_id)
     repo.append_message(current.agent_run_id, conversation, HumanMessage(content="next"))
     before = repo.load_messages(conversation)
-    summaries = ContextSummaryRepository(agent_storage.database)
+    summaries = RepositoryClient(agent_storage.database, ContextSummaryRepository)
     gateway = SummaryGateway(failures)
-    compactor = ContextCompactor(summaries, ControlledBudget(), gateway, sleep=instant_sleep)
+    compactor = ContextCompactor(agent_storage.database, ControlledBudget(), gateway, sleep=instant_sleep)
     async def perform() -> ContextSummary | None:
         """对持久化历史调用真实压缩器。"""
         return await compactor.compact(config=config, api_key=SecretStr("key"),
@@ -122,7 +124,7 @@ def test_failed_candidate_preserves_existing_summary(
         repo.finish_run(old.agent_run_id, AgentRunStatus.COMPLETED, None)
     current = repo.start_run(conversation, uuid4(), config.api_config_id)
     repo.append_message(current.agent_run_id, conversation, HumanMessage(content="next"))
-    summaries = ContextSummaryRepository(agent_storage.database)
+    summaries = RepositoryClient(agent_storage.database, ContextSummaryRepository)
     previous = summaries.commit_candidate(conversation_id=conversation, expected_revision=0,
         covered_through_sequence=2, summary_text="Previously committed summary", source_run_id=current.agent_run_id)
     before = repo.load_messages(conversation)
@@ -146,7 +148,7 @@ def test_failed_candidate_preserves_existing_summary(
             cancelled.set()
             await asyncio.sleep(0)
         gateway = SummaryGateway(3 if failure_stage == "cancel_retry" else 0)
-        compactor = ContextCompactor(summaries, StageBudget(), gateway, sleep=cancel_retry)
+        compactor = ContextCompactor(agent_storage.database, StageBudget(), gateway, sleep=cancel_retry)
         expected_error = AgentCancelled if failure_stage == "cancel_retry" else ContextError
         with pytest.raises(expected_error):
             await compactor.compact(config=config, api_key=SecretStr("key"),

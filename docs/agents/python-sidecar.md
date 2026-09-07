@@ -17,7 +17,7 @@ FastAPI ASGI lifespan 从 `RuntimeSettings` 创建唯一 `RuntimeResources`，�
 
 - `web/`：Uvicorn、lifespan、typed HTTP/WebSocket gateway、Agent SSE encoder/session/startup barrier、Problem Details 与 OpenAPI export。
 - `runtime/`：settings、resources、dispatcher、request context 与 Desktop control pipe。
-- `storage/`：schema-v7-only plaintext database 与 generic plaintext records。
+- `storage/`：同步 SQLAlchemy Engine/短 Session、Alembic 启动升级、STRICT 自检与 plaintext records。
 - `credentials/`：request envelope 解封、kind-checked plaintext credential repository、temporary secret cleanup；不提供独立 credential mutation route。
 - `ssh/`、`terminal/`：SSH/ProxyJump/Host Key/PTY owner。
 - `manual_sftp/`：remote-only listing、mutation、temporary/commit/abort/recovery；不得读取或写入本地用户文件。
@@ -47,11 +47,15 @@ Chat Completions 与 Responses 接收采用类似 Open WebUI 的宽松聚合规�
 
 ## 存储
 
-`RuntimeDatabase.open_plaintext` 只接受不存在的新数据库或 exact schema v7。旧 schema、未知对象、约束不匹配或 self-check 失败必须在修改现有文件前退出。没有旧版本 sequential migration、兼容读取或自动备份。
+`RuntimeDatabase.open` 在资源发布前执行包内 Alembic 升级：全新数据库建立 `0001_initial`，已知 revision 升至唯一 head；旧 schema v7 和未知 revision 只读拒绝。迁移专用连接先关闭 foreign_keys，再 `BEGIN IMMEDIATE`，全部 revision、版本号、schema/STRICT/约束/索引和 integrity/foreign_key_check 共享一个真实事务；失败整体回滚并终止启动。成功后业务 Engine 启用 WAL、foreign_keys 和固定 busy_timeout。没有自动备份、恢复、降级或旧库导入。
+
+Runtime 长期只持有 Engine/Session 工厂。repository 构造接收 Session，不 commit/close；handler、Agent 数据库阶段和 SFTP operation store 拥有 `read_session`/`write_session`。读作用域退出回滚；写作用域使用 `BEGIN IMMEDIATE`，flush 后关闭 Session，由外层 Connection 提交。禁止跨 SSH/模型/SSE await 保留 Session，禁止把 ORM 行对象作为领域返回值。资源关闭前必须归还全部 Session。
+
+revision 必须独立声明历史 DDL，不能导入当前 ORM metadata；修改 ORM 时同步编写并审查 revision。batch 重建显式保留 STRICT、未命名 CHECK、索引和外键，不能依赖 autogenerate 完全保留；已验证 SQLite 内联外键的 ondelete 反射可能丢失，重建时使用显式历史表定义（`copy_from`）保留删除动作。禁止 revision 内 commit、autocommit、VACUUM 或文件副作用；自检失败不得自动修复 schema。
 
 `agent_context_summaries` 每会话至多一条，保存 revision、covered_through_sequence、summary_text、source_run_id 和时间戳；读取校验真实历史/工具边界，损坏以 `CONTEXT_SUMMARY_INVALID` 失败。conversation 外键级联删除摘要；不回写或替换 `agent_messages`。
 
-schema v7 的 `runtime_records.payload` 与 credential records 是 plaintext。不要通过命名、注释或文档暗示 at-rest encryption。新增持久化内容时必须明确字段、nullability、删除、敏感性、schema self-check 和测试；没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
+`runtime_records.payload` 与 credential records 是 plaintext。不要通过命名、注释或文档暗示 at-rest encryption。新增持久化内容时必须明确字段、nullability、删除、敏感性、schema self-check 和测试；没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
 
 ## Protocol 约束
 

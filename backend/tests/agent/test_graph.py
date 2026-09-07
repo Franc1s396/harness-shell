@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
+import sqlite3
+from contextlib import closing
 import json
 import logging
 from collections.abc import Callable
@@ -73,14 +77,12 @@ def _service(
     """围绕确定性模型和 SSH 替身构建真实仓库与图服务。"""
 
     config = agent_storage.api_configs.create(valid_api_config_input())
-    context = ContextService(agent_storage.conversations)
+    context = ContextService(agent_storage.database)
     gateway = ModelGateway(
         client_builder=RecordingSequenceClientBuilder(model),
         sleep=instant_sleep,
     )
-    service = AgentService(
-        agent_storage.api_configs,
-        agent_storage.conversations,
+    service = AgentService(agent_storage.database,
         executor,
         gateway,
         context,
@@ -365,7 +367,7 @@ def test_ai_tool_call_is_persisted_before_executor_dispatch(
         def inspect_history() -> None:
             """在执行器调用边界精确读取持久化元数据。"""
 
-            rows = agent_storage.database.execute(
+            rows = sql(agent_storage.database,
                 "SELECT message_type FROM agent_messages ORDER BY sequence"
             ).fetchall()
             observed.extend(row[0] for row in rows)
@@ -574,8 +576,8 @@ def test_compiled_graph_has_no_checkpointer(agent_storage: AgentStorage) -> None
 
     model = FakeModelSequence()
     dependencies = AgentGraphDependencies(
-        conversations=agent_storage.conversations,
-        context=ContextService(agent_storage.conversations),
+        database=agent_storage.database,
+        context=ContextService(agent_storage.database),
         gateway=ModelGateway(
             client_builder=RecordingSequenceClientBuilder(model),
             sleep=instant_sleep,
@@ -600,12 +602,10 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
         config = agent_storage.api_configs.create(valid_api_config_input())
         model = FakeModelSequence([AIMessage(content="safe final answer")])
         builder = RecordingSequenceClientBuilder(model)
-        service = AgentService(
-            agent_storage.api_configs,
-            agent_storage.conversations,
+        service = AgentService(agent_storage.database,
             RecordingExecutor(),
             ModelGateway(client_builder=builder, sleep=instant_sleep),
-            ContextService(agent_storage.conversations),
+            ContextService(agent_storage.database),
             lambda _session_id: True,
         )
         turn = make_turn_input().model_copy(
@@ -622,7 +622,8 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
         )
 
         assert result.status is AgentRunStatus.COMPLETED
-        durable_dump = "\n".join(agent_storage.database.connection.iterdump())
+        with closing(sqlite3.connect(agent_storage.database.path)) as connection:
+            durable_dump = "\n".join(connection.iterdump())
         diagnostics = f"{builder.kwargs}:{caplog.text}:{durable_dump}"
         assert sentinel not in diagnostics
         assert str(builder.kwargs["api_key"]) == "**********"
@@ -663,7 +664,7 @@ def test_compaction_streams_only_main_answer_and_preserves_history(agent_storage
         assert sink.streamed_text == ("" if main_fails else "final answer")
         assert model.calls == (3 if tool_loop else 2)
         assert repo.load_messages(conversation)[:len(before)] == before
-        summary = ContextSummaryRepository(agent_storage.database).load(conversation)
+        summary = RepositoryClient(agent_storage.database, ContextSummaryRepository).load(conversation)
         assert summary.covered_through_sequence == 2
         assert "HISTORY SUMMARY ONLY" in str(model.message_calls[1])
     from langchain_core.messages import HumanMessage
@@ -706,13 +707,13 @@ def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_stora
         model = FakeModelSequence([AIMessage(content="", tool_calls=[make_tool_call("one", "pwd")])])
         config = agent_storage.api_configs.create(valid_api_config_input())
         budget = ToolOverflowBudget(load_local_encoding(tokenizer_resource_dir(), "o200k_base"), AgentContextPolicy())
-        service = AgentService(agent_storage.api_configs, agent_storage.conversations, RecordingExecutor(),
+        service = AgentService(agent_storage.database, RecordingExecutor(),
             ModelGateway(client_builder=RecordingSequenceClientBuilder(model)),
-            ContextService(agent_storage.conversations), lambda _: True, budget=budget)
+            ContextService(agent_storage.database), lambda _: True, budget=budget)
         turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
         result = await _run_turn(agent_storage, service, turn)
         assert result.status is AgentRunStatus.FAILED
         assert result.error_code == "CONTEXT_BUDGET_EXCEEDED"
         assert model.calls == 1
-        assert agent_storage.database.execute("SELECT count(*) FROM agent_context_summaries").fetchone() == (0,)
+        assert sql(agent_storage.database, "SELECT count(*) FROM agent_context_summaries").fetchone() == (0,)
     asyncio.run(scenario())

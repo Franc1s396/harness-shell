@@ -31,7 +31,7 @@ from harness_shell_sidecar.runtime.dispatcher import (
     RequestDispatcher,
 )
 from harness_shell_sidecar.runtime.request_context import RequestContext
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 
 from .api_configs import ApiConfigRepository, ApiConfigRepositoryError
 from .contracts import (
@@ -140,15 +140,13 @@ class AgentTurnApplication:
 
     def __init__(
         self,
-        api_configs: ApiConfigRepository,
+        database: RuntimeDatabase,
         agent_service: _AgentServiceProtocol,
-        credential_repository: CredentialRepository,
     ) -> None:
         """绑定非秘密配置、持久化服务和明文秘密的管理者。"""
 
-        self._api_configs = api_configs  # 冻结 Provider 元数据的权威来源。
+        self._database = database  # 只持有 Session 工厂。
         self._agent_service = agent_service  # 持久化 Agent Run 的管理者。
-        self._credential_repository = credential_repository  # 明文 API Key 的管理者。
 
     async def run(
         self,
@@ -160,7 +158,8 @@ class AgentTurnApplication:
 
         # 1. 严格解析轮次输入并冻结当前启用的 Provider 配置。
         params = _params(raw_params, AgentTurnRequest)
-        config = self._api_configs.get(params.api_config_id)
+        with self._database.read_session() as session:
+            config = ApiConfigRepository(session).get(params.api_config_id)
         if config is None:
             raise DispatchError(
                 "MODEL_API_CONFIG_NOT_FOUND",
@@ -175,10 +174,12 @@ class AgentTurnApplication:
 
         try:
             # 2. 按模型 API Key 用途解析临时秘密，拒绝类型或记录不一致。
-            decoded = self._credential_repository.resolve(
-                config.api_key_credential_id,
-                "api_key",
-            )
+            with self._database.read_session() as session:
+                decoded = CredentialRepository(PlaintextRecordStore(session)).resolve(
+                    config.api_key_credential_id,
+                    "api_key",
+                )
+
         except CredentialRepositoryError as error:
             raise DispatchError(
                 error.error_code,
@@ -189,7 +190,9 @@ class AgentTurnApplication:
         api_key: SecretStr | None = None
         try:
             # 3. 秘密解析后复核配置，再把短生命周期密钥交给轮次服务。
-            if self._api_configs.get(params.api_config_id) != config:
+            with self._database.read_session() as session:
+                current_config = ApiConfigRepository(session).get(params.api_config_id)
+            if current_config != config:
                 raise DispatchError(
                     "MODEL_API_CONFIG_CHANGED",
                     "model API configuration changed before turn dispatch",
@@ -230,18 +233,15 @@ class AgentTurnApplication:
 
 def register_agent_handlers(
     dispatcher: RequestDispatcher,
-    api_configs: ApiConfigRepository,
     agent_service: _AgentServiceProtocol,
-    credential_repository: CredentialRepository,
     credential_cipher: RuntimeCredentialCipher,
     database: RuntimeDatabase,
 ) -> AgentTurnApplication:
     """注册聚合 Provider CRUD 与仅传标识的 Agent 轮次操作。"""
 
     turn_application = AgentTurnApplication(
-        api_configs,
+        database,
         agent_service,
-        credential_repository,
     )
 
     async def list_configs(
@@ -252,9 +252,12 @@ def register_agent_handlers(
 
         _params(raw_params, _EmptyParams)
         context.require_active()
-        return {
-            "configs": [config.model_dump(mode="json") for config in api_configs.list()]
-        }
+        with database.read_session() as session:
+            api_configs = ApiConfigRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            return {
+                "configs": [config.model_dump(mode="json") for config in api_configs.list()]
+            }
 
     async def create_config(
         context: RequestContext,
@@ -264,7 +267,9 @@ def register_agent_handlers(
 
         params = _params(raw_params, ModelApiConfigCreateRequest)
         context.require_active()
-        with database.transaction():
+        with database.write_session() as session:
+            api_configs = ApiConfigRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
             credential_id = _create_api_key(
                 credential_cipher,
                 credential_repository,
@@ -272,7 +277,7 @@ def register_agent_handlers(
             )
             value = _api_config_input(params, credential_id)
             created = api_configs.create(value)
-        return {"config": created.model_dump(mode="json")}
+            return {"config": created.model_dump(mode="json")}
 
     async def update_config(
         context: RequestContext,
@@ -282,13 +287,15 @@ def register_agent_handlers(
 
         params = _params(raw_params, _ApiConfigUpdateParams)
         context.require_active()
-        current = api_configs.get(params.api_config_id)
-        if current is None:
-            raise ApiConfigRepositoryError(
-                "MODEL_API_CONFIG_NOT_FOUND",
-                "model API configuration was not found",
-            )
-        with database.transaction():
+        with database.write_session() as session:
+            api_configs = ApiConfigRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            current = api_configs.get(params.api_config_id)
+            if current is None:
+                raise ApiConfigRepositoryError(
+                    "MODEL_API_CONFIG_NOT_FOUND",
+                    "model API configuration was not found",
+                )
             credential_id = current.api_key_credential_id
             if params.api_key_envelope is not None:
                 credential_id = _create_api_key(
@@ -302,7 +309,7 @@ def register_agent_handlers(
                 _delete_owned_credential(
                     credential_repository, current.api_key_credential_id
                 )
-        return {"config": updated.model_dump(mode="json")}
+            return {"config": updated.model_dump(mode="json")}
 
     async def delete_config(
         context: RequestContext,
@@ -312,10 +319,12 @@ def register_agent_handlers(
 
         params = _params(raw_params, _ApiConfigIdParams)
         context.require_active()
-        current = api_configs.get(params.api_config_id)
-        if current is None:
-            return {"deleted": False}
-        with database.transaction():
+        with database.write_session() as session:
+            api_configs = ApiConfigRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            current = api_configs.get(params.api_config_id)
+            if current is None:
+                return {"deleted": False}
             deleted = api_configs.delete(params.api_config_id)
             if not deleted:
                 raise ApiConfigRepositoryError(
@@ -325,7 +334,7 @@ def register_agent_handlers(
             _delete_owned_credential(
                 credential_repository, current.api_key_credential_id
             )
-        return {"deleted": True}
+            return {"deleted": True}
 
     handlers = {
         "agent.api_configs.list": list_configs,

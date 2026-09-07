@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 REQUIRED_SCHEMA_TABLES = (
-    "schema_migrations",
+    "alembic_version",
     "runtime_records",
     "connection_profiles",
     "host_keys",
@@ -20,7 +20,7 @@ M2_REQUIRED_ROWS = ("connection_profiles", "host_keys")
 
 
 def main() -> None:
-    """检查本地门禁的聚合明文 schema v7 证据。"""
+    """检查本地门禁的聚合明文 Alembic 基线 证据。"""
 
     if len(sys.argv) not in {2, 3}:
         raise SystemExit(
@@ -35,7 +35,7 @@ def main() -> None:
         raise SystemExit(f"evidence root is not a directory: {root}")
 
     schema_present: set[str] = set()
-    versions: set[int] = set()
+    versions: set[str] = set()
     row_counts = {table: 0 for table in M2_REQUIRED_ROWS}
     manual_sftp_operations = 0
     database_paths = sorted(
@@ -44,7 +44,7 @@ def main() -> None:
         if path.is_file() and path.suffix in {".db", ".sqlite", ".sqlite3"}
     )
     for path in database_paths:
-        connection = sqlite3.connect(path)
+        connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
         try:
             present = {
                 row[0]
@@ -52,14 +52,25 @@ def main() -> None:
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )
             }
+            forbidden = present & {"schema_migrations", "audit_entries", "trace_spans", "artifact_metadata"}
+            if forbidden:
+                raise SystemExit(f"unexpected evidence tables: {sorted(forbidden)}")
+            strict = {row[1]: row[5] for row in connection.execute("PRAGMA table_list")}
+            for table in REQUIRED_SCHEMA_TABLES[1:]:
+                if table in present and strict[table] != 1:
+                    raise SystemExit(f"evidence table must be STRICT: {table}")
             schema_present.update(present)
-            if "schema_migrations" in present:
+            if "alembic_version" in present:
                 versions.update(
                     row[0]
                     for row in connection.execute(
-                        "SELECT version FROM schema_migrations"
+                        "SELECT version_num FROM alembic_version"
                     ).fetchall()
                 )
+            if "alembic_version" in present:
+                actual = connection.execute("SELECT version_num FROM alembic_version").fetchall()
+                if actual != [("0001_initial",)]:
+                    raise SystemExit("required Alembic revision 0001_initial is missing")
             for table in M2_REQUIRED_ROWS:
                 if table in present:
                     row_counts[table] += connection.execute(
@@ -80,8 +91,8 @@ def main() -> None:
         raise SystemExit(
             "required evidence schema is missing: " + ", ".join(missing_schema)
         )
-    if versions != {7}:
-        raise SystemExit(f"required schema version 7 is missing: {sorted(versions)!r}")
+    if versions != {"0001_initial"}:
+        raise SystemExit(f"required Alembic revision 0001_initial is missing: {sorted(versions)!r}")
     if manual_sftp:
         missing_rows = []
         if manual_sftp_operations == 0:

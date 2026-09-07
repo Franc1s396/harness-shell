@@ -27,7 +27,7 @@
 - 调用方不得主动把 password、private key、passphrase 或 raw secret frame 传给 Logger；统一日志层不会替调用方扫描或删除这些内容。
 - SSH connection、PTY/channel、async task、database、exporter 和 secret buffer 必须有明确 owner、取消语义与确定性 cleanup。
 - HTTP/WebSocket route、event、error code 或 payload shape 改动必须同步 React client、fixture、协议文档和契约测试。
-- Runtime SQLite 只接受全新 schema v7；旧库在任何写入前 fail closed。业务、credential 与 recovery record 是 plaintext；没有 SQLite Audit/Trace/Artifact 表。
+- Runtime SQLite 使用同步 SQLAlchemy ORM 与短 Session；Alembic 在启动时原子升级已知 revision，全新基线为 `0001_initial`，旧 schema v7 在写入和 WAL 配置前拒绝。业务、credential 与 recovery record 是 plaintext；没有 SQLite Audit/Trace/Artifact 表。
 - 所有 Python 变更执行 Python Style Guide 的 Code Review 检查清单；新建及实质修改的类、字段、函数和方法补齐准确注释。
 - 至少运行最小相关 Pytest；SSH、PTY、存储、打包或跨层变更按 Testing Guide 扩大验证。
 - 任务结束前检查上述领域文档是否因长期事实变化需要同步更新，并报告结果。

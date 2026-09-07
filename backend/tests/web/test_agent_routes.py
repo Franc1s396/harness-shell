@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from harness_shell_sidecar.agent.api_configs import ApiConfigRepository
+
+from ..storage_support import RepositoryClient, sql
+
 import base64
 from collections.abc import Mapping
 import json
@@ -242,12 +246,12 @@ def test_api_config_create_rolls_back_credential_when_metadata_write_fails(
 ) -> None:
     resources = autonomous_client.app.state.runtime_owner.require_resources()
 
-    def fail_create(_value: object) -> None:
+    def fail_create(self, _value: object) -> None:
         """handler 创建凭据后模拟元数据失败。"""
 
         raise RuntimeError("simulated metadata failure")
 
-    monkeypatch.setattr(resources.agent_api_configs, "create", fail_create)
+    monkeypatch.setattr(ApiConfigRepository, "create", fail_create)
 
     with pytest.raises(RuntimeError, match="simulated metadata failure"):
         autonomous_client.post(

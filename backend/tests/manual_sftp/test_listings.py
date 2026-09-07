@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 import stat
 from dataclasses import dataclass
@@ -345,7 +347,7 @@ def test_browse_metadata_listing_and_hash_map_permission_denial_to_stable_code()
             ScandirCallDeniedClient(),
         )
         sessions, owner = sessions_with(*clients)
-        service = ManualSftpService(sessions, records=object(), event_listener=_event)
+        service = ManualSftpService(sessions, database=object(), event_listener=_event)
         requests = (
             lambda: service.open(owner.ssh_session_id),
             lambda: service.lstat(owner.ssh_session_id, "/home/demo/data.txt"),
@@ -421,7 +423,7 @@ def test_metadata_uses_lstat_preserves_exact_mtime_and_reads_link_explicitly() -
         link_client = FakeSftpClient()
         link_client.stat_value = lstat_client.stat_value
         sessions, owner = sessions_with(lstat_client, link_client)
-        service = ManualSftpService(sessions, records=object(), event_listener=_event)
+        service = ManualSftpService(sessions, database=object(), event_listener=_event)
 
         entry = await service.lstat(owner.ssh_session_id, "/home/demo/link")
         assert entry.entry_type == "symlink"
@@ -445,7 +447,7 @@ def test_hash_rechecks_snapshot_and_honors_cancellation() -> None:
         )
         cancelled_client = FakeSftpClient()
         sessions, owner = sessions_with(changed, cancelled_client)
-        service = ManualSftpService(sessions, records=object(), event_listener=_event)
+        service = ManualSftpService(sessions, database=object(), event_listener=_event)
 
         with pytest.raises(ManualSftpError, match="SFTP_TARGET_CHANGED"):
             await service.sha256(owner.ssh_session_id, "/home/demo/data.txt")
@@ -489,7 +491,7 @@ def test_hash_uses_a_fresh_60_second_window_for_each_read(
         client.stat_value = attrs(stat.S_IFREG | 0o644, size=len(payload))
         client.stat_after_read = client.stat_value
         sessions, owner = sessions_with(client)
-        service = ManualSftpService(sessions, records=object(), event_listener=_event)
+        service = ManualSftpService(sessions, database=object(), event_listener=_event)
         probe = TimeoutProbe()
         monkeypatch.setattr(
             "harness_shell_sidecar.manual_sftp.service.asyncio.timeout", probe
@@ -521,7 +523,7 @@ def test_metadata_timeout_closes_the_sftp_channel(
         )
         client = BlockingClient()
         sessions, owner = sessions_with(client)
-        service = ManualSftpService(sessions, records=object(), event_listener=_event)
+        service = ManualSftpService(sessions, database=object(), event_listener=_event)
 
         with pytest.raises(ManualSftpError, match="SFTP_OPERATION_TIMEOUT"):
             await service.lstat(owner.ssh_session_id, "/home/demo/data.txt")
@@ -552,7 +554,7 @@ def test_service_close_all_attempts_listing_upload_and_download_owners() -> None
 
     async def scenario() -> None:
         sessions = SshSessionRegistry()
-        service = ManualSftpService(sessions, records=object(), event_listener=_event)
+        service = ManualSftpService(sessions, database=object(), event_listener=_event)
         order: list[str] = []
         service._listings = CloseProbe("listings", order, fail=True)
         service._uploads = CloseProbe("uploads", order)

@@ -117,7 +117,7 @@ class SessionRegistry:
 - 日志写 stderr；业务代码直接调用标准 `logger.debug()`、`logger.info()`、`logger.warning()`、`logger.error()` 或 `logger.exception()`，使用 `%s` 参数化，不增加 `log_event()` 一类 helper wrapper。调用点显式提交的 message 与元数据必须经过审查，禁止主动加入 credential、command、model response、stdout/stderr、SFTP bytes 和 HTTP body；异常日志按上文保留 traceback，Logger 不做内容过滤。stdout 不承担协议或业务输出；ANSI 仅用于源码 `serve` 开发控制台，`desktop` 保持纯文本。
 - DEBUG 用于 node、route、iteration 等执行细节；INFO 用于进程/服务、Agent Run 生命周期、上下文压缩触发与成功 HTTP 完成记录；压缩触发仅记录运行/会话标识、预算和历史消息数量，不记录正文。可预期 HTTP 拒绝使用 WARNING，失败使用 ERROR。
 - 可变 secret buffer 用完后主动覆盖；避免不必要的 `bytes`/`str` 拷贝和长生命周期闭包捕获。
-- 新增持久化字段前明确分类、plaintext 风险、关联数据、schema、删除和自检策略；当前 schema 不提供旧版本 migration 或 at-rest encryption。没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
+- 新增持久化字段前明确分类、plaintext 风险、关联数据、schema、删除和自检策略；当前 schema 仅迁移已知 Alembic revision，不接管旧 schema v7，也不提供 at-rest encryption。没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
 
 ### 复杂度与可读性
 
@@ -184,3 +184,8 @@ class SessionRegistry:
 - [ ] fresh-schema-only、plaintext 和旧库 fail-closed 约束在涉及存储时已核对，未引入无读取闭环的诊断表。
 - [ ] 测试覆盖正常、失败、边界、取消/清理路径，Fake/fixture 清楚说明模拟契约。
 - [ ] 已读取并检查相关根、领域和局部 `AGENTS.md`；长期事实变化已同步更新唯一真源。
+
+
+### 数据库事务所有权
+
+同步 ORM repository 借用显式 Session，不自行提交或关闭。应用操作通过 RuntimeDatabase 短上下文控制事务，不将 Session 保留到网络 await；返回已物化领域对象。迁移脚本的事务由启动 runner 独占，清理错误不得覆盖首个业务或迁移异常。

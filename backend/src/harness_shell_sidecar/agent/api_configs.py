@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
+from sqlalchemy import select, update, delete
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_shell_sidecar.storage.orm import ModelApiConfigRow
 
 from .contracts import ApiType, ModelApiConfig, ModelApiConfigInput
 
@@ -23,127 +25,56 @@ class ApiConfigRepositoryError(RuntimeError):
 
 
 class ApiConfigRepository:
-    """持久化 API 元数据，凭据仍保存在 Python 拥有的记录中。"""
+    """借用操作 Session 管理 Provider 元数据，不单独提交凭据。"""
 
-    _database: RuntimeDatabase
-
-    def __init__(self, database: RuntimeDatabase) -> None:
-        """在本仓库存续期间借用运行时拥有的数据库。"""
-
-        self._database = database
+    def __init__(self, session: Session) -> None:
+        """绑定调用者拥有的短 Session。"""
+        self._session = session  # 生命周期限于当前数据库操作。
 
     def create(self, value: ModelApiConfigInput) -> ModelApiConfig:
-        """插入配置并返回其持久化表示。"""
-
-        api_config_id = uuid4()
+        """插入已校验的 Provider 配置并物化结果。"""
         now = _utc_now()
-        self._database.execute(
-            """
-            INSERT INTO model_api_configs(
-                api_config_id, display_name, api_type, base_url, model,
-                api_key_credential_id, enabled, created_at, updated_at,
-                context_window_size, context_compaction_threshold_ratio, max_output_tokens
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            _config_parameters(api_config_id, value, now, now),
-        )
-        created = self.get(api_config_id)
-        if created is None:
-            raise ApiConfigRepositoryError(
-                "MODEL_API_CONFIG_PERSISTENCE_FAILED",
-                "created model API configuration was not found",
-            )
-        return created
+        parameters = _config_parameters(uuid4(), value, now, now)
+        self._session.add(ModelApiConfigRow(**dict(zip(_CONFIG_FIELDS, parameters, strict=True))))
+        self._session.flush()
+        return _config_from_row(parameters)
 
     def get(self, api_config_id: UUID) -> ModelApiConfig | None:
-        """按不透明标识返回配置；不存在时返回 None。"""
-
-        row = self._database.execute(
-            _CONFIG_SELECT + " WHERE api_config_id = ?",
-            (str(api_config_id),),
-        ).fetchone()
+        """按标识读取当前配置。"""
+        row = self._session.execute(_CONFIG_SELECT.where(ModelApiConfigRow.api_config_id == str(api_config_id))).first()
         return None if row is None else _config_from_row(row)
 
     def list(self) -> list[ModelApiConfig]:
-        """按显示名称和标识的稳定顺序返回配置。"""
+        """按稳定名称和标识顺序返回配置。"""
+        return [_config_from_row(row) for row in self._session.execute(
+            _CONFIG_SELECT.order_by(ModelApiConfigRow.display_name, ModelApiConfigRow.api_config_id))]
 
-        rows = self._database.execute(
-            _CONFIG_SELECT + " ORDER BY display_name, api_config_id"
-        ).fetchall()
-        return [_config_from_row(row) for row in rows]
-
-    def update(
-        self,
-        api_config_id: UUID,
-        value: ModelApiConfigInput,
-    ) -> ModelApiConfig:
-        """替换全部可变元数据，保留标识和创建时间。"""
-
-        # 1. 先确认配置存在，再按原标识更新可变字段。
-        if self.get(api_config_id) is None:
-            raise ApiConfigRepositoryError(
-                "MODEL_API_CONFIG_NOT_FOUND",
-                "model API configuration was not found",
-            )
-        # 2. 写入新的 Provider 元数据，保留标识与创建时间。
-        cursor = self._database.execute(
-            """
-            UPDATE model_api_configs SET
-                display_name = ?, api_type = ?, base_url = ?, model = ?,
-                api_key_credential_id = ?, enabled = ?, updated_at = ?,
-                context_window_size = ?, context_compaction_threshold_ratio = ?, max_output_tokens = ?
-            WHERE api_config_id = ?
-            """,
-            (
-                value.display_name,
-                value.api_type.value,
-                value.base_url,
-                value.model,
-                str(value.api_key_credential_id),
-                int(value.enabled),
-                _utc_now(),
-                value.context_window_size,
-                value.context_compaction_threshold_ratio,
-                value.max_output_tokens,
-                str(api_config_id),
-            ),
-        )
-        # 3. 检查写入数量并重新读取，缺失记录不能伪装为更新成功。
-        if cursor.rowcount != 1:
-            raise ApiConfigRepositoryError(
-                "MODEL_API_CONFIG_PERSISTENCE_FAILED",
-                "model API configuration changed during update",
-            )
-        updated = self.get(api_config_id)
-        if updated is None:
-            raise ApiConfigRepositoryError(
-                "MODEL_API_CONFIG_PERSISTENCE_FAILED",
-                "updated model API configuration was not found",
-            )
-        return updated
+    def update(self, api_config_id: UUID, value: ModelApiConfigInput) -> ModelApiConfig:
+        """替换配置同时保留身份及创建时间。"""
+        current = self.get(api_config_id)
+        if current is None:
+            raise ApiConfigRepositoryError("MODEL_API_CONFIG_NOT_FOUND", "model API configuration was not found")
+        parameters = _config_parameters(api_config_id, value, _format_time(current.created_at), _utc_now())
+        values = dict(zip(_CONFIG_FIELDS, parameters, strict=True))
+        values.pop("api_config_id")
+        values.pop("created_at")
+        result = self._session.execute(update(ModelApiConfigRow).where(
+            ModelApiConfigRow.api_config_id == str(api_config_id)).values(**values))
+        if result.rowcount != 1:
+            raise ApiConfigRepositoryError("MODEL_API_CONFIG_PERSISTENCE_FAILED", "model API configuration changed during update")
+        return _config_from_row(parameters)
 
     def delete(self, api_config_id: UUID) -> bool:
-        """删除未被引用的元数据，不删除凭据记录。"""
-
+        """删除未被 Run 引用的配置，应用层同时处理其凭据。"""
         try:
-            cursor = self._database.execute(
-                "DELETE FROM model_api_configs WHERE api_config_id = ?",
-                (str(api_config_id),),
-            )
-        except sqlite3.IntegrityError as exc:
-            raise ApiConfigRepositoryError(
-                "MODEL_API_CONFIG_IN_USE",
-                "model API configuration is referenced by an Agent run",
-            ) from exc
-        return cursor.rowcount == 1
+            result = self._session.execute(delete(ModelApiConfigRow).where(ModelApiConfigRow.api_config_id == str(api_config_id)))
+        except IntegrityError as error:
+            raise ApiConfigRepositoryError("MODEL_API_CONFIG_IN_USE", "model API configuration is referenced by an Agent run") from error
+        return result.rowcount == 1
 
 
-_CONFIG_SELECT = """
-SELECT api_config_id, display_name, api_type, base_url, model,
-       api_key_credential_id, enabled, created_at, updated_at,
-                context_window_size, context_compaction_threshold_ratio, max_output_tokens
-FROM model_api_configs
-"""
+_CONFIG_FIELDS = ('api_config_id', 'display_name', 'api_type', 'base_url', 'model', 'api_key_credential_id', 'enabled', 'created_at', 'updated_at', 'context_window_size', 'context_compaction_threshold_ratio', 'max_output_tokens')
+_CONFIG_SELECT = select(*[getattr(ModelApiConfigRow, name) for name in _CONFIG_FIELDS])
 
 
 def _config_parameters(
@@ -171,7 +102,7 @@ def _config_parameters(
 
 
 def _config_from_row(row: tuple[object, ...]) -> ModelApiConfig:
-    """从可信的 schema v7 数据行还原严格配置。"""
+    """从已校验的 ORM 数据行还原严格配置。"""
 
     return ModelApiConfig(
         api_config_id=UUID(str(row[0])),

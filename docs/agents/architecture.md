@@ -12,7 +12,8 @@ Harness Shell 的生产桌面路径只有一条：
 NSIS shortcut / finish action
   -> harness-shell-launcher.exe
   -> harness-shell-sidecar.exe desktop --port 0 --data-dir <absolute> --control-read-handle ... --ready-write-handle ...
-  -> Backend binds 127.0.0.1:<dynamic> and writes one bounded ready frame
+  -> Backend binds 127.0.0.1:<dynamic>, migrates and validates SQLite, initializes Runtime
+  -> Backend starts control reader and writes one bounded ready frame
   -> harness-shell-ui.exe --backend-url http://127.0.0.1:<dynamic>
   -> React direct typed HTTP (including Agent turn SSE) + one Runtime WebSocket
 ```
@@ -39,7 +40,7 @@ React 在启动时只通过 Tauri bootstrap command 取得固定 loopback base U
 
 ## 持久化与 Manual SFTP
 
-Runtime SQLite 只接受全新 schema v7。检测到旧 schema 必须在任何写入或 WAL 配置前失败；没有自动迁移、兼容读取或导入。schema v7 使用 plaintext JSON/列存储，凭据、Agent message/output、remote recovery 等可能明文落盘。没有 SQLite Audit/Trace 表；诊断只写 Python 日志目录。
+Runtime SQLite 使用同步 SQLAlchemy 2.0 ORM；Alembic 在发布 READY 前从全新库建立 `0001_initial` 基线或升级已知 revision，整批迁移及自检成功后才提交。旧 schema v7/未知版本在写入和 WAL 配置前拒绝，不兼容读取或导入。业务表保留 STRICT 与 plaintext JSON/列存储，凭据、Agent message/output、remote recovery 等可能明文落盘。没有 SQLite Audit/Trace 表；诊断只写 Python 日志目录。
 
 连接与 Provider 凭据没有独立 mutation route。React 使用 Runtime 公钥加密用户输入，并分别随 `/v1/connections` 或 `/v1/agent/api-configs` 的创建/更新请求提交；Python handler 在同一 SQLite 事务内创建、替换或删除业务记录及其拥有的凭据。连接私钥由 React 文件选择器读取，Backend 永远不接收本地路径。
 

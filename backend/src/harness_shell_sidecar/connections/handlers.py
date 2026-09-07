@@ -20,7 +20,7 @@ from harness_shell_sidecar.credentials import (
 )
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, Handler, RequestDispatcher
 from harness_shell_sidecar.runtime.request_context import RequestContext
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 
 from .models import ConnectionProfileFields, ConnectionProfileInput, HostKeyCandidate
 from .repository import ConnectionRepository, ConnectionRepositoryError
@@ -101,8 +101,6 @@ class _HostKeyReplaceParams(HostKeyCandidate):
 
 def register_connection_handlers(
     dispatcher: RequestDispatcher,
-    repository: ConnectionRepository,
-    credential_repository: CredentialRepository,
     credential_cipher: RuntimeCredentialCipher,
     database: RuntimeDatabase,
 ) -> None:
@@ -115,11 +113,14 @@ def register_connection_handlers(
 
         _params(raw_params, _EmptyParams)
         context.require_active()
-        return {
-            "connections": [
-                profile.model_dump(mode="json") for profile in repository.list()
-            ]
-        }
+        with database.read_session() as session:
+            repository = ConnectionRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            return {
+                "connections": [
+                    profile.model_dump(mode="json") for profile in repository.list()
+                ]
+            }
 
     async def create_connection(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -128,7 +129,9 @@ def register_connection_handlers(
 
         params = _params(raw_params, ConnectionCreateRequest)
         context.require_active()
-        with database.transaction():
+        with database.write_session() as session:
+            repository = ConnectionRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
             credential_id = _create_credential(
                 credential_cipher,
                 credential_repository,
@@ -147,7 +150,7 @@ def register_connection_handlers(
             )
             value = _connection_profile_input(params, credential_id, passphrase_id)
             created = repository.create(value)
-        return {"connection": created.model_dump(mode="json")}
+            return {"connection": created.model_dump(mode="json")}
 
     async def update_connection(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -157,18 +160,20 @@ def register_connection_handlers(
         # 1. 严格校验请求并读取现有配置，认证方式变化必须同时提供新凭据。
         params = _params(raw_params, _ConnectionUpdateParams)
         context.require_active()
-        current = repository.get(params.connection_id)
-        if current is None:
-            raise ConnectionRepositoryError(
-                "CONNECTION_NOT_FOUND", "connection profile was not found"
-            )
-        if current.auth_kind != params.auth_kind and params.credential_envelope is None:
-            raise DispatchError(
-                "INVALID_REQUEST_PAYLOAD",
-                "authentication changes require a new credential",
-            )
-        # 2. 在同一事务内创建替换凭据、更新配置并删除不再拥有的旧凭据。
-        with database.transaction():
+        with database.write_session() as session:
+            repository = ConnectionRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            current = repository.get(params.connection_id)
+            if current is None:
+                raise ConnectionRepositoryError(
+                    "CONNECTION_NOT_FOUND", "connection profile was not found"
+                )
+            if current.auth_kind != params.auth_kind and params.credential_envelope is None:
+                raise DispatchError(
+                    "INVALID_REQUEST_PAYLOAD",
+                    "authentication changes require a new credential",
+                )
+            # 2. 在同一事务内创建替换凭据、更新配置并删除不再拥有的旧凭据。
             credential_id = current.credential_id
             if params.credential_envelope is not None:
                 credential_id = _create_credential(
@@ -191,8 +196,8 @@ def register_connection_handlers(
                 (current.credential_id, current.passphrase_credential_id),
                 (credential_id, passphrase_id),
             )
-        # 3. 事务成功后才返回新配置；异常由事务回滚，避免凭据与配置脱节。
-        return {"connection": updated.model_dump(mode="json")}
+            # 3. 事务成功后才返回新配置；异常由事务回滚，避免凭据与配置脱节。
+            return {"connection": updated.model_dump(mode="json")}
 
     async def delete_connection(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -201,10 +206,12 @@ def register_connection_handlers(
 
         params = _params(raw_params, _ConnectionIdParams)
         context.require_active()
-        current = repository.get(params.connection_id)
-        if current is None:
-            return {"deleted": False}
-        with database.transaction():
+        with database.write_session() as session:
+            repository = ConnectionRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            current = repository.get(params.connection_id)
+            if current is None:
+                return {"deleted": False}
             deleted = repository.delete(params.connection_id)
             if not deleted:
                 raise ConnectionRepositoryError(
@@ -216,7 +223,7 @@ def register_connection_handlers(
                 (current.credential_id, current.passphrase_credential_id),
                 (),
             )
-        return {"deleted": True}
+            return {"deleted": True}
 
     async def confirm_host_key(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -225,11 +232,14 @@ def register_connection_handlers(
 
         candidate = _params(raw_params, HostKeyCandidate)
         context.require_active()
-        return {
-            "host_key": repository.trust_first_host_key(candidate).model_dump(
-                mode="json"
-            )
-        }
+        with database.write_session() as session:
+            repository = ConnectionRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            return {
+                "host_key": repository.trust_first_host_key(candidate).model_dump(
+                    mode="json"
+                )
+            }
 
     async def replace_host_key(
         context: RequestContext, raw_params: Mapping[str, object]
@@ -238,14 +248,17 @@ def register_connection_handlers(
 
         params = _params(raw_params, _HostKeyReplaceParams)
         context.require_active()
-        candidate = HostKeyCandidate.model_validate(
-            params.model_dump(exclude={"expected_old_fingerprint"})
-        )
-        return {
-            "host_key": repository.replace_host_key(
-                candidate, params.expected_old_fingerprint
-            ).model_dump(mode="json")
-        }
+        with database.write_session() as session:
+            repository = ConnectionRepository(session)
+            credential_repository = CredentialRepository(PlaintextRecordStore(session))
+            candidate = HostKeyCandidate.model_validate(
+                params.model_dump(exclude={"expected_old_fingerprint"})
+            )
+            return {
+                "host_key": repository.replace_host_key(
+                    candidate, params.expected_old_fingerprint
+                ).model_dump(mode="json")
+            }
 
     handlers = {
         "connections.list": list_connections,

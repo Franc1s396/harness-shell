@@ -1,4 +1,4 @@
-"""schema v7 SSH Lab 证据校验的行为测试。"""
+"""Alembic 基线 SSH Lab 证据校验的行为测试。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ SCRIPT = (
     / "check-runtime-evidence.py"
 )
 SCHEMA_TABLES = (
-    "schema_migrations",
+    "alembic_version",
     "runtime_records",
     "connection_profiles",
     "host_keys",
@@ -28,7 +28,7 @@ SCHEMA_TABLES = (
 
 
 def create_database(root: Path, *, omit: str | None = None) -> Path:
-    """创建最小 schema v7 证据数据库。"""
+    """创建最小 Alembic 基线 证据数据库。"""
 
     path = root / "runtime.sqlite3"
     connection = sqlite3.connect(path)
@@ -36,15 +36,15 @@ def create_database(root: Path, *, omit: str | None = None) -> Path:
         for table in SCHEMA_TABLES:
             if table == omit:
                 continue
-            if table == "schema_migrations":
-                connection.execute("CREATE TABLE schema_migrations(version INTEGER)")
-                connection.execute("INSERT INTO schema_migrations VALUES (7)")
+            if table == "alembic_version":
+                connection.execute("CREATE TABLE alembic_version(version_num TEXT)")
+                connection.execute("INSERT INTO alembic_version VALUES ('0001_initial')")
             elif table == "runtime_records":
                 connection.execute(
-                    "CREATE TABLE runtime_records(record_type TEXT, record_id TEXT)"
+                    "CREATE TABLE runtime_records(record_type TEXT, record_id TEXT) STRICT"
                 )
             else:
-                connection.execute(f"CREATE TABLE {table}(value TEXT)")
+                connection.execute(f"CREATE TABLE {table}(value TEXT) STRICT")
         for table in ("connection_profiles", "host_keys"):
             connection.execute(f"INSERT INTO {table}(value) VALUES ('evidence')")
         connection.commit()
@@ -65,7 +65,7 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_m2_requires_complete_schema_v7_and_ssh_runtime_rows(tmp_path: Path) -> None:
+def test_m2_requires_complete_alembic_baseline_and_ssh_runtime_rows(tmp_path: Path) -> None:
     """M2 的通用记录可以为空，因为 SSH 测试注入凭据。"""
 
     create_database(tmp_path)
@@ -101,12 +101,12 @@ def test_manual_sftp_gate_requires_plaintext_operation_record(tmp_path: Path) ->
     assert run_checker(tmp_path, "--manual-sftp").returncode == 0
 
 
-def test_checker_rejects_non_v7_schema_version(tmp_path: Path) -> None:
+def test_checker_rejects_unknown_revision(tmp_path: Path) -> None:
     path = create_database(tmp_path)
     connection = sqlite3.connect(path)
-    connection.execute("UPDATE schema_migrations SET version = 6")
+    connection.execute("UPDATE alembic_version SET version_num = 'unknown'")
     connection.commit()
     connection.close()
     result = run_checker(tmp_path)
     assert result.returncode != 0
-    assert "schema version 7" in result.stderr
+    assert "Alembic revision 0001_initial" in result.stderr

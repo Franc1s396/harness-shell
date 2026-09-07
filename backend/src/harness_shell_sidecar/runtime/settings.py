@@ -12,7 +12,7 @@ class RuntimeSettings:
 
     #: 当前安装的 Runtime 独占的当前用户目录。
     data_dir: Path
-    #: 仅接受全新 schema v7 的 SQLite 数据库路径。
+    #: 由启动 Alembic 迁移管理的 SQLite 数据库绝对路径。
     database_path: Path
     #: 包含 Python 拥有的诊断日志的目录。
     log_dir: Path

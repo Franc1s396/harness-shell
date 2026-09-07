@@ -63,3 +63,8 @@ uvicorn==0.52.4
 websockets==16.1.1
 xxhash==4.0.1
 zstandard==0.25.0
+alembic==1.19.2
+SQLAlchemy==2.0.52
+greenlet==3.5.5
+Mako==1.4.1
+MarkupSafe==3.0.3

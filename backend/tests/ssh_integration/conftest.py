@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import json
 import os
 from dataclasses import dataclass
@@ -10,7 +12,7 @@ import pytest
 
 from harness_shell_sidecar.connections import ConnectionProfileInput, ConnectionRepository
 from harness_shell_sidecar.ssh.runtime import SshRuntime
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_shell_sidecar.storage import RuntimeDatabase
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
@@ -95,10 +97,9 @@ class RuntimeContext:
     def __init__(self, path: Path) -> None:
         """创建隔离数据库、明文仓储和 SSH Runtime。"""
 
-        self.database = RuntimeDatabase.open_plaintext(path.resolve())  # 本测试隔离数据库。
-        self.records = PlaintextRecordStore(self.database)  # 明文记录仓储。
-        self.repository = ConnectionRepository(self.database)  # 连接与 Host Key 仓储。
-        self.runtime = SshRuntime(self.repository)  # 连接真实 SSH lab 的运行时。
+        self.database = RuntimeDatabase.open(path.resolve())  # 本测试隔离数据库。
+        self.repository = RepositoryClient(self.database, ConnectionRepository)  # 连接与 Host Key 仓储。
+        self.runtime = SshRuntime(self.database)  # 连接真实 SSH lab 的运行时。
 
     def create_profile(
         self,

@@ -27,6 +27,7 @@ from .contracts import (
     ModelApiConfig,
 )
 from .conversations import ConversationRepository
+from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 from .executor import AgentCancelled
 from .graph import (
     AgentGraphContext,
@@ -87,8 +88,7 @@ class AgentService:
 
     def __init__(
         self,
-        api_configs: ApiConfigRepository,
-        conversations: ConversationRepository,
+        database: RuntimeDatabase,
         executor: CommandExecutor,
         gateway: ModelInvoker,
         context: ContextService,
@@ -97,12 +97,11 @@ class AgentService:
     ) -> None:
         """利用长期非秘密运行时协作者构建可复用图。"""
 
-        self._api_configs = api_configs  # Provider 配置的权威来源。
-        self._conversations = conversations  # 历史和 Run 的权威来源。
+        self._database = database  # 短数据库操作的工厂，绝不保存跨 await Session。
         self._session_is_available = session_is_available
         self._conversation_locks: dict[UUID, _ConversationLockEntry] = {}
         dependencies = AgentGraphDependencies(
-            conversations=conversations,
+            database=database,
             context=context,
             gateway=gateway,
             reviewer=CommandSafetyReviewer(),
@@ -126,13 +125,15 @@ class AgentService:
         self._validate_run_authorities(request, expected_config, cancelled)
 
         conversation_id = request.conversation_id
-        if conversation_id is None:
-            conversation_id = self._conversations.create_conversation()
-        elif not self._conversations.conversation_exists(conversation_id):
-            raise AgentServiceError(
-                "AGENT_CONVERSATION_NOT_FOUND",
-                "the requested conversation does not exist",
-            )
+        with self._database.write_session() as session:
+            repository = ConversationRepository(session, PlaintextRecordStore(session))
+            if conversation_id is None:
+                conversation_id = repository.create_conversation()
+            elif not repository.conversation_exists(conversation_id):
+                raise AgentServiceError(
+                    "AGENT_CONVERSATION_NOT_FOUND",
+                    "the requested conversation does not exist",
+                )
 
         # 2. 按会话串行执行；取得锁后再次复核权威状态，再创建 RUNNING Run。
         async with self._conversation_lock(conversation_id):
@@ -142,11 +143,12 @@ class AgentService:
                 cancelled,
             )
             started_ns = time.monotonic_ns()
-            run = self._conversations.start_run(
-                conversation_id,
-                request.ssh_session_id,
-                request.api_config_id,
-            )
+            with self._database.write_session() as session:
+                run = ConversationRepository(session, PlaintextRecordStore(session)).start_run(
+                    conversation_id,
+                    request.ssh_session_id,
+                    request.api_config_id,
+                )
             LOGGER.info(
                 "agent_run_started agent_run_id=%s conversation_id=%s "
                 "ssh_session_id=%s api_config_id=%s api_type=%s model=%s "
@@ -212,11 +214,12 @@ class AgentService:
                         final_text,
                         react_iteration=state["react_iteration"],
                     )
-                    finished = self._conversations.finish_run(
-                        run.agent_run_id,
-                        AgentRunStatus.COMPLETED,
-                        None,
-                    )
+                    with self._database.write_session() as session:
+                        finished = ConversationRepository(session, PlaintextRecordStore(session)).finish_run(
+                            run.agent_run_id,
+                            AgentRunStatus.COMPLETED,
+                            None,
+                        )
                     _log_terminal_run(finished, config, started_ns)
                     await event_sink.completed(finished)
                     return _result_from_run(finished, final_text=final_text)
@@ -270,7 +273,8 @@ class AgentService:
                 return _result_from_run(finished, final_text=None)
 
             # 6. 图自行进入终态时重新读取权威记录，再发布匹配的终止事件。
-            finished = self._conversations.get_run(run.agent_run_id)
+            with self._database.read_session() as session:
+                finished = ConversationRepository(session, PlaintextRecordStore(session)).get_run(run.agent_run_id)
             if finished is None or finished.status is AgentRunStatus.RUNNING:
                 raise RuntimeError("Agent graph returned without a durable terminal Run")
             _log_terminal_run(finished, config, started_ns)
@@ -300,7 +304,8 @@ class AgentService:
                 "AGENT_CANCELLED",
                 "the turn was cancelled before its run authorities were validated",
             )
-        config = self._api_configs.get(request.api_config_id)
+        with self._database.read_session() as session:
+            config = ApiConfigRepository(session).get(request.api_config_id)
         if config is None:
             raise AgentServiceError(
                 "MODEL_API_CONFIG_NOT_FOUND",
@@ -357,16 +362,18 @@ class AgentService:
     ) -> AgentRun:
         """除非图节点已进入终态，否则执行一次失败转换。"""
 
-        current = self._conversations.get_run(original_run.agent_run_id)
-        if current is None:
-            raise RuntimeError("Agent run disappeared during terminal failure mapping")
-        if current.status is not AgentRunStatus.RUNNING:
-            return current
-        return self._conversations.finish_run(
-            original_run.agent_run_id,
-            status,
-            error_code,
-        )
+        with self._database.write_session() as session:
+            repository = ConversationRepository(session, PlaintextRecordStore(session))
+            current = repository.get_run(original_run.agent_run_id)
+            if current is None:
+                raise RuntimeError("Agent run disappeared during terminal failure mapping")
+            if current.status is not AgentRunStatus.RUNNING:
+                return current
+            return repository.finish_run(
+                original_run.agent_run_id,
+                status,
+                error_code,
+            )
 
 
 def _log_terminal_run(

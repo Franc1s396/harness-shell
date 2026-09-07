@@ -9,6 +9,8 @@ description = "Python sidecar for Harness Shell"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "SQLAlchemy>=2.0.37,<2.1",
+  "alembic>=1.14,<2",
   "asyncssh>=2.24,<2.25",
   "bcrypt>=4,<6",
   "cryptography>=48.0.1,<51",
@@ -38,4 +40,4 @@ testpaths = ["tests"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"harness_shell_sidecar.storage" = ["migrations/*.sql"]
+"harness_shell_sidecar.storage" = ["alembic/env.py", "alembic/script.py.mako", "alembic/versions/*.py"]

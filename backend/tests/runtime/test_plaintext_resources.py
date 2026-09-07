@@ -39,7 +39,7 @@ def test_plaintext_resources_initialize_without_injected_keys(
             assert resources.database.path == tmp_path / "runtime.sqlite3"
             assert resources.state is RuntimePhase.READY
             assert resources.credential_cipher.public_key().key_id
-            assert resources.credential_repository is not None
+            assert not hasattr(resources, "credential_repository")
             assert resources.dispatcher.handles("ssh.connect")
             assert resources.agent_turn_application is not None
         finally:

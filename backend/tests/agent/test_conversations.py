@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from harness_shell_sidecar.storage import PlaintextRecordStore
+
+from ..storage_support import RepositoryClient, sql
+
 import json
 from uuid import UUID, uuid4
 
@@ -44,13 +48,13 @@ def test_tool_message_round_trips_through_plaintext_record(
 
     assert sequence == 1
     assert agent_storage.conversations.load_messages(conversation_id) == [message]
-    rows = agent_storage.database.execute(
+    rows = sql(agent_storage.database,
         "SELECT message_type, sequence, tool_call_id FROM agent_messages"
     ).fetchall()
     assert rows == [("TOOL", 1, "call-1")]
     assert agent_storage.record_store.get(
         "agent_message",
-        agent_storage.database.execute("SELECT record_id FROM agent_messages").fetchone()[0],
+        sql(agent_storage.database, "SELECT record_id FROM agent_messages").fetchone()[0],
     ).payload.find(marker.encode()) >= 0
 
 
@@ -96,19 +100,19 @@ def test_append_messages_rolls_back_metadata_and_records_on_write_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     conversation_id, run = _started_run(agent_storage)
-    real_put = agent_storage.record_store.put
+    real_put = PlaintextRecordStore.put
     calls = 0
 
-    def fail_second_put(record: PlaintextRecord) -> None:
+    def fail_second_put(self: PlaintextRecordStore, record: PlaintextRecord) -> None:
         """持久化首条记录，再模拟第二条写入失败。"""
 
         nonlocal calls
         calls += 1
         if calls == 2:
             raise RuntimeError("injected record failure")
-        real_put(record)
+        real_put(self, record)
 
-    monkeypatch.setattr(agent_storage.record_store, "put", fail_second_put)
+    monkeypatch.setattr(PlaintextRecordStore, "put", fail_second_put)
 
     with pytest.raises(RuntimeError, match="injected record failure"):
         agent_storage.conversations.append_messages_atomic(
@@ -117,10 +121,10 @@ def test_append_messages_rolls_back_metadata_and_records_on_write_failure(
             [HumanMessage(content="one"), HumanMessage(content="two")],
         )
 
-    assert agent_storage.database.execute(
+    assert sql(agent_storage.database,
         "SELECT COUNT(*) FROM agent_messages"
     ).fetchone() == (0,)
-    assert agent_storage.database.execute(
+    assert sql(agent_storage.database,
         "SELECT COUNT(*) FROM runtime_records WHERE record_type = 'agent_message'"
     ).fetchone() == (0,)
 
@@ -134,7 +138,7 @@ def test_load_messages_fails_closed_when_record_is_missing(
         conversation_id,
         HumanMessage(content="inspect"),
     )
-    record_id = agent_storage.database.execute(
+    record_id = sql(agent_storage.database,
         "SELECT record_id FROM agent_messages"
     ).fetchone()[0]
     assert agent_storage.record_store.delete("agent_message", record_id) is True

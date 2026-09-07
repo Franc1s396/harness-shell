@@ -37,7 +37,7 @@ class CredentialRepositoryError(ValueError):
 
 
 class CredentialRepository:
-    """管理 schema v7 明文凭据，并在读取时严格匹配用途。"""
+    """管理同一业务 Session 内的明文凭据，并在读取时严格匹配用途。"""
 
     _store: PlaintextRecordStore
 

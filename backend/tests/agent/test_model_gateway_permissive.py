@@ -1,5 +1,7 @@
 """覆盖 Provider 传输变体，不要求完整 SDK schema。"""
 
+from ..storage_support import RepositoryClient, sql
+
 import asyncio
 
 import pytest
@@ -134,9 +136,9 @@ def test_mixed_tool_turn_preserves_history_without_publishing_commentary(agent_s
         clients = [FakeOpenAIClient(chat_outcomes=[wire], responses_outcomes=[wire]) for wire in (first, last)]
         config = agent_storage.api_configs.create(valid_api_config_input().model_copy(update={"api_type": ApiType.RESPONSES if responses else ApiType.CHAT_COMPLETIONS}))
         executor = RecordingExecutor()
-        service = AgentService(agent_storage.api_configs, agent_storage.conversations, executor,
+        service = AgentService(agent_storage.database, executor,
             ModelGateway(client_builder=RecordingOpenAIClientBuilder(clients)),
-            ContextService(agent_storage.conversations), lambda _: True)
+            ContextService(agent_storage.database), lambda _: True)
         turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
         sink = RecordingTurnSink()
         result = await _run_turn(agent_storage, service, turn, event_sink=sink)

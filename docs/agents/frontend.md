@@ -30,7 +30,7 @@
 - unknown response/event、失联、stale identity/version 必须进入明确失败状态，不返回 success-shaped fallback。
 - Agent Run 在首个 visible delta 前显示 thinking；delta 只进入 per-tab `activeRun.streamedText`，completed 后才写正式 assistant message。server failed、invalid、too-large 或 interrupted stream 必须清除 partial text并只显示 error；错误展示必须分别标出原始 `error_code` 与收到的 `error_message`，不得通过 i18n 替换异常信息。provisional 内容不显示 Run details，也不新增 Stop 控件。
 - Agent 的 provisional 与 completed assistant text 使用 GitHub-flavored Markdown 展示；用户消息和错误保持纯文本。Markdown 渲染不得启用 raw HTML 或远程图片加载，外部链接必须使用隔离的新窗口属性，代码块和表格溢出只能在消息内容内部滚动。
-- 凭据只以 Web Crypto 生成的 RSA-OAEP/AES-GCM request envelope，随所属 Connection 或 Provider mutation 发送；不存在独立 credential mutation endpoint，也不做 UI 补偿删除。secret 禁止写入 store、日志或错误详情。Backend 在同一业务事务中解封并以 schema-v7 plaintext credential record 保存，UI 必须把这一 at-rest 风险视为当前产品事实。
+- 凭据只以 Web Crypto 生成的 RSA-OAEP/AES-GCM request envelope，随所属 Connection 或 Provider mutation 发送；不存在独立 credential mutation endpoint，也不做 UI 补偿删除。secret 禁止写入 store、日志或错误详情。Backend 在同一业务事务中解封并以 plaintext credential record 保存，UI 必须把这一 at-rest 风险视为当前产品事实。
 
 Provider 新建和编辑弹窗将 context window size、压缩百分比和 max output tokens 收入默认折叠的“高级设置”，每次打开弹窗重置为折叠；展开后可修改。新建默认值为 128000、75%、8192，编辑及折叠保存时保留原预算，预算校验失败自动展开显示错误。draft 保持字符串，校验正安全整数、非空有限百分比与输入/输出的交叉预算，再将百分比除以 100 发送。保存失败保留预算 draft 并清空 API Key。摘要不进入聊天 state，压缩期间继续 thinking，历史消息内容和顺序不变，仅主回答或安全错误进入展示。
 

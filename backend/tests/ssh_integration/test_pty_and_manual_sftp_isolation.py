@@ -35,7 +35,7 @@ def test_pty_and_manual_sftp_use_isolated_child_channels(
         )
         service = ManualSftpService(
             runtime_context.runtime.sessions,
-            runtime_context.records,
+            runtime_context.database,
             _ignore_event,
         )
         context = await service.open(session_id)

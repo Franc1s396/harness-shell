@@ -11,7 +11,7 @@ from uuid import UUID
 import asyncssh
 
 from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
-from harness_shell_sidecar.storage import PlaintextRecordStore
+from harness_shell_sidecar.storage import RuntimeDatabase
 
 from .channels import SftpChannelFactory, SftpChannelLease
 from .errors import ManualSftpError, map_typed_sftp_status
@@ -49,16 +49,15 @@ class ManualSftpService:
     def __init__(
         self,
         ssh_sessions: SshSessionRegistry,
-        records: PlaintextRecordStore,
+        database: RuntimeDatabase,
         event_listener: Callable[[dict], Awaitable[None]],
     ) -> None:
         """创建读取资源管理者，并保留后续阶段需要的协作者。"""
 
         self._channels = SftpChannelFactory(ssh_sessions)
         self._listings = ListingManager(self._channels)
-        self._records = records
         self._event_listener = event_listener
-        self._operations = ManualSftpOperationStore(records)
+        self._operations = ManualSftpOperationStore(database)
         self._uploads = UploadManager(self._channels, self._operations)
         self._downloads = DownloadManager(self._channels)
         self._mutations = MutationManager(

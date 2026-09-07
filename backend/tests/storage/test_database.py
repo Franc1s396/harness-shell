@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import sqlite3
 from pathlib import Path
 
@@ -8,15 +10,15 @@ import pytest
 from harness_shell_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
 
 
-def test_plaintext_database_bootstraps_only_schema_v7(tmp_path: Path) -> None:
-    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
+def test_plaintext_database_bootstraps_alembic_baseline(tmp_path: Path) -> None:
+    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
     try:
-        assert database.execute(
-            "SELECT version FROM schema_migrations"
-        ).fetchall() == [(7,)]
+        assert sql(database,
+            "SELECT version_num FROM alembic_version"
+        ).fetchall() == [("0001_initial",)]
         tables = {
             row[0]
-            for row in database.execute(
+            for row in sql(database,
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
@@ -30,7 +32,7 @@ def test_plaintext_database_bootstraps_only_schema_v7(tmp_path: Path) -> None:
 
 def test_plaintext_database_requires_absolute_path() -> None:
     with pytest.raises(StorageSelfCheckFailed, match="absolute"):
-        RuntimeDatabase.open_plaintext(Path("runtime.sqlite3"))
+        RuntimeDatabase.open(Path("runtime.sqlite3"))
 
 
 def test_plaintext_database_rejects_old_schema_without_modifying_it(
@@ -46,26 +48,27 @@ def test_plaintext_database_rejects_old_schema_without_modifying_it(
     connection.close()
     before = path.read_bytes()
 
-    with pytest.raises(StorageSelfCheckFailed, match="incompatible schema"):
-        RuntimeDatabase.open_plaintext(path)
+    with pytest.raises(StorageSelfCheckFailed, match="incompatible database identity"):
+        RuntimeDatabase.open(path)
 
     assert path.read_bytes() == before
 
 
 def test_plaintext_database_rejects_tampered_v6_shape(tmp_path: Path) -> None:
     path = (tmp_path / "runtime.sqlite3").resolve()
-    database = RuntimeDatabase.open_plaintext(path)
-    database.execute("DROP TABLE runtime_records")
+    database = RuntimeDatabase.open(path)
+    sql(database, "DROP TABLE runtime_records")
     database.close()
 
     with pytest.raises(StorageSelfCheckFailed, match="tables do not match"):
-        RuntimeDatabase.open_plaintext(path)
+        RuntimeDatabase.open(path)
 
 
 def test_plaintext_database_close_is_idempotent(tmp_path: Path) -> None:
-    database = RuntimeDatabase.open_plaintext((tmp_path / "runtime.sqlite3").resolve())
+    database = RuntimeDatabase.open((tmp_path / "runtime.sqlite3").resolve())
     database.close()
     database.close()
 
     with pytest.raises(StorageSelfCheckFailed, match="closed"):
-        database.execute("SELECT 1")
+        with database.read_session():
+            pass

@@ -76,7 +76,12 @@ def test_runtime_resources_initialization_failure_closes_partial_database(
     with pytest.raises(RuntimeInitializationFailure, match="initialization failed"):
         RuntimeResources.initialize_from_settings(runtime_settings, discard_event)
 
-    database = RuntimeDatabase.open_plaintext(runtime_settings.database_path)
+    # 独立读取版本证明下游资源失败不会回退已提交的迁移。
+    import sqlite3
+    from contextlib import closing
+    with closing(sqlite3.connect(runtime_settings.database_path)) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0001_initial",)]
+    database = RuntimeDatabase.open(runtime_settings.database_path)
     database.close()
 
 
@@ -148,5 +153,29 @@ def test_tokenizer_startup_failure_preserves_code_and_closes_database(
     with pytest.raises(RuntimeInitializationFailure) as error:
         RuntimeResources.initialize_from_settings(runtime_settings, discard_event)
     assert error.value.error_code == "CONTEXT_TOKENIZER_UNAVAILABLE"
-    database = RuntimeDatabase.open_plaintext(runtime_settings.database_path)
+    # 独立读取版本证明下游资源失败不会回退已提交的迁移。
+    import sqlite3
+    from contextlib import closing
+    with closing(sqlite3.connect(runtime_settings.database_path)) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0001_initial",)]
+    database = RuntimeDatabase.open(runtime_settings.database_path)
     database.close()
+
+
+
+def test_migration_failure_prevents_service_construction(tmp_path, monkeypatch):
+    """迁移失败时不构造凭据服务，也不发布部分 Runtime。"""
+    from harness_shell_sidecar.storage import migration_runner
+    constructed = []
+    def fail_migration(path):
+        """在唯一迁移入口注入明确失败。"""
+        raise RuntimeError("migration failure")
+    def record_cipher():
+        """错误路径若仍构造服务则记录违规。"""
+        constructed.append(True)
+        raise AssertionError("service constructed before migration success")
+    monkeypatch.setattr(migration_runner, "upgrade_database", fail_migration)
+    monkeypatch.setattr("harness_shell_sidecar.runtime.resources.RuntimeCredentialCipher.generate", record_cipher)
+    with pytest.raises(RuntimeInitializationFailure):
+        RuntimeResources.initialize_from_settings(settings(tmp_path), discard_event)
+    assert constructed == []

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 from importlib import import_module
 from pathlib import Path
 from uuid import uuid4
@@ -22,8 +24,8 @@ def open_repository(tmp_path: Path):
     """打开全新数据库及其凭据仓库。"""
 
     credentials = load_credentials_module()
-    database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")
-    store = PlaintextRecordStore(database)
+    database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
+    store = RepositoryClient(database, PlaintextRecordStore)
     return database, store, credentials.CredentialRepository(store)
 
 
@@ -33,7 +35,7 @@ def test_repository_persists_plaintext_and_returns_only_identity(
     database, store, repository = open_repository(tmp_path)
     try:
         credential_id = repository.create("api_key", "marker-secret")
-        raw = store.connection.execute(
+        raw = sql(database,
             "SELECT payload FROM runtime_records WHERE record_type = 'credential'"
         ).fetchone()[0]
 

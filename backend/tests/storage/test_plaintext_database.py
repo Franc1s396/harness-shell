@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 import sqlite3
 from pathlib import Path
 
@@ -8,17 +10,17 @@ import pytest
 from harness_shell_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
 
 
-def test_open_plaintext_bootstraps_only_schema_v7(tmp_path: Path) -> None:
-    database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")
+def test_open_plaintext_bootstraps_alembic_baseline(tmp_path: Path) -> None:
+    database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
     try:
-        assert database.execute(
-            "SELECT version FROM schema_migrations"
-        ).fetchall() == [(7,)]
+        assert sql(database,
+            "SELECT version_num FROM alembic_version"
+        ).fetchall() == [("0001_initial",)]
     finally:
         database.close()
 
 
-@pytest.mark.parametrize("version", [4, 6])
+@pytest.mark.parametrize("version", [4, 6, 7])
 def test_open_plaintext_rejects_old_schema_without_modifying_it(
     tmp_path: Path, version: int,
 ) -> None:
@@ -32,8 +34,8 @@ def test_open_plaintext_rejects_old_schema_without_modifying_it(
     old.close()
     before = path.read_bytes()
 
-    with pytest.raises(StorageSelfCheckFailed, match="incompatible schema"):
-        RuntimeDatabase.open_plaintext(path)
+    with pytest.raises(StorageSelfCheckFailed, match="incompatible database identity"):
+        RuntimeDatabase.open(path)
 
     assert path.read_bytes() == before
 
@@ -41,14 +43,18 @@ def test_open_plaintext_rejects_old_schema_without_modifying_it(
 @pytest.mark.parametrize("removed", [" ON DELETE CASCADE", " CHECK (revision > 0)",
                                     " DEFAULT 128000"])
 def test_context_schema_drift_is_rejected_before_writes(tmp_path: Path, removed: str) -> None:
-    import harness_shell_sidecar.storage.database as database_module
-    sql = (Path(database_module.__file__).parent / "migrations" / "007_context_runtime.sql").read_text(encoding="utf-8")
-    assert removed in sql
+    from contextlib import closing
+    from harness_shell_sidecar.storage.migration_runner import upgrade_database
+
+    source = tmp_path / "source.sqlite3"
+    upgrade_database(source)
+    with closing(sqlite3.connect(source)) as original:
+        ddl = "\n".join(original.iterdump())
+    assert removed in ddl
     path = tmp_path / "runtime.sqlite3"
-    connection = sqlite3.connect(path)
-    connection.executescript(sql.replace(removed, ""))
-    connection.close()
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executescript(ddl.replace(removed, ""))
     before = path.read_bytes()
     with pytest.raises(StorageSelfCheckFailed):
-        RuntimeDatabase.open_plaintext(path)
+        RuntimeDatabase.open(path)
     assert path.read_bytes() == before

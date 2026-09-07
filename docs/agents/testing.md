@@ -36,7 +36,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
 ## 门禁边界
 
 - M1：本地 Windows Python/Frontend/Rust tests、packaged Backend 显式 `serve` loopback smoke、最小 Tauri capabilities 与 Frontend build。
-- M2：M1 加 OpenSSH Lab 脚本/真实 SSH integration、plaintext schema-v7 evidence 与生成物跟踪检查。
+- M2：M1 加 OpenSSH Lab 脚本/真实 SSH integration、plaintext Alembic baseline evidence 与生成物跟踪检查。
 - Manual SFTP：M2 加浏览器本地文件/hash/256 KiB raw-chunk contract、Python remote recovery 和真实 OpenSSH SFTP/PTY isolation。
 - M3 Agent：Manual SFTP gate 加 Python `CredentialRepository` ownership、fake SDK streams 与 bound-session OpenSSH command。
 - `verify-installer-entry.ps1`：只静态证明 NSIS input/shortcut/finish target；不证明安装或进程行为。
@@ -45,7 +45,7 @@ Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated 
 
 ## 必测契约
 
-- schema v7 新建、自检、旧 schema 在任何写入前拒绝、plaintext record；不得重新出现无读取闭环的 Audit/Trace/Artifact 表。
+- Alembic 新建与同库重启、整批 DDL/data/revision 回滚、STRICT/外键/索引自检、旧 schema 写入前拒绝、短 Session 与 plaintext record；不得重新出现无读取闭环的 Audit/Trace/Artifact 表。
 - credential request envelope、Python repository kind match、Provider key lookup、secret non-logging。
 - direct HTTP Problem、request ID、size/media/header/unknown-field failure；HTTP access log 覆盖 route template、实际返回 status、duration、INFO/WARNING/ERROR 分级、raw path 不泄露，以及 `GET /v1/runtime/state` 不打印 access log。
 - Agent SSE 必测 strict LF/CRLF framing、UTF-8 chunk boundary、frame/body/terminal reserve、started-first HTTP 200 barrier、durable terminal ordering、capacity 64 背压、terminal 发送前 request ID/capacity ownership、disconnect/shutdown cancellation、secret/tool/command/output non-exposure 与 OpenAPI/fixture drift。
@@ -78,3 +78,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 ## 生成物
 
 不得提交 `.venv/`、`node_modules/`、`target/`、`dist/`、`build/`、`.runtime/`、SQLite、private key、Sidecar/Launcher companion `.exe`、Tauri bundle 或 generated schema。任务结束运行 `git diff --check` 并检查相关 AGENTS 文档影响。
+
+
+## 数据库迁移验证
+
+`backend/tests/storage/` 验证真实 SQLite 文件的整批 migration/DDL/batch 回滚、版本身份、STRICT 约束、Session 生命周期与包内资源；`backend/tests/agent/test_session_boundaries.py` 验证并行会话的模型/工具边界无活动 Session。测试使用临时数据库，不运行用户旧库迁移。
+
+`backend/scripts/build_sidecar.ps1` 收集 Alembic env.py、versions 和 Mako 模板，随后执行实际 exe smoke：无关 cwd 的全新建库、同库重启、旧 v7/未知 revision 的无 ready、非零退出和内容不变。Desktop 控制读取在线程启动前完成数据库初始化，避免初始化失败时阻塞关闭；失败不能返回成功退出码。测试与打包 smoke 不代表完整安装版 Desktop 或用户旧数据验收。

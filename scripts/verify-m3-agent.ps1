@@ -28,10 +28,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Focused Agent Python tests failed' }
 Write-Output '[3/4] Python CredentialRepository ownership'
 $handlers = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_shell_sidecar\agent\handlers.py') -Encoding UTF8 -Raw
 $resources = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_shell_sidecar\runtime\resources.py') -Encoding UTF8 -Raw
-foreach ($source in @($handlers, $resources)) {
-    if (-not $source.Contains('CredentialRepository')) {
-        throw 'Provider key resolution is not wired to Python CredentialRepository'
-    }
+if (-not $handlers.Contains('CredentialRepository(PlaintextRecordStore(session))') -or
+    -not $handlers.Contains('read_session()') -or
+    -not $resources.Contains('register_agent_handlers(')) {
+    throw 'Provider key resolution is not wired to a short Python CredentialRepository Session'
 }
 if ($handlers.Contains('api_key_b64')) {
     throw 'Agent handler still accepts a transported Provider key payload'

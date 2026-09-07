@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 from pathlib import Path
 
 import pytest
@@ -19,11 +21,11 @@ from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 def test_service_resolves_direct_and_jump_then_zeroizes(
     tmp_path: Path,
 ) -> None:
-    database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")
+    database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
     try:
-        records = PlaintextRecordStore(database)
+        records = RepositoryClient(database, PlaintextRecordStore)
         credentials = CredentialRepository(records)
-        connections = ConnectionRepository(database)
+        connections = RepositoryClient(database, ConnectionRepository)
         jump_key = credentials.create("imported_private_key", "jump-key")
         jump_passphrase = credentials.create(
             "private_key_passphrase",
@@ -46,7 +48,7 @@ def test_service_resolves_direct_and_jump_then_zeroizes(
                 proxy_jump_id=jump.connection_id,
             )
         )
-        service = CredentialService(connections, credentials)
+        service = CredentialService(database)
 
         resolved = service.build_ssh_connect(direct.connection_id)
         assert resolved.profile_version == direct.version
@@ -69,12 +71,13 @@ def test_service_resolves_direct_and_jump_then_zeroizes(
 
 def test_service_rejects_profile_version_change_after_resolution(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")
+    database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
     try:
-        records = PlaintextRecordStore(database)
+        records = RepositoryClient(database, PlaintextRecordStore)
         credentials = CredentialRepository(records)
-        connections = ConnectionRepository(database)
+        connections = RepositoryClient(database, ConnectionRepository)
         password = credentials.create("ssh_password", "direct-password")
         direct_input = connection_input(
             display_name="direct",
@@ -84,21 +87,20 @@ def test_service_rejects_profile_version_change_after_resolution(
         direct = connections.create(direct_input)
         resolved_buffers: list[bytearray] = []
 
-        class RacingCredentials:
-            """返回秘密后立即变更配置。"""
+        real_resolve = CredentialRepository.resolve
 
-            def resolve(self, credential_id, expected_kind):
-                """返回真实秘密并强制版本复核失败。"""
+        def racing_resolve(self, credential_id, expected_kind):
+            """读取真实秘密后由另一事务修改配置，检验版本复核与清零。"""
+            secret = real_resolve(self, credential_id, expected_kind)
+            resolved_buffers.append(secret)
+            connections.update(
+                direct.connection_id,
+                direct_input.model_copy(update={"display_name": "changed"}),
+            )
+            return secret
 
-                secret = credentials.resolve(credential_id, expected_kind)
-                resolved_buffers.append(secret)
-                connections.update(
-                    direct.connection_id,
-                    direct_input.model_copy(update={"display_name": "changed"}),
-                )
-                return secret
-
-        service = CredentialService(connections, RacingCredentials())
+        monkeypatch.setattr(CredentialRepository, "resolve", racing_resolve)
+        service = CredentialService(database)
 
         with pytest.raises(
             CredentialServiceError,

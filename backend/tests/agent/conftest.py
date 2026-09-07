@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from ..storage_support import RepositoryClient
 
 from harness_shell_sidecar.agent.api_configs import ApiConfigRepository
 from harness_shell_sidecar.agent.contracts import ApiType, ModelApiConfigInput
@@ -17,25 +18,21 @@ class AgentStorage:
     """为测试拥有独立 Agent 数据库及其明文记录存储。"""
 
     database: RuntimeDatabase
-    record_store: PlaintextRecordStore
-    api_configs: ApiConfigRepository
-    conversations: ConversationRepository
+    record_store: RepositoryClient
+    api_configs: RepositoryClient
+    conversations: RepositoryClient
 
 
 @pytest.fixture
 def agent_storage(tmp_path: Path) -> AgentStorage:
     """创建并确定性关闭 Agent 存储 fixture。"""
 
-    database = RuntimeDatabase.open_plaintext((tmp_path / "agent.sqlite3").resolve())
-    record_store = PlaintextRecordStore(database)
-    storage = AgentStorage(
-        database=database,
-        record_store=record_store,
-        api_configs=ApiConfigRepository(database),
-        conversations=ConversationRepository(database, record_store),
-    )
+    database = RuntimeDatabase.open((tmp_path / "agent.sqlite3").resolve())
     try:
-        yield storage
+        yield AgentStorage(database,
+            RepositoryClient(database, PlaintextRecordStore),
+            RepositoryClient(database, ApiConfigRepository),
+            RepositoryClient(database, lambda session: ConversationRepository(session, PlaintextRecordStore(session))))
     finally:
         database.close()
 

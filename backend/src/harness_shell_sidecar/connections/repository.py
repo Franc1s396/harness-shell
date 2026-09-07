@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import base64
-import sqlite3
+from sqlalchemy import select, update, delete
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_shell_sidecar.storage.orm import ConnectionProfileRow, HostKeyRow
 
 from .models import (
     ConnectionProfile,
@@ -31,121 +33,61 @@ class ConnectionRepositoryError(RuntimeError):
 class ConnectionRepository:
     """在运行时 SQLite 数据库中管理连接配置与 Host Key 历史。"""
 
-    def __init__(self, database: RuntimeDatabase) -> None:
-        """绑定由运行时统一拥有生命周期的数据库连接。"""
-
-        self._database = database  # 当前 Sidecar 运行实例的数据库访问入口。
+    def __init__(self, session: Session) -> None:
+        """借用应用操作的 Session，不拥有提交或关闭权限。"""
+        self._session = session  # 当前操作内的数据库上下文。
 
     def create(self, value: ConnectionProfileInput) -> ConnectionProfile:
-        """校验 ProxyJump 后创建连接配置并回读持久化结果。"""
-
+        """校验跳板后写入完整配置，提交权归应用层。"""
         connection_id = uuid4()
         now = _utc_now()
         self._validate_proxy(value.proxy_jump_id, connection_id)
-        self._database.execute(
-            """
-            INSERT INTO connection_profiles(
-                connection_id, display_name, group_name, host, port, username,
-                auth_kind, credential_id, passphrase_credential_id,
-                proxy_jump_id, favorite, created_at, updated_at, version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            _profile_parameters(connection_id, value, now, now),
-        )
-        profile = self.get(connection_id)
-        if profile is None:
-            raise ConnectionRepositoryError(
-                "CONNECTION_PERSISTENCE_FAILED", "created profile was not found"
-            )
-        return profile
+        row = ConnectionProfileRow(**dict(zip(_PROFILE_FIELDS, _profile_parameters(connection_id, value, now, now), strict=True)))
+        self._session.add(row)
+        self._session.flush()
+        return _profile_from_row(tuple(getattr(row, field) for field in _PROFILE_FIELDS))
 
-    def update(
-        self, connection_id: UUID, value: ConnectionProfileInput
-    ) -> ConnectionProfile:
-        """以完整新配置替换已有连接，并保留创建时间。"""
-
-        # 1. 读取当前版本并检查安全整数上限，拒绝无效目标或版本溢出。
+    def update(self, connection_id: UUID, value: ConnectionProfileInput) -> ConnectionProfile:
+        """保持单调版本，以当前版本条件更新并拒绝溢出。"""
         current = self.get(connection_id)
         if current is None:
-            raise ConnectionRepositoryError(
-                "CONNECTION_NOT_FOUND", "connection profile was not found"
-            )
+            raise ConnectionRepositoryError("CONNECTION_NOT_FOUND", "connection profile was not found")
         if current.version == 2**53 - 1:
-            raise ConnectionRepositoryError(
-                "CONNECTION_VERSION_EXHAUSTED",
-                "connection profile version is exhausted",
-            )
-        # 2. 校验跳板引用，再以当前版本作为条件执行更新。
+            raise ConnectionRepositoryError("CONNECTION_VERSION_EXHAUSTED", "connection profile version is exhausted")
         self._validate_proxy(value.proxy_jump_id, connection_id)
-        cursor = self._database.execute(
-            """
-            UPDATE connection_profiles SET
-                display_name = ?, group_name = ?, host = ?, port = ?,
-                username = ?, auth_kind = ?, credential_id = ?,
-                passphrase_credential_id = ?, proxy_jump_id = ?, favorite = ?,
-                updated_at = ?, version = version + 1
-            WHERE connection_id = ? AND version = ?
-            """,
-            (
-                value.display_name,
-                value.group_name,
-                value.host,
-                value.port,
-                value.username,
-                value.auth_kind,
-                str(value.credential_id),
-                _uuid_text(value.passphrase_credential_id),
-                _uuid_text(value.proxy_jump_id),
-                int(value.favorite),
-                _utc_now(),
-                str(connection_id),
-                current.version,
-            ),
-        )
-        # 3. 写入数量和递增后的版本都必须符合预期，否则暴露并发冲突。
-        if cursor.rowcount != 1:
-            raise ConnectionRepositoryError(
-                "CONNECTION_PERSISTENCE_FAILED",
-                "connection profile version changed during update",
-            )
+        values = dict(zip(_PROFILE_FIELDS, _profile_parameters(connection_id, value, _format_time(current.created_at), _utc_now()), strict=True))
+        values.pop("connection_id")
+        values.pop("created_at")
+        values["version"] = current.version + 1
+        result = self._session.execute(update(ConnectionProfileRow).where(
+            ConnectionProfileRow.connection_id == str(connection_id),
+            ConnectionProfileRow.version == current.version).values(**values))
+        if result.rowcount != 1:
+            raise ConnectionRepositoryError("CONNECTION_PERSISTENCE_FAILED", "connection profile version changed during update")
         updated = self.get(connection_id)
         if updated is None or updated.version != current.version + 1:
-            raise ConnectionRepositoryError(
-                "CONNECTION_PERSISTENCE_FAILED", "updated profile was not found"
-            )
+            raise ConnectionRepositoryError("CONNECTION_PERSISTENCE_FAILED", "updated profile was not found")
         return updated
 
     def get(self, connection_id: UUID) -> ConnectionProfile | None:
-        """按唯一标识符读取连接配置；不存在时返回 None。"""
-
-        row = self._database.execute(
-            _PROFILE_SELECT + " WHERE connection_id = ?",
-            (str(connection_id),),
-        ).fetchone()
+        """物化最新配置，避免 Session identity map 隐藏版本变更。"""
+        row = self._session.execute(_PROFILE_SELECT.where(ConnectionProfileRow.connection_id == str(connection_id))).first()
         return None if row is None else _profile_from_row(row)
 
     def list(self) -> list[ConnectionProfile]:
-        """按收藏、分组和显示名称的稳定顺序列出所有连接。"""
-
-        rows = self._database.execute(
-            _PROFILE_SELECT
-            + " ORDER BY favorite DESC, group_name IS NULL, group_name, display_name, connection_id"
-        ).fetchall()
+        """按现有收藏、分组与名称顺序返回领域模型。"""
+        rows = self._session.execute(_PROFILE_SELECT.order_by(
+            ConnectionProfileRow.favorite.desc(), ConnectionProfileRow.group_name.is_(None),
+            ConnectionProfileRow.group_name, ConnectionProfileRow.display_name, ConnectionProfileRow.connection_id))
         return [_profile_from_row(row) for row in rows]
 
     def delete(self, connection_id: UUID) -> bool:
-        """删除未被 ProxyJump 引用的连接，并返回是否实际删除。"""
-
+        """删除未被跳板引用的配置，约束失败由外层回滚。"""
         try:
-            cursor = self._database.execute(
-                "DELETE FROM connection_profiles WHERE connection_id = ?",
-                (str(connection_id),),
-            )
-        except sqlite3.IntegrityError as exc:
-            raise ConnectionRepositoryError(
-                "CONNECTION_IN_USE", "connection is referenced as a proxy jump"
-            ) from exc
-        return cursor.rowcount == 1
+            result = self._session.execute(delete(ConnectionProfileRow).where(ConnectionProfileRow.connection_id == str(connection_id)))
+        except IntegrityError as error:
+            raise ConnectionRepositoryError("CONNECTION_IN_USE", "connection is referenced as a proxy jump") from error
+        return result.rowcount == 1
 
     def trust_first_host_key(self, candidate: HostKeyCandidate) -> HostKeyRecord:
         """为尚未建立信任的连接持久化首个活动 Host Key。"""
@@ -159,55 +101,22 @@ class ConnectionRepository:
         self._insert_host_key(record)
         return record
 
-    def replace_host_key(
-        self,
-        candidate: HostKeyCandidate,
-        expected_old_fingerprint: str,
-    ) -> HostKeyRecord:
-        """在单一事务内校验旧指纹、停用旧记录并插入替代记录。"""
-
+    def replace_host_key(self, candidate: HostKeyCandidate, expected_old_fingerprint: str) -> HostKeyRecord:
+        """在调用者写事务内先停用旧键，再插入新键。"""
         self._validate_candidate_endpoint(candidate)
-        connection = self._database.connection
-        connection.execute("BEGIN IMMEDIATE")
-        try:
-            active = self.active_host_key(candidate.connection_id)
-            if (
-                active is None
-                or active.fingerprint_sha256 != expected_old_fingerprint
-            ):
-                raise ConnectionRepositoryError(
-                    "HOST_KEY_REPLACE_CONFLICT", "active host key changed"
-                )
-            replaced_at = _utc_now()
-            connection.execute(
-                """
-                UPDATE host_keys
-                SET status = 'replaced', replaced_at = ?
-                WHERE host_key_id = ? AND status = 'active'
-                """,
-                (replaced_at, str(active.host_key_id)),
-            )
-            replacement = _record_from_candidate(candidate)
-            self._insert_host_key(replacement)
-            connection.execute("COMMIT")
-            return replacement
-        except Exception:
-            connection.execute("ROLLBACK")
-            raise
+        active = self.active_host_key(candidate.connection_id)
+        if active is None or active.fingerprint_sha256 != expected_old_fingerprint:
+            raise ConnectionRepositoryError("HOST_KEY_REPLACE_CONFLICT", "active host key changed")
+        self._session.execute(update(HostKeyRow).where(HostKeyRow.host_key_id == str(active.host_key_id),
+            HostKeyRow.status == "active").values(status="replaced", replaced_at=_utc_now()))
+        replacement = _record_from_candidate(candidate)
+        self._insert_host_key(replacement)
+        return replacement
 
     def active_host_key(self, connection_id: UUID) -> HostKeyRecord | None:
-        """返回连接当前生效的 Host Key；尚未信任时返回 None。"""
-
-        row = self._database.execute(
-            """
-            SELECT host_key_id, connection_id, key_algorithm,
-                   fingerprint_sha256, public_key_openssh, status,
-                   confirmed_at, replaced_at
-            FROM host_keys
-            WHERE connection_id = ? AND status = 'active'
-            """,
-            (str(connection_id),),
-        ).fetchone()
+        """读取当前唯一活动 Host Key 并返回领域快照。"""
+        row = self._session.execute(select(*[getattr(HostKeyRow, name) for name in _HOST_KEY_FIELDS]).where(
+            HostKeyRow.connection_id == str(connection_id), HostKeyRow.status == "active")).first()
         return None if row is None else _host_key_from_row(row)
 
     def _validate_proxy(
@@ -245,40 +154,20 @@ class ConnectionRepository:
             )
 
     def _insert_host_key(self, record: HostKeyRecord) -> None:
-        """插入 Host Key 记录，并将约束冲突转换为稳定业务错误。"""
-
+        """立即 flush 使唯一键冲突在仓库边界显式映射。"""
         try:
-            self._database.execute(
-                """
-                INSERT INTO host_keys(
-                    host_key_id, connection_id, key_algorithm,
-                    fingerprint_sha256, public_key_openssh, status,
-                    confirmed_at, replaced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(record.host_key_id),
-                    str(record.connection_id),
-                    record.key_algorithm,
-                    record.fingerprint_sha256,
-                    base64.b64decode(record.public_key_openssh_b64, validate=True),
-                    record.status,
-                    _format_time(record.confirmed_at),
-                    None,
-                ),
-            )
-        except sqlite3.IntegrityError as exc:
-            raise ConnectionRepositoryError(
-                "HOST_KEY_CONFLICT", "host key could not be persisted"
-            ) from exc
+            self._session.add(HostKeyRow(host_key_id=str(record.host_key_id), connection_id=str(record.connection_id),
+                key_algorithm=record.key_algorithm, fingerprint_sha256=record.fingerprint_sha256,
+                public_key_openssh=base64.b64decode(record.public_key_openssh_b64, validate=True),
+                status=record.status, confirmed_at=_format_time(record.confirmed_at), replaced_at=None))
+            self._session.flush()
+        except IntegrityError as error:
+            raise ConnectionRepositoryError("HOST_KEY_CONFLICT", "host key could not be persisted") from error
 
 
-_PROFILE_SELECT = """
-SELECT connection_id, display_name, group_name, host, port, username,
-       auth_kind, credential_id, passphrase_credential_id, proxy_jump_id,
-       favorite, created_at, updated_at, version
-FROM connection_profiles
-"""
+_PROFILE_FIELDS = ('connection_id', 'display_name', 'group_name', 'host', 'port', 'username', 'auth_kind', 'credential_id', 'passphrase_credential_id', 'proxy_jump_id', 'favorite', 'created_at', 'updated_at', 'version')
+_HOST_KEY_FIELDS = ('host_key_id', 'connection_id', 'key_algorithm', 'fingerprint_sha256', 'public_key_openssh', 'status', 'confirmed_at', 'replaced_at')
+_PROFILE_SELECT = select(*[getattr(ConnectionProfileRow, name) for name in _PROFILE_FIELDS])
 
 
 def _profile_parameters(
@@ -287,6 +176,7 @@ def _profile_parameters(
     created_at: str,
     updated_at: str,
 ) -> tuple:
+    """将严格输入转换为具名 ORM 字段的对应存储值。"""
     return (
         str(connection_id),
         value.display_name,
@@ -306,6 +196,7 @@ def _profile_parameters(
 
 
 def _profile_from_row(row: tuple) -> ConnectionProfile:
+    """将查询行物化为不可变连接配置，不泄露 ORM 对象。"""
     return ConnectionProfile(
         connection_id=UUID(row[0]),
         display_name=row[1],
@@ -325,6 +216,7 @@ def _profile_from_row(row: tuple) -> ConnectionProfile:
 
 
 def _record_from_candidate(candidate: HostKeyCandidate) -> HostKeyRecord:
+    """为已验证候选生成首个活动 Host Key 领域快照。"""
     return HostKeyRecord(
         host_key_id=uuid4(),
         connection_id=candidate.connection_id,
@@ -338,6 +230,7 @@ def _record_from_candidate(candidate: HostKeyCandidate) -> HostKeyRecord:
 
 
 def _host_key_from_row(row: tuple) -> HostKeyRecord:
+    """将存储字节与时间转换为对外 Host Key 快照。"""
     return HostKeyRecord(
         host_key_id=UUID(row[0]),
         connection_id=UUID(row[1]),
@@ -351,22 +244,27 @@ def _host_key_from_row(row: tuple) -> HostKeyRecord:
 
 
 def _uuid_text(value: UUID | None) -> str | None:
+    """保留空引用并将非空 UUID 转为存储文本。"""
     return None if value is None else str(value)
 
 
 def _optional_uuid(value: str | None) -> UUID | None:
+    """将可空存储引用还原为 UUID。"""
     return None if value is None else UUID(value)
 
 
 def _utc_now() -> str:
+    """生成微秒精度的 UTC 存储时间。"""
     return _format_time(datetime.now(timezone.utc))
 
 
 def _format_time(value: datetime) -> str:
+    """统一以 UTC 微秒文本保存时间。"""
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
         "+00:00", "Z"
     )
 
 
 def _parse_time(value: str) -> datetime:
+    """从规范存储文本还原带时区时间。"""
     return datetime.fromisoformat(value.replace("Z", "+00:00"))

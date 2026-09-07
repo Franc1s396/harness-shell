@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..storage_support import RepositoryClient, sql
+
 from pathlib import Path
 from typing import Protocol
 
@@ -34,8 +36,8 @@ def open_store(tmp_path: Path) -> tuple[RuntimeDatabase, _PlaintextStore]:
     """打开全新数据库及其明文记录管理者。"""
 
     _, plaintext_store = load_plaintext_types()
-    database = RuntimeDatabase.open_plaintext(tmp_path / "runtime.sqlite3")
-    return database, plaintext_store(database)
+    database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
+    return database, RepositoryClient(database, plaintext_store)
 
 
 def test_plaintext_store_round_trips_payload_without_encoding(tmp_path: Path) -> None:
@@ -46,7 +48,7 @@ def test_plaintext_store_round_trips_payload_without_encoding(tmp_path: Path) ->
         store.put(source)
 
         assert store.get("credential", "credential-1") == source
-        assert database.execute(
+        assert sql(database,
             "SELECT payload FROM runtime_records WHERE record_type = ? AND record_id = ?",
             ("credential", "credential-1"),
         ).fetchone() == (b"marker-secret",)
@@ -61,13 +63,13 @@ def test_plaintext_store_updates_payload_and_preserves_created_at(
     database, store = open_store(tmp_path)
     try:
         store.put(plaintext_record("agent_message", "message-1", 1, b"first"))
-        created_at = database.execute(
+        created_at = sql(database,
             "SELECT created_at FROM runtime_records"
         ).fetchone()[0]
 
         store.put(plaintext_record("agent_message", "message-1", 2, b"second"))
 
-        row = database.execute(
+        row = sql(database,
             "SELECT schema_version, payload, created_at FROM runtime_records"
         ).fetchone()
         assert row == (2, b"second", created_at)
