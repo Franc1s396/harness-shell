@@ -241,7 +241,7 @@ export function AgentWorkspace({
             disabled={tab.phase !== "IDLE"}
             onChange={(event) => onDraftChange(event.target.value)}
             onKeyDown={onComposerKeyDown}
-            className="min-h-16 w-full resize-none bg-transparent px-3 pt-3 text-sm text-ink outline-none focus-visible:outline-hidden"
+            className="min-h-16 w-full resize-none bg-transparent px-3 pt-3 text-sm text-ink outline-none focus-visible:outline-hidden!"
           />
           <div className="relative flex items-center gap-2 px-2 pb-2">
             <div className="relative">

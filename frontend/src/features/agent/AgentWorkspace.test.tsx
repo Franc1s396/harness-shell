@@ -112,7 +112,7 @@ describe("AgentWorkspace", () => {
     const input = screen.getByRole("textbox", { name: "Message" });
     const composer = input.parentElement;
 
-    expect(input).toHaveClass("focus-visible:outline-hidden");
+    expect(input).toHaveClass("focus-visible:outline-hidden!");
     expect(composer).toHaveClass(
       "rounded-xl",
       "focus-within:border-accent",
