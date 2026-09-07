@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { TerminalOutputBuffer } from "./terminal-output-buffer";
 import { TerminalResizeController } from "./terminal-resize-controller";
@@ -32,7 +32,6 @@ export function TerminalTab({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const [focused, setFocused] = useState(false);
   const resizeControllerRef = useRef<TerminalResizeController | null>(null);
   const inputHandler = useRef(onInput);
   const resizeHandler = useRef(onResize);
@@ -97,11 +96,9 @@ export function TerminalTab({
     observer.observe(container);
     requestResize();
     const focusIn = () => {
-      setFocused(true);
       focusHandler.current(true);
     };
     const focusOut = () => {
-      setFocused(false);
       focusHandler.current(false);
     };
     container.addEventListener("focusin", focusIn);
@@ -167,7 +164,7 @@ export function TerminalTab({
   return (
     <div
       ref={containerRef}
-      className={`absolute inset-0 min-h-0 min-w-0 ${active ? "block" : "hidden"} ${focused ? "ring-1 ring-inset ring-accent" : ""}`}
+      className={`absolute inset-0 min-h-0 min-w-0 ${active ? "block" : "hidden"}`}
       aria-hidden={!active}
       onMouseDown={() => {
         if (active && enabled) terminalRef.current?.focus();

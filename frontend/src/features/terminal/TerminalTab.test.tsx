@@ -184,14 +184,14 @@ describe("TerminalTab", () => {
     expect(terminalMock.instances[1].writes).toEqual([banner]);
   });
 
-  it("shows a visible focus boundary only while terminal input is focused", () => {
+  it("keeps the terminal boundary unchanged while input is focused", () => {
     const { container } = renderTab();
     const terminalSurface = container.firstElementChild;
     expect(terminalSurface).not.toBeNull();
     expect(terminalSurface).not.toHaveClass("ring-1");
 
     fireEvent.focusIn(terminalSurface!);
-    expect(terminalSurface).toHaveClass("ring-1", "ring-inset", "ring-accent");
+    expect(terminalSurface).not.toHaveClass("ring-1");
 
     fireEvent.focusOut(terminalSurface!);
     expect(terminalSurface).not.toHaveClass("ring-1");
