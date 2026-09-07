@@ -4,7 +4,7 @@
 
 Harness Shell is a local AI SSH Agent desktop application for Windows. It centers on an interactive SSH terminal, with Manual SFTP and an experimental ReAct Shell Agent operating within explicitly selected connections, trusted host keys, and remote sessions.
 
-The current version is `0.2.0` and remains under development and validation. It is intended for developers who manage SSH connections locally, use remote terminals, transfer files manually, and explore AI-assisted operations in connected sessions.
+The current version is `0.2.1` and remains under development and validation. It is intended for developers who manage SSH connections locally, use remote terminals, transfer files manually, and explore AI-assisted operations in connected sessions.
 
 The terminal, file transfers, and Agent share one desktop workspace. SSH/SFTP does not require a model provider; a model service is needed only for the Agent.
 
