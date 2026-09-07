@@ -8,13 +8,14 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Protocol, cast
 from uuid import UUID
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
+from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus, ExecuteCommandArguments
 from harness_shell_sidecar.agent.service import AgentServiceError
 from harness_shell_sidecar.agent.streaming import (
     AgentTurnCompletedEvent,
     AgentTurnEventSink,
     AgentTurnFailedEvent,
     AgentTurnStartedEvent,
+    AgentTurnToolStartedEvent,
     AgentTurnStreamEvent,
     AgentTurnTextDeltaEvent,
     AgentTurnTextReplaceEvent,
@@ -94,6 +95,20 @@ class _AgentEventPublisher:
         self._encoded_bytes += encoded_size
         self._sequence = 1
         self._started_future.set_result(None)
+
+    async def tool_started(self, tool_call_id: str, arguments: ExecuteCommandArguments) -> None:
+        """在统一序号、预算和背压约束下入队工具状态，不改变可见文本。"""
+        self._require_open()
+        assert self._conversation_id is not None and self._agent_run_id is not None
+        event = AgentTurnToolStartedEvent(
+            request_id=self._request_id, sequence=self._sequence,
+            conversation_id=self._conversation_id, agent_run_id=self._agent_run_id,
+            tool_call_id=tool_call_id, tool_name="execute_command", arguments=arguments,
+        )
+        encoded_size = self._validated_size(event, terminal=False)
+        await self._put(event)
+        self._encoded_bytes += encoded_size
+        self._sequence += 1
 
     async def text_delta(self, delta: str) -> None:
         """入队精确可见增量；容量已满时阻塞而非丢弃。"""

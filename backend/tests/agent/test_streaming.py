@@ -135,3 +135,13 @@ def test_text_replace_roundtrip_and_strict_fields(text: str) -> None:
     for mutation in ({"text": None}, {"text": 1}, {"delta": "extra"}):
         with pytest.raises(ValidationError):
             EVENT_ADAPTER.validate_python({**event.model_dump(), **mutation})
+
+
+def test_tool_started_accepts_validated_arguments_only() -> None:
+    """工具记录允许已校验参数，拒绝额外顶层字段。"""
+    import json
+    value = {"schema_version": 1, "type": "agent.turn.tool_started", "request_id": str(uuid4()),
+        "conversation_id": str(uuid4()), "agent_run_id": str(uuid4()), "sequence": 1, "tool_call_id": "call-1", "tool_name": "execute_command", "arguments": {"command": "pwd"}}
+    assert EVENT_ADAPTER.validate_json(json.dumps(value)).type == "agent.turn.tool_started"
+    with pytest.raises(ValidationError):
+        EVENT_ADAPTER.validate_json(json.dumps({**value, "command": "pwd"}))

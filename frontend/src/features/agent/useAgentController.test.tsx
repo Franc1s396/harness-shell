@@ -181,7 +181,7 @@ describe("useAgentController", () => {
     ).toMatchObject({ kind: "assistant", text: "ok" });
   });
 
-  it("routes replacement progress before committing the updated answer", async () => {
+  it("routes tool status and replacement progress before committing the updated answer", async () => {
     const pending = deferred<AgentTurnCompletedEvent>();
     let progress!: (event: AgentTurnProgressEvent) => void;
     mockAgentApi.streamAgentTurn.mockImplementation(async (_input, onProgress) => {
@@ -195,11 +195,17 @@ describe("useAgentController", () => {
     act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
     await waitFor(() => expect(view.result.current.state.tabs["tab-1"].activeRun?.streamedText).toBe("ok"));
     act(() => progress({
+      schema_version: 1, type: "agent.turn.tool_started", tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" }, request_id: "request-id-1",
+      conversation_id: "conversation-1", agent_run_id: "run-1", sequence: 2,
+    }));
+    expect(view.result.current.state.tabs["tab-1"].activeRun).toMatchObject({ toolExecuting: true, streamedText: "ok" });
+    act(() => progress({
       schema_version: 1, type: "agent.turn.text_replace", request_id: "request-id-1",
-      conversation_id: "conversation-1", agent_run_id: "run-1", sequence: 2, text: "revised",
+      conversation_id: "conversation-1", agent_run_id: "run-1", sequence: 3, text: "revised",
     }));
     expect(view.result.current.state.tabs["tab-1"].activeRun?.streamedText).toBe("revised");
-    pending.resolve({ ...completedResult("conversation-1", "run-1"), sequence: 3 });
+    expect(view.result.current.state.tabs["tab-1"].activeRun?.toolExecuting).toBe(false);
+    pending.resolve({ ...completedResult("conversation-1", "run-1"), sequence: 4 });
     await act(() => send);
     expect(view.result.current.state.tabs["tab-1"].messages[1]).toMatchObject({ kind: "assistant", text: "revised" });
   });

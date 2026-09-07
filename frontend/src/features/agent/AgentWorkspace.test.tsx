@@ -56,6 +56,8 @@ const runningTab: AgentTabState = {
     agentRunId: "run-1",
     nextSequence: 1,
     streamedText: "",
+    toolExecuting: false,
+    tools: [],
     reactIteration: 0,
   },
   backgroundState: "RUNNING",
@@ -238,7 +240,7 @@ describe("AgentWorkspace", () => {
           { id: "user-1", kind: "user", text: "Short user message" },
           {
             id: "assistant-1",
-            kind: "assistant",
+            kind: "assistant", tools: [],
             text: "Short answer",
             run: {
               agentRunId: "run-1",
@@ -339,7 +341,7 @@ describe("AgentWorkspace", () => {
         messages: [
           {
             id: "assistant-1",
-            kind: "assistant",
+            kind: "assistant", tools: [],
             text: "Service is healthy.",
             run: {
               agentRunId: "run-1",
@@ -374,7 +376,7 @@ describe("AgentWorkspace", () => {
         messages: [
           {
             id: "assistant-markdown",
-            kind: "assistant",
+            kind: "assistant", tools: [],
             text: [
               "## Result",
               "",
@@ -577,7 +579,7 @@ describe("context compaction display isolation", () => {
     const provider = runningTab.activeRun!.provider;
     const history: AgentTabState["messages"] = [
       { id: "old-user", kind: "user", text: "Earlier inspection request" },
-      { id: "old-answer", kind: "assistant", text: "Earlier verified result", run: {
+      { id: "old-answer", kind: "assistant", tools: [], text: "Earlier verified result", run: {
         agentRunId: "old-run", status: "COMPLETED", reactIteration: 0,
         sshSessionId: "ssh-1", provider,
       } },
@@ -605,5 +607,50 @@ describe("context compaction display isolation", () => {
     expect(screen.getByText("Earlier verified result")).toBeVisible();
     expect(screen.getByText("New main answer")).toBeVisible();
     expect(screen.queryByText(/HISTORICAL_CONTEXT_SUMMARY/)).not.toBeInTheDocument();
+  });
+});
+
+
+describe("tool execution display", () => {
+  afterEach(cleanup);
+  it.each(["", "Checking the service"])("shows tool activity and clears it with the next delta: %s", (streamedText) => {
+    let state: AgentState = { tabs: { tab: { ...runningTab, activeRun: { ...runningTab.activeRun!, streamedText } } } };
+    const identity = { schema_version: 1 as const, request_id: "request-1", conversation_id: "conversation-1", agent_run_id: "run-1" };
+    state = agentReducer(state, { type: "run/tool-started", tabId: "tab", requestToken: "request-1",
+      event: { ...identity, sequence: 1, type: "agent.turn.tool_started", tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" } } });
+    const workspace = renderWorkspace({ tab: state.tabs.tab });
+    expect(screen.getByText("Executing tool…")).toBeVisible();
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
+    if (streamedText) expect(screen.getByText(streamedText)).toBeVisible();
+    state = agentReducer(state, { type: "run/text-delta", tabId: "tab", requestToken: "request-1",
+      event: { ...identity, sequence: 2, type: "agent.turn.text_delta", delta: " done" } });
+    workspace.view.rerender(<AgentWorkspace {...workspace.props} tab={state.tabs.tab} />);
+    expect(screen.queryByText("Executing tool…")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeVisible();
+  });
+});
+
+
+describe("executed tool details", () => {
+  afterEach(cleanup);
+  it("shows ordered repeated calls in a collapsed list below the completed answer", () => {
+    const tools = [
+      { tool_call_id: "call-1", tool_name: "execute_command" as const, arguments: { command: "echo '<script>test</script>'" } },
+      { tool_call_id: "call-2", tool_name: "execute_command" as const, arguments: { command: "pwd" } },
+    ];
+    const { view } = renderWorkspace({ tab: { ...idleTab, messages: [{ id: "answer", kind: "assistant", text: "Done", tools,
+      run: { agentRunId: "run-1", status: "COMPLETED", reactIteration: 2, sshSessionId: "ssh-1", provider: runningTab.activeRun!.provider } }] } });
+    const summary = screen.getByText("Executed tools (2)");
+    const details = summary.closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    fireEvent.click(summary);
+    expect(details).toHaveAttribute("open");
+    expect([...details.querySelectorAll("pre")].map((node) => node.textContent)).toEqual(tools.map((tool) => JSON.stringify(tool.arguments, null, 2)));
+    expect(view.container.querySelector("script")).toBeNull();
+  });
+  it("omits the list when no tools ran", () => {
+    renderWorkspace({ tab: { ...idleTab, messages: [{ id: "answer", kind: "assistant", text: "Done", tools: [],
+      run: { agentRunId: "run-1", status: "COMPLETED", reactIteration: 0, sshSessionId: "ssh-1", provider: runningTab.activeRun!.provider } }] } });
+    expect(screen.queryByText(/Executed tools/)).not.toBeInTheDocument();
   });
 });

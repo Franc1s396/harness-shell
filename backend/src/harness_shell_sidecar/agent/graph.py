@@ -32,7 +32,7 @@ from .contracts import (
 )
 from .conversations import ConversationRepository
 from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
-from .streaming import AgentTextDeltaSink
+from .streaming import AgentTextDeltaSink, AgentTurnEventSink
 from .executor import AgentCancelled
 from .tools import (
     CommandRejected,
@@ -72,8 +72,8 @@ class AgentGraphContext:
     cancelled: asyncio.Event
     #: 由 load_context 持久化的当前用户输入。
     user_message: str
-    #: 本 Run 局部的可见文本接收端，不进入图状态或持久化。
-    text_sink: AgentTextDeltaSink
+    #: 本 Run 局部的文本与工具状态接收端，不进入图状态或持久化。
+    text_sink: AgentTurnEventSink
 
 
 class ModelInvoker(SummaryInvoker, Protocol):
@@ -394,6 +394,7 @@ def build_agent_graph(
                 state["ssh_session_id"],
                 runtime.context.cancelled,
                 dependencies,
+                runtime.context.text_sink,
             )
             messages = [tool_message(call["id"], envelope)]
         # 3. 原子保存全部工具结果，再按真实序号更新图历史并继续模型循环。
@@ -490,6 +491,7 @@ async def _execute_one_tool_call(
     ssh_session_id: UUID,
     cancelled: asyncio.Event,
     dependencies: AgentGraphDependencies,
+    event_sink: AgentTurnEventSink,
 ) -> CommandToolEnvelope:
     """校验、审查并执行且仅执行一个规范模型工具调用。"""
 
@@ -509,6 +511,8 @@ async def _execute_one_tool_call(
             error.error_code,
             "The command matched a blocked direct-danger pattern.",
         )
+    # 只有通过校验和审查的调用才发布状态；发布失败时不执行远端命令。
+    await event_sink.tool_started(call["id"], arguments)
     return await dependencies.executor.execute(
         ssh_session_id,
         arguments.command,

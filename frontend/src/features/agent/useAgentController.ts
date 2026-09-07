@@ -279,6 +279,8 @@ export function useAgentController(
                   requestToken,
                   event,
                 });
+              } else if (event.type === "agent.turn.tool_started") {
+                dispatch({ type: "run/tool-started", tabId, requestToken, event });
               } else if (event.type === "agent.turn.text_replace") {
                 dispatch({ type: "run/text-replace", tabId, requestToken, event });
               } else {

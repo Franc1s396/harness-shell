@@ -14,6 +14,7 @@ from uuid import UUID
 import pytest
 import httpx
 from langchain_core.messages import AIMessage
+from langchain_core.messages.tool import ToolCall
 from pydantic import SecretStr
 
 from harness_shell_sidecar.agent.context import ContextService
@@ -128,6 +129,12 @@ def test_tool_result_returns_to_model_before_final_answer(
         service, turn = _service(agent_storage, model, executor)
         turn = turn.model_copy(update={"user_message": "where am I?"})
         event_sink = RecordingTurnSink()
+
+        def assert_started_before_execution() -> None:
+            """真实图必须先发布状态，再调用远端执行器。"""
+            assert event_sink.events[-1] == ("tool_started", {"tool_call_id": "call-1", "tool_name": "execute_command", "arguments": {"command": "pwd"}})
+
+        executor.before_execute = assert_started_before_execution
 
         result = await _run_turn(
             agent_storage,
@@ -716,4 +723,24 @@ def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_stora
         assert result.error_code == "CONTEXT_BUDGET_EXCEEDED"
         assert model.calls == 1
         assert sql(agent_storage.database, "SELECT count(*) FROM agent_context_summaries").fetchone() == (0,)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("calls", [
+    [make_tool_call("blocked", "rm -rf /")],
+    [{"id": "unknown", "name": "unknown_tool", "args": {}}],
+    [{"id": "invalid", "name": "execute_command", "args": {}}],
+    [make_tool_call("one", "pwd"), make_tool_call("two", "pwd")],
+])
+def test_rejected_tools_do_not_publish_execution_status(agent_storage: AgentStorage, calls: list[ToolCall]) -> None:
+    """被拒绝的工具不能在 UI 中被呈现为已开始执行。"""
+    async def scenario() -> None:
+        """运行真实图的拒绝路径，观察状态和执行器调用。"""
+        model = FakeModelSequence([AIMessage(content="", tool_calls=calls), AIMessage(content="done")])
+        executor = RecordingExecutor()
+        service, turn = _service(agent_storage, model, executor)
+        sink = RecordingTurnSink()
+        await _run_turn(agent_storage, service, turn, event_sink=sink)
+        assert executor.calls == []
+        assert all(name != "tool_started" for name, _ in sink.events)
     asyncio.run(scenario())

@@ -68,6 +68,27 @@ const startedState = (requestToken: string) => {
 };
 
 describe("agentReducer", () => {
+  it("keeps tool activity until the next valid event while preserving text", () => {
+    let state = startedState("request-1");
+    state = agentReducer(state, { type: "run/stream-started", tabId: "tab-a", requestToken: "request-1", event: started });
+    state = agentReducer(state, { type: "run/text-delta", tabId: "tab-a", requestToken: "request-1", event: delta });
+    const { delta: _delta, ...identity } = delta;
+    const event = { ...identity, type: "agent.turn.tool_started", tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" }, sequence: 2 } as const;
+    const action = { type: "run/tool-started", tabId: "tab-a", requestToken: "request-1", event } as const;
+    state = agentReducer(state, action);
+    expect(state.tabs["tab-a"].activeRun).toMatchObject({ toolExecuting: true, streamedText: "hello", nextSequence: 3 });
+    expect(agentReducer(state, { ...action, requestToken: "old" })).toEqual(state);
+    state = agentReducer(state, { ...action, event: { ...event, sequence: 3 } });
+    expect(state.tabs["tab-a"].activeRun?.toolExecuting).toBe(true);
+    state = agentReducer(state, { type: "run/text-replace", tabId: "tab-a", requestToken: "request-1",
+      event: { ...identity, type: "agent.turn.text_replace", sequence: 4, text: "" } });
+    expect(state.tabs["tab-a"].activeRun).toMatchObject({ toolExecuting: false, streamedText: "" });
+    state = agentReducer(state, { type: "run/complete", tabId: "tab-a", requestToken: "request-1", messageId: "answer", event: { ...completed, sequence: 5 } });
+    expect(state.tabs["tab-a"].messages[1]).toMatchObject({ tools: [
+      { tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" } },
+      { tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" } },
+    ] });
+  });
   it("cancels only the matching request and retains its known conversation without partial text", () => {
     let state = startedState("request-1");
     state = agentReducer(state, { type: "run/stream-started", tabId: "tab-a", requestToken: "request-1", event: started });
@@ -328,5 +349,24 @@ describe("agentReducer", () => {
     const running = startedState("request-1");
     expect(isActiveRunForSession(running, "ssh-a")).toBe(true);
     expect(isActiveRunForSession(running, "ssh-b")).toBe(false);
+  });
+});
+
+
+describe("tool status cleanup", () => {
+  it.each(["complete", "failed", "interrupted", "cancel"])("clears tool status on %s", (ending) => {
+    let state = startedState("request-1");
+    const common = { tabId: "tab-a", requestToken: "request-1" };
+    state = agentReducer(state, { ...common, type: "run/stream-started", event: started });
+    const { delta: _delta, ...base } = delta;
+    state = agentReducer(state, { ...common, type: "run/tool-started", event: { ...base, type: "agent.turn.tool_started", tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" } } });
+    expect(state.tabs["tab-a"].activeRun?.toolExecuting).toBe(true);
+    if (ending === "complete") state = agentReducer(state, { ...common, type: "run/complete", event: completed, messageId: "end" });
+    else if (ending === "cancel") state = agentReducer(state, { ...common, type: "run/cancel", messageId: "end" });
+    else state = agentReducer(state, { ...common, type: "run/fail", messageId: "end",
+      error: { code: "AGENT_STREAM_INTERRUPTED", message: "Interrupted" },
+      event: ending === "interrupted" ? null : { ...base, sequence: 2, type: "agent.turn.failed", status: "FAILED", react_iteration: 1, error_code: "SIDECAR_RUNTIME_FAILED", message: "Failed" } });
+    expect(state.tabs["tab-a"].activeRun).toBeNull();
+    expect(state.tabs["tab-a"].phase).toBe("IDLE");
   });
 });

@@ -1,11 +1,13 @@
 import type {
   AgentCommandError,
+  AgentExecutedTool,
   AgentRunStatus,
   AgentTurnCompletedEvent,
   AgentTurnFailedEvent,
   AgentTurnStartedEvent,
   AgentTurnTextDeltaEvent,
   AgentTurnTextReplaceEvent,
+  AgentTurnToolStartedEvent,
   ApiType,
 } from "../../api/agent";
 
@@ -32,6 +34,7 @@ export type AgentUiMessage =
   | {
       id: string;
       kind: "assistant";
+      tools: AgentExecutedTool[];
       text: string;
       run: AgentRunProjection;
     }
@@ -62,6 +65,8 @@ export type AgentTabState = {
     agentRunId: string | null;
     nextSequence: number;
     streamedText: string;
+    toolExecuting: boolean;
+    tools: AgentExecutedTool[];
     reactIteration: number;
   } | null;
   pendingRiskSshSessionId: string | null;
@@ -132,6 +137,12 @@ export type AgentAction =
       event: AgentTurnTextDeltaEvent;
     }
   | {
+      type: "run/tool-started";
+      tabId: string;
+      requestToken: string;
+      event: AgentTurnToolStartedEvent;
+    }
+  | {
       type: "run/text-replace";
       tabId: string;
       requestToken: string;
@@ -187,7 +198,7 @@ const activeRequestMatches = (
 const streamEventMatches = (
   tab: AgentTabState,
   requestToken: string,
-  event: AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
+  event: AgentTurnToolStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
 ): boolean =>
   activeRequestMatches(tab, requestToken) &&
   tab.activeRun?.conversationId === event.conversation_id &&
@@ -300,6 +311,8 @@ export const agentReducer = (
                 agentRunId: null,
                 nextSequence: 0,
                 streamedText: "",
+                toolExecuting: false,
+                tools: [],
                 reactIteration: 0,
               },
               pendingRiskSshSessionId: null,
@@ -330,6 +343,7 @@ export const agentReducer = (
           },
         };
       });
+    case "run/tool-started":
     case "run/text-replace":
     case "run/text-delta":
       return updateTab(state, action.tabId, (tab) => {
@@ -340,7 +354,15 @@ export const agentReducer = (
           activeRun: {
             ...activeRun,
             nextSequence: activeRun.nextSequence + 1,
-            streamedText: action.type === "run/text-replace"
+            // 工具提示持续至下一合法事件；连续工具事件继续显示。
+            toolExecuting: action.type === "run/tool-started",
+            tools: action.type === "run/tool-started"
+              ? [...activeRun.tools, { tool_call_id: action.event.tool_call_id,
+                  tool_name: action.event.tool_name, arguments: { ...action.event.arguments } }]
+              : activeRun.tools,
+            streamedText: action.type === "run/tool-started"
+              ? activeRun.streamedText
+              : action.type === "run/text-replace"
               ? action.event.text
               : activeRun.streamedText + action.event.delta,
           },
@@ -360,6 +382,7 @@ export const agentReducer = (
         const message: AgentUiMessage = {
           id: action.messageId,
           kind: "assistant",
+          tools: activeRun.tools,
           text: activeRun.streamedText,
           run,
         };

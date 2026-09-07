@@ -86,3 +86,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend\scripts\build_sideca
 ```
 
 Python tests证明源码行为；packaged smoke证明本次 `.exe` 的局部 loopback 行为；SSH Lab、Desktop、真实 Provider 与生产主机必须分别验收。
+
+Agent graph 在工具参数校验与安全审查通过后、调用执行器前，经本轮 event sink 发布 `tool_started` 状态。该事件携带工具调用 ID、名称与已校验的完整参数，不新增持久化记录；事件发布失败时不派发命令。协议与展示区间以 [HTTP 契约](../protocol/http/README.md) 为准。

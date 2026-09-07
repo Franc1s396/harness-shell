@@ -48,7 +48,7 @@ Manual SFTP 只允许固定 typed JSON endpoints 加严格 raw chunk endpoints�
 
 ## Agent turn 流式调用链
 
-React `BackendHttpClient` 通过 `fetch()` 消费创建本轮的 POST response `ReadableStream` 并独占 SSE framing/UTF-8/byte budget；`api/agent.ts` 独占 event schema、sequence 和 correlation 状态机；per-tab reducer 只暂存 provisional text，收到合法 completed 后才提交 assistant message，任何 failed/interrupted 都丢弃 partial text。
+React `BackendHttpClient` 通过 `fetch()` 消费创建本轮的 POST response `ReadableStream` 并独占 SSE framing/UTF-8/byte budget；`api/agent.ts` 独占 event schema、sequence 和 correlation 状态机；per-tab reducer 暂存 provisional text、工具执行提示和本 turn 工具记录，收到合法 completed 后才提交 assistant message，任何 failed/interrupted 都丢弃 partial text。
 
 Agent 的已知领域异常只把产生异常处明确标记为 `safe_message` 的具体原因传入 Problem Details 或 SSE `failed.message`；不得根据 `error_code` 二次替换文案。未知异常仍映射为固定安全文本，禁止暴露 Provider body、command、stdout/stderr 或任意异常链内容。
 

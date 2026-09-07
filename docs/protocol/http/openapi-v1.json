@@ -480,6 +480,79 @@
         "title": "AgentTurnTextReplaceEvent",
         "type": "object"
       },
+      "AgentTurnToolStartedEvent": {
+        "additionalProperties": false,
+        "description": "记录即将进入执行器的工具与完整参数，不携带远程输出。",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "arguments": {
+            "$ref": "#/components/schemas/ExecuteCommandArguments",
+            "description": "传给执行器的完整已校验参数。"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "tool_call_id": {
+            "description": "本次模型工具调用标识。",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "const": "execute_command",
+            "description": "通过本地校验的工具名称。",
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.tool_started",
+            "default": "agent.turn.tool_started",
+            "description": "工具执行前的非持久化状态事件。",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "sequence",
+          "conversation_id",
+          "agent_run_id",
+          "tool_call_id",
+          "tool_name",
+          "arguments"
+        ],
+        "title": "AgentTurnToolStartedEvent",
+        "type": "object"
+      },
       "ApiType": {
         "description": "选择唯一显式配置的 OpenAI 兼容 API 类型。",
         "enum": [
@@ -1189,6 +1262,24 @@
           "next_offset"
         ],
         "title": "DownloadReady",
+        "type": "object"
+      },
+      "ExecuteCommandArguments": {
+        "additionalProperties": false,
+        "description": "校验 SSH 工具唯一接受的模型控制参数。",
+        "properties": {
+          "command": {
+            "description": "Complete raw shell command passed without normalization.",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Command",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "ExecuteCommandArguments",
         "type": "object"
       },
       "HealthLiveResponse": {
@@ -3240,6 +3331,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/AgentTurnTextReplaceEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnToolStartedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/AgentTurnCompletedEvent"

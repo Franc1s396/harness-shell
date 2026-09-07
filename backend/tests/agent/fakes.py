@@ -13,7 +13,7 @@ from openai.types.chat import ChatCompletionChunk
 from openai.types.responses import ResponseStreamEvent
 from pydantic import TypeAdapter
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentTurnInput
+from harness_shell_sidecar.agent.contracts import AgentRun, AgentTurnInput, ExecuteCommandArguments
 
 _RESPONSE_EVENT_ADAPTER = TypeAdapter(ResponseStreamEvent)
 
@@ -24,7 +24,7 @@ class RecordingTurnSink:
     def __init__(self) -> None:
         """创建空事件时间线和流式文本缓冲区。"""
 
-        self.events: list[tuple[str, AgentRun | str]] = []
+        self.events: list[tuple[str, AgentRun | str | dict[str, object]]] = []
         self.parts: list[str] = []
         self.failure_messages: list[str] = []
 
@@ -38,6 +38,10 @@ class RecordingTurnSink:
         """记录持久化 RUNNING 快照。"""
 
         self.events.append(("started", run))
+
+    async def tool_started(self, tool_call_id: str, arguments: ExecuteCommandArguments) -> None:
+        """记录工具状态，以便验证实际执行前的事件顺序。"""
+        self.events.append(("tool_started", {"tool_call_id": tool_call_id, "tool_name": "execute_command", "arguments": arguments.model_dump()}))
 
     async def text_delta(self, delta: str) -> None:
         """记录精确可见增量。"""

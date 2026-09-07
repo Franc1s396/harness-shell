@@ -169,6 +169,16 @@ export type AgentTurnStartedEvent = AgentEventBase & Readonly<{
   react_iteration: 0;
 }>;
 
+export type AgentExecutedTool = Readonly<{
+  tool_call_id: string;
+  tool_name: "execute_command";
+  arguments: Readonly<{ command: string }>;
+}>;
+
+export type AgentTurnToolStartedEvent = AgentEventBase & AgentExecutedTool & Readonly<{
+  type: "agent.turn.tool_started";
+}>;
+
 export type AgentTurnTextDeltaEvent = AgentEventBase & Readonly<{
   type: "agent.turn.text_delta";
   delta: string;
@@ -194,7 +204,7 @@ export type AgentTurnFailedEvent = AgentEventBase & Readonly<{
   message: string;
 }>;
 
-export type AgentTurnProgressEvent = AgentTurnStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent;
+export type AgentTurnProgressEvent = AgentTurnStartedEvent | AgentTurnToolStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent;
 export type AgentTurnTerminalEvent = AgentTurnCompletedEvent | AgentTurnFailedEvent;
 
 type WireModelApiConfigInput = ModelApiConfigInput;
@@ -301,6 +311,19 @@ const validateAgentFrame = (frame: BackendSseFrame): AgentTurnEvent => {
       throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
     }
     return value as AgentTurnStartedEvent;
+  }
+  if (value.type === "agent.turn.tool_started") {
+    requireExactKeys(value, [...BASE_KEYS, "tool_call_id", "tool_name", "arguments"]);
+    if (typeof value.tool_call_id !== "string" || [...value.tool_call_id].length < 1 || [...value.tool_call_id].length > 1024 ||
+        value.tool_name !== "execute_command" || !isRecord(value.arguments)) {
+      throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    }
+    requireExactKeys(value.arguments, ["command"]);
+    const command = value.arguments.command;
+    if (typeof command !== "string" || [...command].length < 1 || [...command].length > 4096 || command.includes("\0")) {
+      throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    }
+    return value as AgentTurnToolStartedEvent;
   }
   if (value.type === "agent.turn.text_delta") {
     requireExactKeys(value, [...BASE_KEYS, "delta"]);

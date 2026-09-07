@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 import anyio
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
+from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus, ExecuteCommandArguments
 from harness_shell_sidecar.agent.service import AgentServiceError
 from harness_shell_sidecar.agent.streaming import AgentTurnTextDeltaEvent
 from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
@@ -430,4 +430,34 @@ def test_session_text_replacement_updates_snapshot_and_sequence() -> None:
             "agent.turn.text_replace", "agent.turn.text_delta", "agent.turn.completed",
         ]
         assert events[2]["text"] == "" and events[3]["text"] == "final"
+    asyncio.run(scenario())
+
+
+def test_tool_status_is_encoded_in_sequence_without_changing_text() -> None:
+    """真实发布器把工具状态写入 SSE，同时保持当前回复文本。"""
+    class ToolApplication(FakeTurnApplication):
+        """生成文本、工具状态和终态，不触碰远端。"""
+        async def run(self, _context: RequestContext, _params: Mapping[str, object], sink) -> None:
+            """通过正式发布器发送完整事件序列。"""
+            await sink.started(self.run_snapshot)
+            await sink.text_delta("checking")
+            await sink.tool_started("call-1", ExecuteCommandArguments(command="pwd"))
+            assert sink.streamed_text == "checking"
+            await sink.completed(self.run_snapshot.model_copy(update={"status": AgentRunStatus.COMPLETED}))
+
+    async def scenario() -> None:
+        """消费真实 SSE body 并核对状态载荷和连续序号。"""
+        import json
+        session = _session(ToolApplication())
+        await session.start()
+        try:
+            frames = [frame async for frame in session.body()]
+            events = [json.loads(frame.decode().split("data: ", 1)[1]) for frame in frames]
+            assert [event["type"] for event in events] == ["agent.turn.started", "agent.turn.text_delta", "agent.turn.tool_started", "agent.turn.completed"]
+            assert [event["sequence"] for event in events] == [0, 1, 2, 3]
+            assert events[2]["arguments"] == {"command": "pwd"}
+            assert events[2]["tool_name"] == "execute_command"
+            assert events[2]["tool_call_id"] == "call-1"
+        finally:
+            await session.aclose()
     asyncio.run(scenario())

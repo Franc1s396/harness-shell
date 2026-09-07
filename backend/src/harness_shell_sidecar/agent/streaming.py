@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .contracts import AgentRun
+from .contracts import AgentRun, ExecuteCommandArguments
 
 
 VisibleDelta = Annotated[
@@ -62,6 +62,18 @@ class AgentTurnStartedEvent(_AgentTurnEventBase):
         default=0,
         description="No tool loop has completed when a Run starts.",
     )
+
+
+class AgentTurnToolStartedEvent(_AgentTurnEventBase):
+    """记录即将进入执行器的工具与完整参数，不携带远程输出。"""
+
+    type: Literal["agent.turn.tool_started"] = Field(
+        default="agent.turn.tool_started", description="工具执行前的非持久化状态事件。",
+    )
+
+    tool_call_id: Annotated[str, StringConstraints(min_length=1, max_length=1024)] = Field(description="本次模型工具调用标识。")
+    tool_name: Literal["execute_command"] = Field(description="通过本地校验的工具名称。")
+    arguments: ExecuteCommandArguments = Field(description="传给执行器的完整已校验参数。")
 
 
 class AgentTurnTextDeltaEvent(_AgentTurnEventBase):
@@ -130,6 +142,7 @@ class AgentTurnFailedEvent(_AgentTurnEventBase):
 
 AgentTurnStreamEvent: TypeAlias = Annotated[
     AgentTurnStartedEvent
+    | AgentTurnToolStartedEvent
     | AgentTurnTextDeltaEvent
     | AgentTurnTextReplaceEvent
     | AgentTurnCompletedEvent
@@ -162,6 +175,9 @@ class AgentTurnEventSink(AgentTextDeltaSink, Protocol):
     async def started(self, run: AgentRun) -> None:
         """持久化 Run 已存在后才发布首个事件。"""
 
+    async def tool_started(self, tool_call_id: str, arguments: ExecuteCommandArguments) -> None:
+        """校验通过后、实际调用执行器之前发布工具状态。"""
+
     async def completed(self, run: AgentRun) -> None:
         """Run 和最终消息持久化后才发布成功事件。"""
 
@@ -175,6 +191,7 @@ __all__ = [
     "AgentTurnEventSink",
     "AgentTurnFailedEvent",
     "AgentTurnStartedEvent",
+    "AgentTurnToolStartedEvent",
     "AgentTurnStreamEvent",
     "AgentTurnTextDeltaEvent",
     "AgentTurnTextReplaceEvent",

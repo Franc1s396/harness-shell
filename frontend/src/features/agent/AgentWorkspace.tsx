@@ -179,6 +179,21 @@ export function AgentWorkspace({
           return (
             <article key={message.id} className="w-fit max-w-[88%] space-y-2 rounded-xl border border-line px-3 py-2">
               <AssistantMarkdown text={message.text} />
+              {message.tools.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-xs text-ink-muted">
+                    {t("agent.executedTools", { count: message.tools.length })}
+                  </summary>
+                  <ol className="mt-2 list-inside list-decimal space-y-3 text-xs">
+                    {message.tools.map((tool, index) => (
+                      <li key={index}>
+                        <span className="font-mono">{tool.tool_name}</span>
+                        <pre className="mt-1 max-w-full overflow-x-auto rounded bg-raised p-2">{JSON.stringify(tool.arguments, null, 2)}</pre>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
               <details>
                 <summary className="cursor-pointer text-xs text-ink-muted">
                   {t("agent.runDetails")} · {t("agent.sentSnapshot")}
@@ -205,7 +220,7 @@ export function AgentWorkspace({
               aria-hidden="true"
               className="size-3 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-accent motion-reduce:animate-none"
             />
-            <span>{t("agent.thinking")}</span>
+            <span>{t(tab.activeRun?.toolExecuting ? "agent.toolExecuting" : "agent.thinking")}</span>
           </article>
         ) : tab.phase === "RUNNING" ? (
           <article
@@ -215,12 +230,14 @@ export function AgentWorkspace({
             className="w-fit max-w-[88%] rounded-xl border border-line px-3 py-2"
           >
             <AssistantMarkdown text={streamedText} />
-            <div className="mt-2 flex items-center text-ink-muted">
+            <div className="mt-2 flex items-center gap-2 text-ink-muted">
               <span
                 aria-hidden="true"
                 className="size-3 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-accent motion-reduce:animate-none"
               />
-              <span className="sr-only">{t("agent.running")}</span>
+              <span className={tab.activeRun?.toolExecuting ? undefined : "sr-only"}>
+                {t(tab.activeRun?.toolExecuting ? "agent.toolExecuting" : "agent.running")}
+              </span>
             </div>
           </article>
         ) : null}

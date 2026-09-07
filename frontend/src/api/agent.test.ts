@@ -205,6 +205,14 @@ describe("agentApi", () => {
   });
 
   it.each([
+    ["tool payload exposure", [
+      { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 },
+      { ...baseEvent, type: "agent.turn.tool_started", sequence: 1, tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" }, command: "pwd" },
+    ]],
+    ["tool sequence gap", [
+      { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 },
+      { ...baseEvent, type: "agent.turn.tool_started", sequence: 2, tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" } },
+    ]],
     ["missing started", [{ ...baseEvent, type: "agent.turn.text_delta", sequence: 0, delta: "x" }]],
     ["sequence gap", [
       { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 },
@@ -312,5 +320,20 @@ describe("agentApi", () => {
   it("does not expose standalone credential mutation methods", () => {
     expect(agentApi).not.toHaveProperty("storeModelApiKey");
     expect(agentApi).not.toHaveProperty("deleteModelApiKey");
+  });
+});
+
+
+describe("tool event argument validation", () => {
+  it.each([
+    { tool_name: "unknown" }, { tool_call_id: "" }, { arguments: { command: "" } },
+    { arguments: { command: "pwd", extra: true } }, { arguments: { command: "x\0" } },
+    { arguments: { command: "x".repeat(4097) } },
+  ])("rejects malformed tool metadata: %j", async (mutation) => {
+    postSse.mockImplementation(sse(
+      { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 },
+      { ...baseEvent, type: "agent.turn.tool_started", sequence: 1, tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" }, ...mutation },
+    ));
+    await expect(agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, () => undefined)).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
   });
 });
