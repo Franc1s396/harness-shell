@@ -179,6 +179,29 @@ describe("useAgentController", () => {
     ).toMatchObject({ kind: "assistant", text: "ok" });
   });
 
+  it("routes replacement progress before committing the updated answer", async () => {
+    const pending = deferred<AgentTurnCompletedEvent>();
+    let progress!: (event: AgentTurnProgressEvent) => void;
+    mockAgentApi.streamAgentTurn.mockImplementation(async (_input, onProgress) => {
+      progress = onProgress;
+      emitSuccess(onProgress);
+      return pending.promise;
+    });
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "inspect");
+    let send!: Promise<void>;
+    act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
+    await waitFor(() => expect(view.result.current.state.tabs["tab-1"].activeRun?.streamedText).toBe("ok"));
+    act(() => progress({
+      schema_version: 1, type: "agent.turn.text_replace", request_id: "request-id-1",
+      conversation_id: "conversation-1", agent_run_id: "run-1", sequence: 2, text: "revised",
+    }));
+    expect(view.result.current.state.tabs["tab-1"].activeRun?.streamedText).toBe("revised");
+    pending.resolve({ ...completedResult("conversation-1", "run-1"), sequence: 3 });
+    await act(() => send);
+    expect(view.result.current.state.tabs["tab-1"].messages[1]).toMatchObject({ kind: "assistant", text: "revised" });
+  });
+
   it("allows different tabs to own concurrent streamed Runs", async () => {
     const first = deferred<AgentTurnCompletedEvent>();
     const second = deferred<AgentTurnCompletedEvent>();

@@ -361,7 +361,7 @@
       },
       "AgentTurnTextDeltaEvent": {
         "additionalProperties": false,
-        "description": "携带一段精确非空的模型最终可见文本。",
+        "description": "携带一段精确非空的模型可见文本（包括工具前说明）。",
         "properties": {
           "agent_run_id": {
             "description": "Durable Agent Run identity frozen for the complete stream.",
@@ -418,6 +418,66 @@
           "delta"
         ],
         "title": "AgentTurnTextDeltaEvent",
+        "type": "object"
+      },
+      "AgentTurnTextReplaceEvent": {
+        "additionalProperties": false,
+        "description": "用完整快照替换当前可见文本，空字符串表示清空。",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Replacement visible text; an empty string clears the provisional text.",
+            "maxLength": 65536,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.text_replace",
+            "default": "agent.turn.text_replace",
+            "description": "Full visible text replacement discriminator.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "sequence",
+          "conversation_id",
+          "agent_run_id",
+          "text"
+        ],
+        "title": "AgentTurnTextReplaceEvent",
         "type": "object"
       },
       "ApiType": {
@@ -3177,6 +3237,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/AgentTurnTextDeltaEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnTextReplaceEvent"
                     },
                     {
                       "$ref": "#/components/schemas/AgentTurnCompletedEvent"

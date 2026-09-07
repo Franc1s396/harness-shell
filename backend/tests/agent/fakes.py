@@ -45,6 +45,11 @@ class RecordingTurnSink:
         self.parts.append(delta)
         self.events.append(("delta", delta))
 
+    async def text_replace(self, text: str) -> None:
+        """记录完整文本更新及其发生顺序。"""
+        self.parts[:] = [text]
+        self.events.append(("replace", text))
+
     async def completed(self, run: AgentRun) -> None:
         """记录持久化成功终态快照。"""
 

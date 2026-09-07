@@ -16,6 +16,7 @@ from harness_shell_sidecar.agent.streaming import (
     AgentTurnStartedEvent,
     AgentTurnStreamEvent,
     AgentTurnTextDeltaEvent,
+    AgentTurnTextReplaceEvent,
 )
 from harness_shell_sidecar.runtime.dispatcher import RequestDispatcher
 from harness_shell_sidecar.runtime.request_context import RequestContext
@@ -54,7 +55,7 @@ class _AgentEventPublisher:
         self._agent_run_id: UUID | None = None  # started 时冻结。
         self._sequence = 0  # 下一连续且在 JavaScript 安全整数范围内的事件序号。
         self._encoded_bytes = 0  # 已接受的 SSE 字节数，不包含结束哨兵。
-        self._text_parts: list[str] = []  # 精确的已接受可见增量。
+        self._text_parts: list[str] = []  # 最近替换后已接受的文本片段。
         self._sealed = False  # 终止事件阻止后续发布。
         self._consumer_abandoned = False  # 避免断连后清理被阻塞。
         self._consumer_abandoned_event = asyncio.Event()
@@ -63,7 +64,7 @@ class _AgentEventPublisher:
 
     @property
     def streamed_text(self) -> str:
-        """返回已成功入队可见增量的精确拼接结果。"""
+        """返回已成功入队增量和替换事件对应的当前文本。"""
 
         return "".join(self._text_parts)
 
@@ -109,6 +110,21 @@ class _AgentEventPublisher:
         self._encoded_bytes += encoded_size
         self._sequence += 1
         self._text_parts.append(delta)
+
+    async def text_replace(self, text: str) -> None:
+        """在相同背压和字节预算内发布快照，入队成功后才更新权威文本。"""
+        self._require_open()
+        assert self._conversation_id is not None and self._agent_run_id is not None
+        event = AgentTurnTextReplaceEvent(
+            request_id=self._request_id, sequence=self._sequence,
+            conversation_id=self._conversation_id, agent_run_id=self._agent_run_id,
+            text=text,
+        )
+        encoded_size = self._validated_size(event, terminal=False)
+        await self._put(event)
+        self._encoded_bytes += encoded_size
+        self._sequence += 1
+        self._text_parts[:] = [text]
 
     async def completed(self, run: AgentRun) -> None:
         """只为匹配且已持久化的 COMPLETED Run 入队成功事件。"""

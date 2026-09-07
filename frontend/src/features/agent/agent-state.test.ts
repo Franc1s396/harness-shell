@@ -68,6 +68,25 @@ const startedState = (requestToken: string) => {
 };
 
 describe("agentReducer", () => {
+  it("replaces provisional text, rejects stale updates and commits the current snapshot", () => {
+    let state = startedState("request-1");
+    state = agentReducer(state, { type: "run/stream-started", tabId: "tab-a", requestToken: "request-1", event: started });
+    state = agentReducer(state, { type: "run/text-delta", tabId: "tab-a", requestToken: "request-1", event: delta });
+    const { delta: _delta, ...base } = delta;
+    const replacement = { ...base, type: "agent.turn.text_replace", sequence: 2, text: "final" } as const;
+    const update = { type: "run/text-replace", tabId: "tab-a", requestToken: "request-1", event: replacement } as const;
+    expect(agentReducer(state, { ...update, requestToken: "old" })).toEqual(state);
+    expect(agentReducer(state, { ...update, event: { ...replacement, agent_run_id: "other" } })).toEqual(state);
+    state = agentReducer(state, update);
+    expect(state.tabs["tab-a"].activeRun?.streamedText).toBe("final");
+    expect(agentReducer(state, update)).toEqual(state);
+    state = agentReducer(state, { ...update, event: { ...replacement, sequence: 3, text: "" } });
+    expect(state.tabs["tab-a"].activeRun?.streamedText).toBe("");
+    state = agentReducer(state, { type: "run/text-delta", tabId: "tab-a", requestToken: "request-1", event: { ...delta, sequence: 4, delta: "answer" } });
+    state = agentReducer(state, { type: "run/complete", tabId: "tab-a", requestToken: "request-1", messageId: "answer-1", event: { ...completed, sequence: 5 } });
+    expect(state.tabs["tab-a"].messages[1]).toMatchObject({ kind: "assistant", text: "answer" });
+  });
+
   it("isolates two terminal tabs and rejects stale completion", () => {
     let state = createAgentState();
     state = agentReducer(state, {

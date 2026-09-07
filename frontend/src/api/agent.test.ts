@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import validAgentFixtures from "../../../docs/protocol/http/fixtures/agent/valid-http-v1.json";
 import invalidAgentFixtures from "../../../docs/protocol/http/fixtures/agent/invalid-http-v1.json";
 
 const request = vi.hoisted(() => vi.fn());
@@ -70,6 +71,42 @@ describe("agentApi", () => {
         return { version: 1 };
       },
     );
+  });
+
+  it("consumes the shared replacement fixture through real SSE framing", async () => {
+    const fixture = validAgentFixtures.cases.find((value) => value.name === "agent-turn-text-replace")!;
+    const client = new BackendHttpClient("http://127.0.0.1:8765", {
+      randomUuid: () => requestId,
+      fetchImpl: async () => new Response(fixture.wire_utf8, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream; charset=utf-8", "X-Request-ID": requestId, "Cache-Control": "no-store" },
+      }),
+    });
+    postSse.mockImplementation((path, body) => client.postSse(path, body));
+    const progress = vi.fn();
+    const terminal = await agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, progress);
+    expect(progress.mock.calls[2][0]).toMatchObject({ type: "agent.turn.text_replace", text: "修订后的完整回答" });
+    expect(terminal.type).toBe("agent.turn.completed");
+  });
+
+  it.each([null, 42, { text: "bad" }])("rejects invalid replacement text %j", async (text) => {
+    postSse.mockImplementation(sse(
+      { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 },
+      { ...baseEvent, type: "agent.turn.text_replace", sequence: 1, text },
+    ));
+    await expect(agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, () => undefined)).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
+  });
+
+  it("accepts full text updates including clearing provisional text", async () => {
+    const started = { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 };
+    const updates = ["draft", "", "final"].map((text, index) => ({
+      ...baseEvent, type: "agent.turn.text_replace", sequence: index + 1, text,
+    }));
+    const completed = { ...baseEvent, type: "agent.turn.completed", sequence: 4, status: "COMPLETED", react_iteration: 0, error_code: null };
+    postSse.mockImplementation(sse(started, ...updates, completed));
+    const progress = vi.fn();
+    await agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, progress);
+    expect(progress.mock.calls.map(([event]) => event)).toEqual([started, ...updates]);
   });
 
   it("maps Provider operations to direct HTTP with wire field names", async () => {

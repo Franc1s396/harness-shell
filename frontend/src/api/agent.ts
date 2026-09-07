@@ -159,6 +159,11 @@ export type AgentTurnTextDeltaEvent = AgentEventBase & Readonly<{
   delta: string;
 }>;
 
+export type AgentTurnTextReplaceEvent = AgentEventBase & Readonly<{
+  type: "agent.turn.text_replace";
+  text: string;
+}>;
+
 export type AgentTurnCompletedEvent = AgentEventBase & Readonly<{
   type: "agent.turn.completed";
   status: "COMPLETED";
@@ -174,7 +179,7 @@ export type AgentTurnFailedEvent = AgentEventBase & Readonly<{
   message: string;
 }>;
 
-export type AgentTurnProgressEvent = AgentTurnStartedEvent | AgentTurnTextDeltaEvent;
+export type AgentTurnProgressEvent = AgentTurnStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent;
 export type AgentTurnTerminalEvent = AgentTurnCompletedEvent | AgentTurnFailedEvent;
 
 type WireModelApiConfigInput = ModelApiConfigInput;
@@ -288,6 +293,13 @@ const validateAgentFrame = (frame: BackendSseFrame): AgentTurnEvent => {
       throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
     }
     return value as AgentTurnTextDeltaEvent;
+  }
+  if (value.type === "agent.turn.text_replace") {
+    requireExactKeys(value, [...BASE_KEYS, "text"]);
+    if (typeof value.text !== "string") {
+      throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    }
+    return value as AgentTurnTextReplaceEvent;
   }
   if (value.type === "agent.turn.completed") {
     requireExactKeys(value, [

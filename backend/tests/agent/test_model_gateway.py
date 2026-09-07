@@ -89,13 +89,23 @@ class RecordingTextSink:
 
         self.deltas: list[str] = []  # 按 Provider 顺序排列的精确可见分块。
 
+    @property
+    def streamed_text(self) -> str:
+        """返回当前显示文本。"""
+        return "".join(self.deltas)
+
+    async def text_replace(self, text: str) -> None:
+        """替换当前显示文本。"""
+        self.deltas[:] = [text]
+
     async def text_delta(self, delta: str) -> None:
         """追加精确可见 Provider 增量。"""
 
         self.deltas.append(delta)
 
 
-def test_text_sink_limit_failure_propagates_without_model_error_mapping() -> None:
+@pytest.mark.parametrize("replace", [False, True])
+def test_text_sink_limit_failure_propagates_without_model_error_mapping(replace: bool) -> None:
     """让流管理者持久化映射自身响应大小失败。"""
 
     class StreamLimitError(RuntimeError):
@@ -111,9 +121,15 @@ def test_text_sink_limit_failure_propagates_without_model_error_mapping() -> Non
 
             raise StreamLimitError(delta)
 
+        async def text_replace(self, text: str) -> None:
+            """替换失败也必须保持原始异常身份。"""
+            raise StreamLimitError(text)
+
     async def scenario() -> None:
         model = FakeModelSequence([AIMessage(content="too large")])
         failure_sink = FailingSink()
+        if replace:
+            failure_sink.deltas.append("previous commentary")
 
         with pytest.raises(StreamLimitError):
             await _invoke(
@@ -518,7 +534,7 @@ def test_chat_stream_emits_and_aggregates_exact_text_or_tool(tool: bool) -> None
         result = await _parse_chat_completions_stream(FakeAsyncStream(events), sink, _InvocationState())
         assert type(result) is AIMessage
         assert result.tool_calls == ([make_tool_call("call-1", "pwd")] if tool else [])
-        assert sink.deltas == ([] if tool else [" hello\nworld "])
+        assert sink.deltas == ([] if tool else [" hello", "\nworld "])
         assert result.content == ("" if tool else " hello\nworld ")
     asyncio.run(scenario())
 
@@ -553,7 +569,7 @@ def test_chat_stream_provider_variations(kind: str) -> None:
             result = await _parse_chat_completions_stream(FakeAsyncStream(events), sink, _InvocationState())
             assert result.content == ("" if kind in ("negative", "conflict") else "x")
             assert bool(result.tool_calls) == (kind in ("negative", "conflict", "mixed", "reverse"))
-            assert "".join(sink.deltas) == ("" if result.tool_calls else result.content)
+            assert sink.streamed_text == result.content
     asyncio.run(scenario())
 
 
@@ -727,11 +743,16 @@ def test_official_timeout_retry_boundary(api_type: ApiType, visible: bool) -> No
         client = FakeOpenAIClient(chat_outcomes=outcomes, responses_outcomes=outcomes)
         sink = RecordingTextSink()
         gateway = ModelGateway(client_builder=RecordingOpenAIClientBuilder([client]), sleep=instant_sleep)
-        # 缓冲草稿尚未发布，因此两次尝试均可重试。
-        assert (await _invoke(gateway, _config(api_type), sink=sink)).content == "done"
-        assert sink.deltas == ["done"]
+        # 已实时显示的内容禁止重试，工具参数尚未发布时仍可重试。
+        if visible:
+            with pytest.raises(ModelGatewayError, match="MODEL_NETWORK_TIMEOUT"):
+                await _invoke(gateway, _config(api_type), sink=sink)
+            assert sink.streamed_text == "partial"
+        else:
+            assert (await _invoke(gateway, _config(api_type), sink=sink)).content == "done"
+            assert sink.deltas == ["done"]
         resource = client.responses if api_type is ApiType.RESPONSES else client.chat.completions
-        assert resource.calls == 2
+        assert resource.calls == (1 if visible else 2)
         assert client.closed and all(stream.closed for stream in resource.streams)
     asyncio.run(scenario())
 
@@ -807,7 +828,7 @@ def test_responses_lifecycle_split_text_and_arguments() -> None:
         add("response.completed", response=response_body([output]))
         sink = RecordingTextSink()
         result = await _parse_responses_stream(FakeAsyncStream(events), responses_config(), sink, _InvocationState())
-        assert result.content == " hello\nworld " and sink.deltas == [" hello\nworld "]
+        assert result.content == " hello\nworld " and sink.deltas == [" hello", "\nworld "]
     asyncio.run(scenario())
 
 

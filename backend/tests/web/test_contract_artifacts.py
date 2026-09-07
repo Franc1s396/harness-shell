@@ -229,6 +229,15 @@ def test_agent_sse_fixtures_freeze_valid_and_invalid_sequences() -> None:
     ]
     assert stream["wire_utf8"].endswith("\n\n")
 
+    from pydantic import TypeAdapter
+    from harness_shell_sidecar.agent.streaming import AgentTurnStreamEvent
+    replacement = next(case for case in valid["cases"] if case["name"] == "agent-turn-text-replace")
+    events = [TypeAdapter(AgentTurnStreamEvent).validate_json(frame.split("data: ")[1])
+              for frame in replacement["wire_utf8"].strip().split("\n\n")]
+    assert [event.type for event in events] == replacement["event_types"]
+    assert [event.sequence for event in events] == list(range(len(events)))
+    assert events[2].text == "修订后的完整回答"
+
     invalid = load_json(HTTP_ROOT / "fixtures/agent/invalid-http-v1.json")
     names = {case["name"] for case in invalid["cases"]}
     assert {

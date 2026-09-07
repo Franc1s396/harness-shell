@@ -37,6 +37,33 @@
         "agent.turn.completed"
       ],
       "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.text_delta\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.text_delta\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"delta\":\"完成\"}\n\nevent: agent.turn.completed\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n"
+    },
+    {
+      "name": "agent-turn-text-replace",
+      "request": {
+        "headers": {
+          "Accept": "text/event-stream",
+          "X-Request-ID": "10000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "conversation_id": null,
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "api_config_id": "30000000-0000-4000-8000-000000000003",
+          "user_message": "检查当前目录中的文件。"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream; charset=utf-8",
+        "cache_control": "no-store"
+      },
+      "event_types": [
+        "agent.turn.started",
+        "agent.turn.text_delta",
+        "agent.turn.text_replace",
+        "agent.turn.completed"
+      ],
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.text_delta\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.text_delta\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"delta\":\"完成\"}\n\nevent: agent.turn.text_replace\nid: 2\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.text_replace\",\"sequence\":2,\"text\":\"修订后的完整回答\"}\n\nevent: agent.turn.completed\nid: 3\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":3,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n"
     }
   ]
 }

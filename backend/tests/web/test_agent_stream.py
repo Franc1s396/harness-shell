@@ -190,7 +190,8 @@ def test_queue_capacity_applies_backpressure_without_dropping_deltas() -> None:
     asyncio.run(scenario())
 
 
-def test_single_frame_limit_fails_without_truncating_delta() -> None:
+@pytest.mark.parametrize("replace", [False, True])
+def test_single_frame_limit_fails_without_truncating_delta(replace: bool) -> None:
     """在生产者边界拒绝超大可见事件。"""
 
     class OversizedApplication(FakeTurnApplication):
@@ -205,7 +206,10 @@ def test_single_frame_limit_fails_without_truncating_delta() -> None:
             """started 后触发发布器帧上限。"""
 
             await sink.started(self.run_snapshot)
-            await sink.text_delta("x" * 65_536)
+            if replace:
+                await sink.text_replace("x" * 65_536)
+            else:
+                await sink.text_delta("x" * 65_536)
 
     async def scenario() -> None:
         session = _session(OversizedApplication())
@@ -363,3 +367,33 @@ def test_dispatcher_capacity_releases_only_after_consumer_completion() -> None:
 
 async def _no_op_work(_context: RequestContext) -> None:
     """完成 dispatcher 容量探测，不产生应用副作用。"""
+
+
+def test_session_text_replacement_updates_snapshot_and_sequence() -> None:
+    class ReplacingApplication(FakeTurnApplication):
+        """通过实际发布器替换已显示草稿并清空。"""
+        async def run(self, _context, _params, sink) -> None:
+            await sink.started(self.run_snapshot)
+            await sink.text_delta("draft")
+            await sink.text_replace("")
+            assert sink.streamed_text == ""
+            await sink.text_replace("final")
+            await sink.text_delta(" answer")
+            assert sink.streamed_text == "final answer"
+            await sink.completed(self.run_snapshot.model_copy(update={
+                "status": AgentRunStatus.COMPLETED, "ended_at": datetime.now(UTC),
+            }))
+
+    async def scenario() -> None:
+        import json
+        session = _session(ReplacingApplication())
+        await session.start()
+        frames = [frame async for frame in session.body()]
+        events = [json.loads(frame.decode().split("data: ")[1]) for frame in frames]
+        assert [event["sequence"] for event in events] == list(range(6))
+        assert [event["type"] for event in events] == [
+            "agent.turn.started", "agent.turn.text_delta", "agent.turn.text_replace",
+            "agent.turn.text_replace", "agent.turn.text_delta", "agent.turn.completed",
+        ]
+        assert events[2]["text"] == "" and events[3]["text"] == "final"
+    asyncio.run(scenario())

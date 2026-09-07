@@ -65,7 +65,7 @@ class AgentTurnStartedEvent(_AgentTurnEventBase):
 
 
 class AgentTurnTextDeltaEvent(_AgentTurnEventBase):
-    """携带一段精确非空的模型最终可见文本。"""
+    """携带一段精确非空的模型可见文本（包括工具前说明）。"""
 
     type: Literal["agent.turn.text_delta"] = Field(
         default="agent.turn.text_delta",
@@ -73,6 +73,17 @@ class AgentTurnTextDeltaEvent(_AgentTurnEventBase):
     )
     delta: VisibleDelta = Field(
         description="Exact visible model text without trimming or post-processing."
+    )
+
+
+class AgentTurnTextReplaceEvent(_AgentTurnEventBase):
+    """用完整快照替换当前可见文本，空字符串表示清空。"""
+
+    type: Literal["agent.turn.text_replace"] = Field(
+        default="agent.turn.text_replace", description="Full visible text replacement discriminator.",
+    )
+    text: Annotated[str, StringConstraints(max_length=65_536)] = Field(
+        description="Replacement visible text; an empty string clears the provisional text."
     )
 
 
@@ -120,6 +131,7 @@ class AgentTurnFailedEvent(_AgentTurnEventBase):
 AgentTurnStreamEvent: TypeAlias = Annotated[
     AgentTurnStartedEvent
     | AgentTurnTextDeltaEvent
+    | AgentTurnTextReplaceEvent
     | AgentTurnCompletedEvent
     | AgentTurnFailedEvent,
     Field(discriminator="type"),
@@ -128,6 +140,13 @@ AgentTurnStreamEvent: TypeAlias = Annotated[
 
 class AgentTextDeltaSink(Protocol):
     """接收一次 Provider 调用的精确可见文本。"""
+
+    @property
+    def streamed_text(self) -> str:
+        """返回已发布的当前文本快照。"""
+
+    async def text_replace(self, text: str) -> None:
+        """用快照更新当前可见文本，允许清空。"""
 
     async def text_delta(self, delta: str) -> None:
         """发布一段精确非空的可见文本增量。"""
@@ -138,7 +157,7 @@ class AgentTurnEventSink(AgentTextDeltaSink, Protocol):
 
     @property
     def streamed_text(self) -> str:
-        """返回已发布可见增量的精确拼接结果。"""
+        """返回应用增量和替换事件后的当前文本快照。"""
 
     async def started(self, run: AgentRun) -> None:
         """持久化 Run 已存在后才发布首个事件。"""
@@ -158,4 +177,5 @@ __all__ = [
     "AgentTurnStartedEvent",
     "AgentTurnStreamEvent",
     "AgentTurnTextDeltaEvent",
+    "AgentTurnTextReplaceEvent",
 ]

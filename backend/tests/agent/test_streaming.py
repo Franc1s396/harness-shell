@@ -124,3 +124,14 @@ def test_failed_event_rejects_non_failure_status(status: str) -> None:
                 "message": "Model request failed",
             }
         )
+
+
+@pytest.mark.parametrize("text", ["", "revised answer"])
+def test_text_replace_roundtrip_and_strict_fields(text: str) -> None:
+    from harness_shell_sidecar.agent.streaming import AgentTurnTextReplaceEvent
+    event = AgentTurnTextReplaceEvent(request_id=uuid4(), sequence=2,
+        conversation_id=uuid4(), agent_run_id=uuid4(), text=text)
+    assert EVENT_ADAPTER.validate_json(event.model_dump_json()) == event
+    for mutation in ({"text": None}, {"text": 1}, {"delta": "extra"}):
+        with pytest.raises(ValidationError):
+            EVENT_ADAPTER.validate_python({**event.model_dump(), **mutation})

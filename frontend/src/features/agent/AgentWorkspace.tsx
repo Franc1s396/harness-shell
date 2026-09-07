@@ -202,9 +202,17 @@ export function AgentWorkspace({
           <article
             data-provisional="true"
             role="status"
+            aria-busy="true"
             className="w-fit max-w-[88%] rounded-xl border border-line px-3 py-2"
           >
             <AssistantMarkdown text={streamedText} />
+            <div className="mt-2 flex items-center text-ink-muted">
+              <span
+                aria-hidden="true"
+                className="size-3 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-accent motion-reduce:animate-none"
+              />
+              <span className="sr-only">{t("agent.running")}</span>
+            </div>
           </article>
         ) : null}
         {tab.lastError &&

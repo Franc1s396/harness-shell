@@ -64,7 +64,7 @@ data: {"schema_version":1,"type":"agent.turn.completed","request_id":"10000000-0
 
 ```
 
-合法序列只有 `started -> text_delta* -> completed -> EOF` 或 `started -> text_delta* -> failed -> EOF`。每个 stream 的 `sequence` 从 0 连续递增，request/conversation/run identity 固定；首版只公开最终 AI 文本 delta，不公开 reasoning、tool call、command、stdout/stderr、usage 或 Provider response metadata。不存在 JSON success、fallback parser、reconnect、resume 或 replay。
+合法序列只有 `started -> (text_delta | text_replace)* -> completed -> EOF` 或 `started -> (text_delta | text_replace)* -> failed -> EOF`。每个 stream 的 `sequence` 从 0 连续递增，request/conversation/run identity 固定；公开实时 AI 可见文本 delta 与完整 text_replace 更新，包括工具前说明，不公开 reasoning、tool call、command、stdout/stderr、usage 或 Provider response metadata。不存在 JSON success、fallback parser、reconnect、resume 或 replay。
 
 HTTP 200 的启动边界是：request header/body、dispatcher capacity、Provider config/credential、conversation/SSH Session 全部校验完成，conversation lock 已取得、durable `RUNNING` Run 已创建、capacity 64 的 queue 已建立且 `started` 已安全入队。此前失败返回 Problem Details；此后失败先落 durable terminal Run，再通过唯一 `failed` event 结束。terminal frame 被 consumer 发送前，dispatcher request ID 与 capacity 仍保持占用；发送后 worker 收敛并以 clean EOF 结束。
 
@@ -85,3 +85,5 @@ backend\.venv\Scripts\python.exe -m pytest backend\tests\web\test_contract_artif
 ```
 
 普通测试不得自动写回 artifact。任何 drift 必须直接失败并由开发者审查生成差异。
+
+`agent.turn.text_replace` 携带 `text: string`，替换当前 provisional 内容；空字符串清空内容。它与 text_delta 共用严格关联、连续 sequence 和字节预算。大快照以有界替换首帧加后续增量编码，completed 后显示内容与最终消息一致。

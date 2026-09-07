@@ -5,6 +5,7 @@ import type {
   AgentTurnFailedEvent,
   AgentTurnStartedEvent,
   AgentTurnTextDeltaEvent,
+  AgentTurnTextReplaceEvent,
   ApiType,
 } from "../../api/agent";
 
@@ -130,6 +131,12 @@ export type AgentAction =
       event: AgentTurnTextDeltaEvent;
     }
   | {
+      type: "run/text-replace";
+      tabId: string;
+      requestToken: string;
+      event: AgentTurnTextReplaceEvent;
+    }
+  | {
       type: "run/complete";
       tabId: string;
       requestToken: string;
@@ -178,7 +185,7 @@ const activeRequestMatches = (
 const streamEventMatches = (
   tab: AgentTabState,
   requestToken: string,
-  event: AgentTurnTextDeltaEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
+  event: AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
 ): boolean =>
   activeRequestMatches(tab, requestToken) &&
   tab.activeRun?.conversationId === event.conversation_id &&
@@ -321,6 +328,7 @@ export const agentReducer = (
           },
         };
       });
+    case "run/text-replace":
     case "run/text-delta":
       return updateTab(state, action.tabId, (tab) => {
         if (!streamEventMatches(tab, action.requestToken, action.event)) return tab;
@@ -330,7 +338,9 @@ export const agentReducer = (
           activeRun: {
             ...activeRun,
             nextSequence: activeRun.nextSequence + 1,
-            streamedText: activeRun.streamedText + action.event.delta,
+            streamedText: action.type === "run/text-replace"
+              ? action.event.text
+              : activeRun.streamedText + action.event.delta,
           },
         };
       });

@@ -8,8 +8,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from typing import Annotated, Literal, TypeVar
 from uuid import UUID, uuid4
 
@@ -40,22 +39,14 @@ LOGGER = logging.getLogger("harness_shell_sidecar.agent.model_gateway")
 OperationResult = TypeVar("OperationResult")
 
 
-class _InvocationMode(Enum):
-    """跟踪一次 Provider 调用属于工具调用还是最终文本。"""
-
-    UNDECIDED = "UNDECIDED"
-    TOOL_CALL = "TOOL_CALL"
-    FINAL_TEXT = "FINAL_TEXT"
-
-
 @dataclass(slots=True)
 class _InvocationState:
-    """保留每次尝试的语义模式和已发布的精确可见片段。"""
+    """保留每次尝试已发布的快照和重试边界。"""
 
-    # 聚合完整 Provider 调用后确定的语义选择。
-    mode: _InvocationMode = _InvocationMode.UNDECIDED
-    # 仅在本次 Provider 尝试中发布的精确最终文本片段。
-    visible_parts: list[str] = field(default_factory=list)
+    # 产生过可见更新后禁止重试，清空文本不撤销该事实。
+    published: bool = False
+    # 本次 Provider 尝试已成功发布的精确文本快照。
+    visible_text: str = ""
     # 保留原始发布端失败，仅用于避免错误归因。
     sink_error: Exception | None = None
 
@@ -182,7 +173,7 @@ class ModelGateway:
                         "provider request failed before producing a valid response",
                     ) from error
                 if (
-                    invocation.mode is _InvocationMode.FINAL_TEXT
+                    invocation.published
                     or attempt == len(MODEL_RETRY_DELAYS_SECONDS)
                 ):
                     provider_fields = _safe_provider_error_fields(error)
@@ -559,20 +550,27 @@ def _build_responses_tools() -> list[FunctionToolParam]:
     ]
 
 
-async def _publish_text(text: str, sink: AgentTextDeltaSink, invocation: _InvocationState) -> None:
-    """检查调用模式后才发布精确的非空文本。"""
-
-    if not text:
+async def _publish_snapshot(text: str, sink: AgentTextDeltaSink, invocation: _InvocationState) -> None:
+    """即时同步本次回复；追加前缀扩展，用替换事件表达修订和新一轮回复。"""
+    previous = invocation.visible_text
+    if text == previous:
         return
-    if invocation.mode is _InvocationMode.TOOL_CALL:
-        raise _invalid("provider stream switched from a tool call to visible text")
-    invocation.mode = _InvocationMode.FINAL_TEXT
-    invocation.visible_parts.append(text)
+    # 新调用的首段替换上一工具轮说明；工具执行期间仍保留原说明。
+    replace = (not previous and bool(sink.streamed_text)) or not text.startswith(previous)
+    pending = text if replace else text[len(previous):]
+    # 一旦产生可见更新便禁止网络超时重试，即使之后文本被清空。
+    invocation.published = True
     try:
-        await sink.text_delta(text)
+        # 完整快照采用有界首帧加后续增量编码，不截断文本或放宽 SSE 帧预算。
+        if replace:
+            await sink.text_replace(pending[:4096])
+            pending = pending[4096:]
+        for offset in range(0, len(pending), 4096):
+            await sink.text_delta(pending[offset:offset + 4096])
     except Exception as error:
         invocation.sink_error = error
         raise
+    invocation.visible_text = text
 
 
 def _decode_arguments(arguments: str) -> dict[str, object]:
@@ -714,23 +712,12 @@ def _local_tool_call(item: dict[str, object]) -> ToolCall:
     return ToolCall(name=name, id=identity, args=_decode_arguments(_provider_arguments(item.get("arguments"))))
 
 
-async def _publish_final_answer(text: str, calls: list[ToolCall], sink: AgentTextDeltaSink, invocation: _InvocationState) -> None:
-    """在现有 SSE 帧预算内只发布已确定的非工具输出。"""
-    if calls:
-        invocation.mode = _InvocationMode.TOOL_CALL
-        return
-    # 缓冲允许最终输出替换及混合工具说明文本。
-    # 分片仍须遵守只追加 Agent 传输的单帧上限。
-    for offset in range(0, len(text), 4096):
-        await _publish_text(text[offset:offset + 4096], sink, invocation)
-
-
 async def _parse_chat_completions_stream(
     stream: AsyncIterator[ChatCompletionChunk], text_sink: AgentTextDeltaSink,
     invocation: _InvocationState, *, require_complete: bool = False,
 ) -> AIMessage:
     """聚合首个 Chat choice，容忍稀疏元数据与结束标记。"""
-    # 1. 为本次尝试独立缓冲文本、usage 和工具参数，先不发布可见片段。
+    # 1. 独立聚合文本、usage 和工具参数；普通回复实时发布，摘要保持私有。
     text = ""
     usage = None
     finish_reason = None
@@ -750,7 +737,10 @@ async def _parse_chat_completions_stream(
         if choice.get("finish_reason") is not None:
             finish_reason = choice["finish_reason"]
         delta = _wire_object(choice.get("delta") or choice.get("message"))
-        text += _wire_text(delta.get("content") or delta.get("refusal"))
+        incoming = _wire_text(delta.get("content") or delta.get("refusal"))
+        text = incoming if choice.get("message") and not choice.get("delta") else text + incoming
+        if not require_complete:
+            await _publish_snapshot(text, text_sink, invocation)
         tools = _wire_items(delta.get("tool_calls"))
         legacy = _wire_object(delta.get("function_call"))
         if legacy:
@@ -771,8 +761,7 @@ async def _parse_chat_completions_stream(
     calls = [_local_tool_call(part) for part in parts.values()]
     if require_complete and (finish_reason != "stop" or calls or not text.strip()):
         raise _invalid("the summary was empty, incomplete, or contained tool calls")
-    # 4. 仅最终纯文本轮向 sink 发布，再返回完整消息供持久化。
-    await _publish_final_answer(text, calls, text_sink, invocation)
+    # 4. 返回完整消息，工具说明同样保留在持久化上下文中。
     return AIMessage(content=text, tool_calls=calls, usage_metadata=usage)
 
 
@@ -810,7 +799,7 @@ async def _parse_responses_stream(
     stream: AsyncIterator[ResponseStreamEvent], config: ModelApiConfig,
     text_sink: AgentTextDeltaSink, invocation: _InvocationState, *, require_complete: bool = False,
 ) -> AIMessage:
-    """宽松合并 Responses 事件后发布最终文本。"""
+    """宽松合并 Responses 事件并即时同步可见文本快照。"""
     # 1. 独立初始化输出聚合状态，保留本次调用的 usage 和完成状态。
     output: list[dict[str, object]] = []
     usage = None
@@ -832,6 +821,14 @@ async def _parse_responses_stream(
         if kind == "response.incomplete":
             wire = {**wire, "type": "response.completed"}
         output = _update_response_output(output, wire)
+        if not require_complete:
+            text = "".join(
+                _wire_text(block.get("text") or block.get("refusal"))
+                for item in output if item.get("type") == "message"
+                for block in _wire_items(item.get("content"))
+                if block.get("type") in ("output_text", "text", "refusal")
+            )
+            await _publish_snapshot(text, text_sink, invocation)
     # 3. 将支持的项规范化为本地回放数据，再提取可见文本与可执行调用。
     items = tuple(normalized for item in output if (normalized := _normalize_response_item(item)) is not None)
     text = "".join(block.text for item in items if isinstance(item, _ResponsesMessageReplay) for block in item.content)
@@ -839,9 +836,9 @@ async def _parse_responses_stream(
              for item in items if isinstance(item, _ResponsesFunctionCallReplay)]
     if require_complete and (not completed or calls or not text.strip()):
         raise _invalid("the summary was empty, incomplete, or contained tool calls")
-    # 4. 绑定回放所属配置；通过摘要完整性校验后才发布最终答案。
+    # 4. 绑定回放所属配置；摘要通过完整性校验后才返回内部结果。
     envelope = _ResponsesReplayEnvelope(schema_version=1, api_config_id=config.api_config_id, items=items)
-    await _publish_final_answer(text, calls, text_sink, invocation)
+
     return AIMessage(content=text, tool_calls=calls, usage_metadata=usage, additional_kwargs={
         "harness_responses_replay": envelope.model_dump(mode="json", exclude_none=True),
     })
@@ -905,6 +902,14 @@ async def _invoke_responses(
 
 class _SummarySink:
     """丢弃内部摘要发布，不访问 UI sink。"""
+    @property
+    def streamed_text(self) -> str:
+        """内部摘要不拥有 UI 文本。"""
+        return ""
+
+    async def text_replace(self, text: str) -> None:
+        """内部摘要不向 UI 发布快照。"""
+
     async def text_delta(self, delta: str) -> None:
         """仅接收已校验的内部文本；完整值由调用方返回。"""
 

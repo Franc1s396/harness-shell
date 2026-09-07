@@ -147,7 +147,7 @@ describe("AgentWorkspace", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("replaces thinking with provisional text before terminal completion", () => {
+  it("keeps a loading icon alongside provisional text until the Run ends", () => {
     const workspace = renderWorkspace({ tab: runningTab });
     expect(screen.getByRole("status")).toHaveTextContent("Thinking…");
 
@@ -168,7 +168,11 @@ describe("AgentWorkspace", () => {
     const provisional = screen.getByText("hello").closest("article");
     expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
     expect(provisional).toHaveAttribute("data-provisional", "true");
+    expect(provisional?.querySelector(".animate-spin")).toBeInTheDocument();
+    expect(provisional).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByText(/Run details/)).not.toBeInTheDocument();
+    workspace.view.rerender(<AgentWorkspace {...workspace.props} tab={idleTab} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("scrolls when the same provisional bubble receives another delta", () => {

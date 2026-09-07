@@ -18,6 +18,7 @@ from harness_shell_sidecar.agent.streaming import (
     AgentTurnFailedEvent,
     AgentTurnStartedEvent,
     AgentTurnTextDeltaEvent,
+    AgentTurnTextReplaceEvent,
 )
 from harness_shell_sidecar.connections.handlers import (
     ConnectionCreateRequest,
@@ -265,6 +266,7 @@ def build_openapi_document() -> dict[str, object]:
         for model in (
             AgentTurnStartedEvent,
             AgentTurnTextDeltaEvent,
+            AgentTurnTextReplaceEvent,
             AgentTurnCompletedEvent,
             AgentTurnFailedEvent,
         )
