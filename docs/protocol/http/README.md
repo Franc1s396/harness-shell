@@ -87,3 +87,7 @@ backend\.venv\Scripts\python.exe -m pytest backend\tests\web\test_contract_artif
 普通测试不得自动写回 artifact。任何 drift 必须直接失败并由开发者审查生成差异。
 
 `agent.turn.text_replace` 携带 `text: string`，替换当前 provisional 内容；空字符串清空内容。它与 text_delta 共用严格关联、连续 sequence 和字节预算。大快照以有界替换首帧加后续增量编码，completed 后显示内容与最终消息一致。
+
+### Agent 客户端取消
+
+用户取消通过 AbortSignal 中止创建本轮的 POST SSE，不新增取消 endpoint 或 Runtime WebSocket 消息。Backend 在 HTTP 200 启动屏障前及流期间均处理 ASGI disconnect，并取消、等待 worker；启动前沿用 AGENT_CANCELLED Problem，已创建 Run 由既有取消路径落库，已完成 Run 不被改写。前端本地取消清除 provisional 内容并保留已知 conversation ID，不伪造服务端 terminal event；若终态已经验证，再取消等待 EOF 时保留该终态。其他网络、协议或 Problem 错误仍显式失败，正常读取仍要求 terminal 后 EOF。取消不撤销已执行的远程命令，也不保证远程进程已停止。

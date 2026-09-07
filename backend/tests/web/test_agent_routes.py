@@ -5,6 +5,7 @@ from harness_shell_sidecar.agent.api_configs import ApiConfigRepository
 from ..storage_support import RepositoryClient, sql
 
 import base64
+import asyncio
 from collections.abc import Mapping
 import json
 import sqlite3
@@ -17,10 +18,14 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi.testclient import TestClient
+from starlette.types import Message, Scope
 
 from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
 from harness_shell_sidecar.agent.handlers import AgentTurnRequest
 from harness_shell_sidecar.runtime.request_context import RequestContext
+from harness_shell_sidecar.agent.streaming import AgentTurnEventSink
+from harness_shell_sidecar.runtime.settings import RuntimeSettings
+from harness_shell_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:
@@ -312,6 +317,78 @@ def test_agent_turn_requires_sse_accept(autonomous_client) -> None:
     assert response.status_code == 406
     assert response.headers["content-type"] == "application/problem+json"
     assert response.json()["error_code"] == "AGENT_STREAM_ACCEPT_REQUIRED"
+
+
+@pytest.mark.parametrize("publish_started", [False, True])
+def test_disconnect_cancels_turn_before_or_after_response_start(
+    tmp_path: Path, publish_started: bool,
+) -> None:
+    """真实 ASGI disconnect 必须停止启动等待及流式 worker，而非依赖应用关闭。"""
+
+    class BlockingTurnApplication(SuccessfulTurnApplication):
+        """在指定响应阶段阻塞，观察 HTTP 断连是否收回 worker。"""
+
+        def __init__(self) -> None:
+            """拥有测试同步事件，不访问 Provider 或 SSH。"""
+            super().__init__()
+            self.entered = asyncio.Event()  # 测试等待 worker 到达断连目标阶段。
+            self.cancelled = asyncio.Event()  # 测试观察取消已传入 worker。
+
+        async def run(
+            self, _context: RequestContext, _params: Mapping[str, object],
+            sink: AgentTurnEventSink,
+        ) -> None:
+            """只发布指定阶段事件，并等待请求 owner 取消。"""
+            try:
+                if publish_started:
+                    await sink.started(self.run_snapshot)
+                self.entered.set()
+                await asyncio.Event().wait()
+            finally:
+                self.cancelled.set()
+
+    async def scenario() -> None:
+        """用 ASGI 消息驱动实际路由和中间件，不通过测试客户端缓冲 SSE。"""
+        app = create_app(settings=RuntimeSettings.from_data_dir((tmp_path / "cancel-runtime").resolve()))
+        async with app.router.lifespan_context(app):
+            application = BlockingTurnApplication()
+            resources = app.state.runtime_owner.require_resources()
+            resources.agent_turn_application = application
+            incoming: asyncio.Queue[Message] = asyncio.Queue()
+            incoming.put_nowait({"type": "http.request", "body": json.dumps({
+                "conversation_id": None, "ssh_session_id": str(uuid4()),
+                "api_config_id": str(uuid4()), "user_message": "inspect",
+            }).encode(), "more_body": False})
+            response_started = asyncio.Event()
+
+            async def send(message: Message) -> None:
+                """仅记录响应开始，使首帧后的断连时机可确定。"""
+                if message["type"] == "http.response.start":
+                    response_started.set()
+
+            scope: Scope = {
+                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1", "method": "POST", "scheme": "http",
+                "path": "/v1/agent/turns", "raw_path": b"/v1/agent/turns",
+                "query_string": b"", "root_path": "",
+                "headers": [(b"content-type", b"application/json"),
+                            (b"accept", b"text/event-stream"),
+                            (b"x-request-id", str(uuid4()).encode())],
+                "client": ("127.0.0.1", 12345), "server": ("127.0.0.1", 8765),
+            }
+            request_task = asyncio.create_task(app(scope, incoming.get, send))
+            try:
+                await asyncio.wait_for(application.entered.wait(), timeout=1)
+                if publish_started:
+                    await asyncio.wait_for(response_started.wait(), timeout=1)
+                incoming.put_nowait({"type": "http.disconnect"})
+                await asyncio.wait_for(application.cancelled.wait(), timeout=1)
+                await asyncio.wait_for(request_task, timeout=1)
+            finally:
+                request_task.cancel()
+                await asyncio.gather(request_task, return_exceptions=True)
+
+    asyncio.run(scenario())
 
 
 def test_agent_turn_success_is_started_first_sse(autonomous_client) -> None:

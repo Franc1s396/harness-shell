@@ -52,7 +52,7 @@ React `BackendHttpClient` 通过 `fetch()` 消费创建本轮的 POST response `
 
 Agent 的已知领域异常只把产生异常处明确标记为 `safe_message` 的具体原因传入 Problem Details 或 SSE `failed.message`；不得根据 `error_code` 二次替换文案。未知异常仍映射为固定安全文本，禁止暴露 Provider body、command、stdout/stderr 或任意异常链内容。
 
-Python `AgentTurnStreamSession` 在 shared dispatcher 内拥有 worker、capacity 64 queue、HTTP-200 startup barrier 与断连收敛；terminal frame 被 consumer 发送前不会释放 dispatcher request ID/capacity。`AgentTurnApplication` 继续拥有 Provider snapshot、credential resolve/zeroize；`AgentService` 拥有 durable RUNNING/terminal 顺序；`ModelGateway` 向 sink 实时发布模型可见文本及完整修订，包括工具前说明；跨调用显示语义见 Python Backend Guide。该 POST stream 不使用或扩展 Runtime WebSocket。
+Python `AgentTurnStreamSession` 在 shared dispatcher 内拥有 worker、capacity 64 queue、HTTP-200 startup barrier 与断连收敛；terminal frame 被 consumer 发送前不会释放 dispatcher request ID/capacity。`AgentTurnApplication` 继续拥有 Provider snapshot、credential resolve/zeroize；`AgentService` 拥有 durable RUNNING/terminal 顺序；`ModelGateway` 向 sink 实时发布模型可见文本及完整修订，包括工具前说明；跨调用显示语义见 Python Backend Guide。启动屏障期间由 route 监听 ASGI disconnect 并取消、等待 session；屏障通过后监听所有权交给 StreamingResponse。该 POST stream 不使用或扩展 Runtime WebSocket。
 
 上下文摘要属于 Python 的模型输入投影，独立持久化在 `agent_context_summaries`，不替换 canonical messages，也不通过 SSE 发给 React。graph 在新用户消息入库后、首次主调用前检查压缩；工具循环只做输入预算检查。具体投影、预算、工具裁剪和重试契约见 [Python Backend Guide](python-sidecar.md#agent-上下文工程)。
 

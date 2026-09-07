@@ -78,6 +78,7 @@ const renderWorkspace = (
     onProviderSelect: vi.fn(),
     onOpenProviderSettings: vi.fn(),
     onRequestSend: vi.fn(),
+    onCancelTurn: vi.fn(),
     onConfirmRiskAndSend: vi.fn(),
     onCancelRisk: vi.fn(),
     onResetConversation: vi.fn(),
@@ -120,14 +121,33 @@ describe("AgentWorkspace", () => {
     );
   });
 
-  it("does not invent stop, history, approval, or tool controls", () => {
+  it("switches the original send button to cancel while running", () => {
     renderWorkspace({ tab: runningTab });
 
-    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel response" })).toBeEnabled();
     expect(
-      screen.queryByRole("button", { name: /stop|cancel|approve|resume/i }),
+      screen.queryByRole("button", { name: /approve|resume/i }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/tool call|stdout|stderr/i)).not.toBeInTheDocument();
+  });
+
+  it("uses the same button for cancellation and restores sending afterward", () => {
+    const workspace = renderWorkspace();
+    const button = screen.getByRole("button", { name: "Send message" });
+    workspace.view.rerender(<AgentWorkspace {...workspace.props} tab={runningTab} />);
+    expect(screen.getByRole("button", { name: "Cancel response" })).toBe(button);
+    fireEvent.click(button);
+    expect(workspace.props.onCancelTurn).toHaveBeenCalledOnce();
+    expect(workspace.props.onRequestSend).not.toHaveBeenCalled();
+    workspace.view.rerender(<AgentWorkspace {...workspace.props} tab={{
+      ...idleTab, messages: [{ id: "cancelled-1", kind: "cancelled" }],
+    }} />);
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBe(button);
+    fireEvent.click(button);
+    expect(workspace.props.onRequestSend).toHaveBeenCalledOnce();
   });
 
   it("shows a transient thinking status only while the Run is active", () => {

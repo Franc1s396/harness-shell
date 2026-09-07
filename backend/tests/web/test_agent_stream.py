@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
+import anyio
 
 from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
 from harness_shell_sidecar.agent.service import AgentServiceError
@@ -164,6 +165,39 @@ def test_session_close_cancels_and_awaits_the_worker() -> None:
 
         assert application.cancelled.is_set()
         assert session.worker_done
+
+    asyncio.run(scenario())
+
+
+def test_session_close_under_cancel_scope_waits_for_async_worker_cleanup() -> None:
+    """取消作用域不得通过 gather 再次取消正在清理的 worker。"""
+
+    class CleanupApplication(FakeTurnApplication):
+        """模拟模型网络关闭中包含异步检查点的资源清理。"""
+
+        async def run(
+            self, _context: RequestContext, _params: Mapping[str, object], sink,
+        ) -> None:
+            """阻塞至取消，经过异步关闭后才标记资源已回收。"""
+            await sink.started(self.run_snapshot)
+            self.started.set()
+            try:
+                await self.release.wait()
+            finally:
+                await anyio.sleep(0)
+                await anyio.sleep(0)
+                self.cancelled.set()
+
+    async def scenario() -> None:
+        """模拟 StreamingResponse 已取消的 AnyIO 作用域。"""
+        application = CleanupApplication()
+        session = _session(application)
+        await session.start()
+        with anyio.CancelScope() as scope:
+            scope.cancel()
+            await session.aclose()
+        assert session.worker_done
+        assert application.cancelled.is_set()
 
     asyncio.run(scenario())
 

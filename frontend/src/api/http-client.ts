@@ -5,6 +5,11 @@ const SSE_BODY_LIMIT = 4_194_304;
 
 type FetchLike = typeof fetch;
 
+// 仅显式 signal 产生的取消是控制流；并发网络或协议错误仍然暴露。
+const isSseAbort = (error: unknown, signal?: AbortSignal): boolean =>
+  signal?.aborted === true &&
+  (error === signal.reason || (error instanceof DOMException && error.name === "AbortError"));
+
 export type BinaryChunk = Readonly<{
   requestId: string;
   sequence: number;
@@ -27,9 +32,9 @@ export type BackendSseFrame = Readonly<{
 }>;
 
 export class BackendSseError extends Error {
-  readonly kind: "INVALID" | "TOO_LARGE" | "INTERRUPTED";
+  readonly kind: "INVALID" | "TOO_LARGE" | "INTERRUPTED" | "CANCELLED";
 
-  constructor(kind: "INVALID" | "TOO_LARGE" | "INTERRUPTED") {
+  constructor(kind: "INVALID" | "TOO_LARGE" | "INTERRUPTED" | "CANCELLED") {
     super(`BACKEND_SSE_${kind}`);
     this.name = "BackendSseError";
     this.kind = kind;
@@ -130,6 +135,7 @@ export class BackendHttpClient {
     const requestId = this.#randomUuid();
     let response: Response;
     try {
+      signal?.throwIfAborted();
       response = await this.#fetch(this.#url(path), {
         method: "POST",
         headers: {
@@ -140,11 +146,17 @@ export class BackendHttpClient {
         body: JSON.stringify(body),
         ...(signal ? { signal } : {}),
       });
-    } catch {
+    } catch (error) {
+      if (isSseAbort(error, signal)) throw new BackendSseError("CANCELLED");
       throw new BackendSseError("INTERRUPTED");
     }
     if (!response.ok) {
-      await this.#readJson<never>(response, requestId);
+      try {
+        await this.#readJson<never>(response, requestId);
+      } catch (error) {
+        if (isSseAbort(error, signal)) throw new BackendSseError("CANCELLED");
+        throw error;
+      }
       return;
     }
     if (response.status !== 200) throw new BackendSseError("INVALID");
@@ -168,8 +180,10 @@ export class BackendHttpClient {
       while (true) {
         let result: ReadableStreamReadResult<Uint8Array>;
         try {
+          signal?.throwIfAborted();
           result = await reader.read();
-        } catch {
+        } catch (error) {
+          if (isSseAbort(error, signal)) throw new BackendSseError("CANCELLED");
           throw new BackendSseError("INTERRUPTED");
         }
         if (result.done) {
@@ -192,6 +206,8 @@ export class BackendHttpClient {
         }
 
         while (true) {
+          // 一个网络 chunk 可以包含多帧；取消后不再发布已缓冲的后续内容。
+          if (signal?.aborted) throw new BackendSseError("CANCELLED");
           const frame = takeFrame(buffer);
           if (frame === null) break;
           if (encoder.encode(frame.raw + frame.delimiter).byteLength > SSE_FRAME_LIMIT) {

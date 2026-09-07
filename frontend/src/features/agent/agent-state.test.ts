@@ -68,6 +68,22 @@ const startedState = (requestToken: string) => {
 };
 
 describe("agentReducer", () => {
+  it("cancels only the matching request and retains its known conversation without partial text", () => {
+    let state = startedState("request-1");
+    state = agentReducer(state, { type: "run/stream-started", tabId: "tab-a", requestToken: "request-1", event: started });
+    state = agentReducer(state, { type: "run/text-delta", tabId: "tab-a", requestToken: "request-1", event: delta });
+    const cancel = { type: "run/cancel", tabId: "tab-a", requestToken: "request-1", messageId: "cancel-1" } as const;
+    expect(agentReducer(state, { ...cancel, requestToken: "old" })).toBe(state);
+    state = agentReducer(state, cancel);
+    expect(state.tabs["tab-a"]).toMatchObject({
+      phase: "IDLE", conversationId: started.conversation_id, activeRun: null,
+      lastError: null, backgroundState: "NONE",
+      messages: [{ kind: "user", text: "inspect" }, { kind: "cancelled" }],
+    });
+    expect(agentReducer(state, cancel)).toBe(state);
+    expect(agentReducer(state, { type: "run/complete", tabId: "tab-a", requestToken: "request-1", event: completed, messageId: "late" })).toBe(state);
+  });
+
   it("replaces provisional text, rejects stale updates and commits the current snapshot", () => {
     let state = startedState("request-1");
     state = agentReducer(state, { type: "run/stream-started", tabId: "tab-a", requestToken: "request-1", event: started });

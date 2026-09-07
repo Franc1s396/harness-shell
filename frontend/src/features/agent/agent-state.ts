@@ -28,6 +28,7 @@ export type AgentRunProjection = {
 
 export type AgentUiMessage =
   | { id: string; kind: "user"; text: string }
+  | { id: string; kind: "cancelled" }
   | {
       id: string;
       kind: "assistant";
@@ -152,6 +153,7 @@ export type AgentAction =
       messageId: string;
     }
   | { type: "conversation/reset"; tabId: string }
+  | { type: "run/cancel"; tabId: string; requestToken: string; messageId: string }
   | { type: "background/read"; tabId: string };
 
 const updateTab = (
@@ -406,6 +408,19 @@ export const agentReducer = (
           activeRun: null,
           lastError: action.error,
           backgroundState: "FAILED_UNREAD",
+        };
+      });
+    case "run/cancel":
+      return updateTab(state, action.tabId, (tab) => {
+        if (!activeRequestMatches(tab, action.requestToken)) return tab;
+        return {
+          ...tab,
+          conversationId: tab.activeRun!.conversationId ?? tab.conversationId,
+          messages: [...tab.messages, { id: action.messageId, kind: "cancelled" }],
+          phase: "IDLE",
+          activeRun: null,
+          lastError: null,
+          backgroundState: "NONE",
         };
       });
     case "conversation/reset":

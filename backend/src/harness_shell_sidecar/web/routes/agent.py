@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from harness_shell_sidecar.agent.contracts import ModelApiConfig
@@ -138,6 +139,7 @@ async def delete_api_config(
 @router.post("/v1/agent/turns", response_model=None)
 async def run_agent_turn(
     payload: dict[str, object],
+    request: Request,
     request_id: CorrelationId,
     owner: Owner,
     accept: Annotated[str | None, Header()] = None,
@@ -166,7 +168,7 @@ async def run_agent_turn(
     )
     try:
         # 3. 等待 started 启动屏障，持久化启动前失败映射为 HTTP 错误。
-        await session.start()
+        await _start_while_connected(session, request)
     except DispatchError as error:
         raise dispatch_error_problem(request_id, error) from None
     # 4. 启动成功后返回 SSE 正文，后续终态由同一流发布。
@@ -179,3 +181,42 @@ async def run_agent_turn(
             "Cache-Control": "no-store",
         },
     )
+
+
+async def _start_while_connected(
+    session: AgentTurnStreamSession, request: Request,
+) -> None:
+    """启动屏障期间拥有断连监听，交给 StreamingResponse 前收回监听任务。"""
+
+    async def wait_disconnected() -> None:
+        """请求体已由 FastAPI 消费，只等待 ASGI 的真实断连通知。"""
+        while True:
+            message = await request.receive()
+            if message["type"] == "http.disconnect":
+                return
+
+    # 1. HTTP 200 尚未返回，StreamingResponse 此时还不能监听断连。
+    start_task = asyncio.create_task(session.start())
+    disconnect_task = asyncio.create_task(wait_disconnected())
+    try:
+        done, _ = await asyncio.wait(
+            (start_task, disconnect_task), return_when=asyncio.FIRST_COMPLETED,
+        )
+        if start_task in done:
+            await start_task  # 已发生的启动错误优先传播，不被取消覆盖。
+        if disconnect_task in done:
+            await disconnect_task
+            raise DispatchError(
+                "AGENT_CANCELLED", "the client disconnected before the Agent stream started",
+            )
+    except BaseException:
+        # 2. 取消并等待 start，再关闭可能已经跨过屏障的 worker。
+        # session.start 自身也拥有取消清理；aclose 的幂等性覆盖启动竞态。
+        start_task.cancel()
+        await asyncio.gather(start_task, return_exceptions=True)
+        await session.aclose()
+        raise
+    finally:
+        # 3. 只有一个 receive owner；正常启动后交回 StreamingResponse。
+        disconnect_task.cancel()
+        await asyncio.gather(disconnect_task, return_exceptions=True)

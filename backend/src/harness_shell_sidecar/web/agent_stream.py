@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import anyio
 from collections.abc import AsyncIterator, Mapping
 from typing import Protocol, cast
 from uuid import UUID
@@ -422,7 +423,10 @@ class AgentTurnStreamSession:
         if worker is not None and not worker.done():
             worker.cancel()
         if worker is not None:
-            await asyncio.gather(worker, return_exceptions=True)
+            # StreamingResponse 的 AnyIO scope 已取消时会在每个 await 重新取消。
+            # 保护收回阶段，避免 gather 将第二次取消传给正在关闭 SDK/SSH 的 worker。
+            with anyio.CancelScope(shield=True):
+                await asyncio.gather(worker, return_exceptions=True)
 
     async def _run_worker(self) -> None:
         """在 dispatcher 所有权下运行应用工作并关闭队列。"""

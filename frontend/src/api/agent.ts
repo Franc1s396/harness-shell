@@ -41,6 +41,14 @@ export type AgentCommandError = {
   message: string;
 };
 
+/** 本地请求已取消；不伪造服务端 Run 终态或关联标识。 */
+export class AgentTurnCancelled extends Error {
+  constructor() {
+    super("Agent turn request was cancelled.");
+    this.name = "AgentTurnCancelled";
+  }
+}
+
 export const normalizeAgentCommandError = (
   error: unknown,
 ): AgentCommandError => {
@@ -84,6 +92,7 @@ export const agentApi = {
   streamAgentTurn: async (
     input: RunAgentTurnInput,
     onProgress: (event: AgentTurnProgressEvent) => void,
+    signal?: AbortSignal,
   ): Promise<AgentTurnTerminalEvent> => {
     let expectedSequence = 0;
     let identity: Readonly<{
@@ -96,6 +105,7 @@ export const agentApi = {
       for await (const frame of getBackendClient().http.postSse(
         "/v1/agent/turns",
         toWireTurnInput(input),
+        signal,
       )) {
         if (terminal !== null) throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
         const event = validateAgentFrame(frame);
@@ -133,6 +143,11 @@ export const agentApi = {
         }
       }
     } catch (error) {
+      if (error instanceof BackendSseError && error.kind === "CANCELLED") {
+        // 已验证终态优先于随后发生的本地取消；其他错误仍要求完整校验。
+        if (terminal !== null) return terminal;
+        throw new AgentTurnCancelled();
+      }
       throw mapAgentStreamError(error);
     }
     if (terminal === null) throw agentStreamError("AGENT_STREAM_INTERRUPTED");

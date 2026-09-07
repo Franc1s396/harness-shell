@@ -28,7 +28,7 @@
 - Connection、Terminal、Agent 与 SFTP 只绑定用户显式选择的 connected Session；不得按列表顺序回退或在 tab 切换时偷换 owner。
 - pending transfer/run 的 disconnect、Session close 和 application close 必须有显式门禁。
 - unknown response/event、失联、stale identity/version 必须进入明确失败状态，不返回 success-shaped fallback。
-- Agent Run 在首个 visible delta 前显示 thinking；整个 RUNNING 阶段持续显示加载图标，已有 provisional 文本时图标位于回复下方，完成或失败后移除；delta 追加、text_replace 完整替换（允许清空）per-tab `activeRun.streamedText`，completed 后才写正式 assistant message。server failed、invalid、too-large 或 interrupted stream 必须清除 partial text并只显示 error；错误展示必须分别标出原始 `error_code` 与收到的 `error_message`，不得通过 i18n 替换异常信息。provisional 内容不显示 Run details，也不新增 Stop 控件。
+- Agent Run 在首个 visible delta 前显示 thinking；整个 RUNNING 阶段持续显示加载图标，已有 provisional 文本时图标位于回复下方，完成或失败后移除；delta 追加、text_replace 完整替换（允许清空）per-tab `activeRun.streamedText`，completed 后才写正式 assistant message。server failed、invalid、too-large 或 interrupted stream 必须清除 partial text并只显示 error；错误展示必须分别标出原始 `error_code` 与收到的 `error_message`，不得通过 i18n 替换异常信息。provisional 内容不显示 Run details。RUNNING 时原发送按钮原位切换为取消回答（方形图标），通过每 tab 独立的 AbortController 中止本轮 POST SSE；等待首事件时也可取消。请求退出后清除 partial text、保留用户消息和历史，并显示普通“已取消”提示，恢复发送。保留已知 conversation ID；本地取消不伪造服务端 Run 终态，已校验终态优先于随后取消，网络和协议失败不得伪装成取消。取消不能撤销已执行命令，也不保证远程进程停止。
 - Agent 的 provisional 与 completed assistant text 使用 GitHub-flavored Markdown 展示；用户消息和错误保持纯文本。Markdown 渲染不得启用 raw HTML 或远程图片加载，外部链接必须使用隔离的新窗口属性，代码块和表格溢出只能在消息内容内部滚动。
 - 凭据只以 Web Crypto 生成的 RSA-OAEP/AES-GCM request envelope，随所属 Connection 或 Provider mutation 发送；不存在独立 credential mutation endpoint，也不做 UI 补偿删除。secret 禁止写入 store、日志或错误详情。Backend 在同一业务事务中解封并以 plaintext credential record 保存，UI 必须把这一 at-rest 风险视为当前产品事实。
 

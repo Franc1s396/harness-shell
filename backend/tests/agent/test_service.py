@@ -12,8 +12,15 @@ from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 import pytest
+import anyio
+from collections.abc import Mapping
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
+from harness_shell_sidecar.agent.streaming import AgentTurnEventSink
+from harness_shell_sidecar.runtime.dispatcher import RequestDispatcher
+from harness_shell_sidecar.runtime.request_context import RequestContext
+from harness_shell_sidecar.web.agent_stream import AgentTurnStreamSession
+from .fakes import FakeAsyncStream, FakeOpenAIClient
 
 from harness_shell_sidecar.agent.context import ContextService
 from harness_shell_sidecar.agent.contracts import (
@@ -368,6 +375,7 @@ def test_cancellation_is_returned_as_cancelled_run(
 
 def test_outer_task_cancellation_marks_run_cancelled(
     agent_storage: AgentStorage,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """dispatcher 取消服务任务时持久化 Run 终态。"""
 
@@ -391,9 +399,80 @@ def test_outer_task_cancellation_marks_run_cancelled(
                 "SELECT status, error_code FROM agent_runs"
             ).fetchone()
             assert row == ("CANCELLED", "AGENT_CANCELLED")
+            assert not any(
+                getattr(record, "harness_event", None) == "agent_node_failed"
+                for record in caplog.records
+            )
         finally:
             model.release.set()
             await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+
+
+def test_http_cancel_scope_closes_sdk_resources_and_persists_cancelled_run(
+    agent_storage: AgentStorage, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """跨 SSE owner、真实图及网关验证取消后 SDK 异步关闭和终态。"""
+    caplog.set_level(logging.INFO)
+    closed: list[str] = []
+    stream_close = FakeAsyncStream.close
+    client_close = FakeOpenAIClient.close
+
+    async def close_stream(stream: FakeAsyncStream) -> None:
+        """以真实网络关闭的异步检查点替代立即完成的 Fake 关闭。"""
+        await anyio.sleep(0)
+        await stream_close(stream)
+        closed.append("stream")
+
+    async def close_client(client: FakeOpenAIClient) -> None:
+        """只有客户端异步关闭完整返回才记录完成。"""
+        await anyio.sleep(0)
+        await client_close(client)
+        closed.append("client")
+
+    monkeypatch.setattr(FakeAsyncStream, "close", close_stream)
+    monkeypatch.setattr(FakeOpenAIClient, "close", close_client)
+
+    async def scenario() -> None:
+        """保持存储和模型执行链真实，仅将外部 SDK 网络替换为阻塞流。"""
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        model = CancellationAwareModel()
+        service = _service(agent_storage, model, RecordingExecutor())
+        turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
+
+        class Application:
+            """将 SSE 生命周期绑定到测试的真实 AgentService。"""
+
+            async def run(
+                self, context: RequestContext, _params: Mapping[str, object],
+                sink: AgentTurnEventSink,
+            ) -> None:
+                """冻结 Provider 后委托 Service 管理持久化及模型请求。"""
+                await service.run_turn(
+                    turn, SecretStr("key"), context.cancelled,
+                    expected_config=config, event_sink=sink,
+                )
+
+        session = AgentTurnStreamSession(
+            request_id=uuid4(), dispatcher=RequestDispatcher(),
+            application=Application(), params={},
+        )
+        await session.start()
+        await model.started.wait()
+        with anyio.CancelScope() as scope:
+            scope.cancel()
+            await session.aclose()
+        assert session.worker_done
+        assert model.stopped.is_set()
+        assert closed == ["stream", "client"]
+        assert sql(agent_storage.database, "SELECT status, error_code FROM agent_runs").fetchone() == (
+            "CANCELLED", "AGENT_CANCELLED",
+        )
+        events = [getattr(record, "harness_event", None) for record in caplog.records]
+        assert "agent_node_cancelled" in events
+        assert "agent_node_failed" not in events
 
     asyncio.run(scenario())
 

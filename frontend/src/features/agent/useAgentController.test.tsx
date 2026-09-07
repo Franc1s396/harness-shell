@@ -8,6 +8,7 @@ import type {
   AgentTurnProgressEvent,
   ModelApiConfig,
 } from "../../api/agent";
+import { AgentTurnCancelled } from "../../api/agent";
 import { useAgentPreferencesStore } from "../../stores/agent-preferences-store";
 import type { TerminalSessionModel } from "../terminal/terminal-session";
 import type { ProviderDraft } from "./provider-config-actions";
@@ -171,6 +172,7 @@ describe("useAgentController", () => {
         userMessage: "inspect service",
       },
       expect.any(Function),
+      expect.any(AbortSignal),
     );
     expect(
       view.result.current.state.tabs["tab-1"].messages[
@@ -200,6 +202,86 @@ describe("useAgentController", () => {
     pending.resolve({ ...completedResult("conversation-1", "run-1"), sequence: 3 });
     await act(() => send);
     expect(view.result.current.state.tabs["tab-1"].messages[1]).toMatchObject({ kind: "assistant", text: "revised" });
+  });
+
+  it.each([false, true])("cancels a pending turn (started=%s) without an error and permits the next turn", async (started) => {
+    mockAgentApi.streamAgentTurn.mockImplementationOnce(async (_input, onProgress, signal: AbortSignal) => {
+      if (started) emitSuccess(onProgress);
+      await new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new AgentTurnCancelled()), { once: true });
+      });
+    });
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "inspect");
+    let send!: Promise<void>;
+    act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
+    await waitFor(() => expect(view.result.current.activeAgentRunCount).toBe(1));
+    act(() => {
+      view.result.current.cancelTurn("tab-1");
+      view.result.current.cancelTurn("tab-1");
+    });
+    await act(() => send);
+    expect(view.result.current.state.tabs["tab-1"]).toMatchObject({
+      phase: "IDLE", activeRun: null, lastError: null,
+      conversationId: started ? "conversation-1" : null,
+      messages: [{ kind: "user", text: "inspect" }, { kind: "cancelled" }],
+    });
+    expect(view.result.current.activeAgentRunCount).toBe(0);
+    act(() => view.result.current.changeDraft("tab-1", "try again"));
+    await act(() => view.result.current.requestSend("tab-1"));
+    expect(view.result.current.state.tabs["tab-1"].messages.slice(-1)[0]).toMatchObject({ kind: "assistant", text: "ok" });
+  });
+
+  it("cancels only the requested tab while another tab completes", async () => {
+    const pending = deferred<AgentTurnCompletedEvent>();
+    mockAgentApi.streamAgentTurn
+      .mockImplementationOnce(async (_input, onProgress, signal: AbortSignal) => {
+        emitSuccess(onProgress);
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new AgentTurnCancelled()), { once: true });
+        });
+      })
+      .mockImplementationOnce(async (_input, onProgress) => {
+        emitSuccess(onProgress, "conversation-2", "run-2");
+        return pending.promise;
+      });
+    const view = renderController([connectedSession, { ...connectedSession, tabId: "tab-2", sshSessionId: "ssh-2" }]);
+    await primeTab(view, "tab-1", "first");
+    await primeTab(view, "tab-2", "second");
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => {
+      first = view.result.current.confirmRiskAndSend("tab-1");
+      second = view.result.current.confirmRiskAndSend("tab-2");
+    });
+    await waitFor(() => expect(view.result.current.activeAgentRunCount).toBe(2));
+    act(() => view.result.current.cancelTurn("tab-1"));
+    await act(() => first);
+    expect(view.result.current.state.tabs["tab-2"].phase).toBe("RUNNING");
+    pending.resolve(completedResult("conversation-2", "run-2"));
+    await act(() => second);
+    expect(view.result.current.state.tabs["tab-1"].messages.slice(-1)[0]?.kind).toBe("cancelled");
+    expect(view.result.current.state.tabs["tab-2"].messages.slice(-1)[0]?.kind).toBe("assistant");
+  });
+
+  it("aborts the owned stream when its controller unmounts", async () => {
+    let cancelled = false;
+    mockAgentApi.streamAgentTurn.mockImplementationOnce(async (_input, _onProgress, signal: AbortSignal) => {
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          cancelled = true;
+          reject(new AgentTurnCancelled());
+        }, { once: true });
+      });
+    });
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "inspect");
+    let send!: Promise<void>;
+    act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
+    await waitFor(() => expect(view.result.current.activeAgentRunCount).toBe(1));
+    view.unmount();
+    await send;
+    expect(cancelled).toBe(true);
   });
 
   it("allows different tabs to own concurrent streamed Runs", async () => {

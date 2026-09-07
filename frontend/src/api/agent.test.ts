@@ -12,7 +12,7 @@ vi.mock("./bootstrap", () => ({
 vi.mock("./credential-envelope", () => ({ createCredentialEnvelope }));
 
 import { agentApi, type ModelApiConfigInput } from "./agent";
-import { BackendHttpClient } from "./http-client";
+import { BackendHttpClient, BackendSseError } from "./http-client";
 
 const requestId = "10000000-0000-4000-8000-000000000001";
 const conversationId = "20000000-0000-4000-8000-000000000002";
@@ -62,6 +62,32 @@ const invalidStreamFixtures = (
 ).filter((fixture) => fixture.wire_utf8 || fixture.generated_wire);
 
 describe("agentApi", () => {
+  it("passes cancellation to the HTTP stream and distinguishes it from interrupted EOF", async () => {
+    const controller = new AbortController();
+    const client = new BackendHttpClient("http://127.0.0.1:8765", {
+      randomUuid: () => requestId,
+      fetchImpl: async (_url, options) => {
+        controller.abort();
+        options?.signal?.throwIfAborted();
+        throw new TypeError("AbortSignal was not forwarded");
+      },
+    });
+    postSse.mockImplementation(client.postSse.bind(client));
+    await expect(agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, () => undefined, controller.signal))
+      .rejects.toMatchObject({ name: "AgentTurnCancelled" });
+  });
+
+  it("keeps an already validated terminal result when cancellation races with EOF", async () => {
+    const started = { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 };
+    const completed = { ...baseEvent, type: "agent.turn.completed", sequence: 1, status: "COMPLETED", react_iteration: 1, error_code: null };
+    postSse.mockImplementation(async function* () {
+      yield* sse(started, completed)();
+      throw new BackendSseError("CANCELLED");
+    });
+    await expect(agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, () => undefined))
+      .resolves.toEqual(completed);
+  });
+
   beforeEach(() => {
     request.mockReset();
     postSse.mockReset();
@@ -175,7 +201,7 @@ describe("agentApi", () => {
       ssh_session_id: "ssh-1",
       api_config_id: "config-1",
       user_message: "inspect the service",
-    });
+    }, undefined);
   });
 
   it.each([

@@ -49,6 +49,72 @@ beforeEach(() => {
   });
 });
 
+it("distinguishes an explicit SSE abort before headers from a network failure", async () => {
+  const controller = new AbortController();
+  fetchMock.mockImplementation(async () => {
+    controller.abort();
+    throw controller.signal.reason;
+  });
+  await expect(client.postSse("/v1/agent/turns", {}, controller.signal).next())
+    .rejects.toMatchObject({ kind: "CANCELLED" });
+});
+
+it("stops buffered SSE frames after cancellation and releases the reader", async () => {
+  const controller = new AbortController();
+  const response = streamResponse([new TextEncoder().encode(
+    'event: progress\nid: 0\ndata: {"ok":true}\n\nevent: progress\nid: 1\ndata: {"ok":true}\n\n',
+  )]);
+  fetchMock.mockResolvedValue(response);
+  const stream = client.postSse("/v1/agent/turns", {}, controller.signal);
+  expect((await stream.next()).done).toBe(false);
+  controller.abort();
+  await expect(stream.next()).rejects.toMatchObject({ kind: "CANCELLED" });
+  expect(response.body!.locked).toBe(false);
+});
+
+it("does not disguise a transport failure when cancellation races with it", async () => {
+  const controller = new AbortController();
+  fetchMock.mockImplementation(async () => {
+    controller.abort();
+    throw new TypeError("connection lost");
+  });
+  await expect(client.postSse("/v1/agent/turns", {}, controller.signal).next())
+    .rejects.toMatchObject({ kind: "INTERRUPTED" });
+});
+
+it("recognizes cancellation while a Problem response body is still being read", async () => {
+  const controller = new AbortController();
+  let body!: ReadableStreamDefaultController<Uint8Array>;
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(value) { body = value; },
+  }), { status: 409, headers: { "Content-Type": "application/problem+json", "X-Request-ID": requestId } });
+  fetchMock.mockResolvedValue(response);
+  const next = client.postSse("/v1/agent/turns", {}, controller.signal).next();
+  await Promise.resolve();
+  controller.abort();
+  body.error(controller.signal.reason);
+  await expect(next).rejects.toMatchObject({ kind: "CANCELLED" });
+});
+
+it("interrupts a pending SSE body read with the forwarded signal and releases its lock", async () => {
+  const controller = new AbortController();
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(body) {
+      controller.signal.addEventListener("abort", () => body.error(controller.signal.reason), { once: true });
+    },
+  }), { headers: { "Content-Type": "text/event-stream", "X-Request-ID": requestId, "Cache-Control": "no-store" } });
+  fetchMock.mockImplementation(async (_url, options) => {
+    expect(options.signal).toBe(controller.signal);
+    return response;
+  });
+  const next = client.postSse("/v1/agent/turns", {}, controller.signal).next();
+  await Promise.resolve();
+  expect(response.body!.locked).toBe(true);
+  controller.abort();
+  await expect(next).rejects.toMatchObject({ kind: "CANCELLED" });
+  expect(response.body!.locked).toBe(false);
+});
+
 it("sends one correlated JSON request and validates the response identity", async () => {
   fetchMock.mockResolvedValue(new Response(
     JSON.stringify({ request_id: requestId, connections: [] }),

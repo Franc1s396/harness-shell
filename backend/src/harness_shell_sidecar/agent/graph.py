@@ -33,6 +33,7 @@ from .contracts import (
 from .conversations import ConversationRepository
 from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 from .streaming import AgentTextDeltaSink
+from .executor import AgentCancelled
 from .tools import (
     CommandRejected,
     CommandSafetyReviewer,
@@ -154,6 +155,14 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
         try:
             result = handler(state, runtime)
             patch = await result if inspect.isawaitable(result) else result
+        except (asyncio.CancelledError, AgentCancelled):
+            # 取消是控制流，继续传播给 Service 持久化 CANCELLED；不记作节点失败。
+            LOGGER.info(
+                "agent_node_cancelled fields=%s",
+                fields,
+                extra={"harness_event": "agent_node_cancelled", "harness_fields": fields},
+            )
+            raise
         except BaseException as error:
             # 结构化字段只收集稳定元数据；当前异常日志仍附带 traceback，
             # 其中可能包含 Provider 正文、命令或远程输出，不能视为安全过滤。

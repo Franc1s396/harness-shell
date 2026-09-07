@@ -19,6 +19,7 @@ export type AgentWorkspaceProps = {
   onProviderSelect: (apiConfigId: string | null) => void;
   onOpenProviderSettings: () => void;
   onRequestSend: () => void;
+  onCancelTurn: () => void;
   onConfirmRiskAndSend: () => void;
   onCancelRisk: () => void;
   onResetConversation: () => void;
@@ -49,6 +50,7 @@ export function AgentWorkspace({
   onProviderSelect,
   onOpenProviderSettings,
   onRequestSend,
+  onCancelTurn,
   onConfirmRiskAndSend,
   onCancelRisk,
   onResetConversation,
@@ -164,6 +166,13 @@ export function AgentWorkspace({
             return (
               <article key={message.id} role="alert" className="w-fit max-w-[88%] break-words rounded-xl border border-danger/40 px-3 py-2 text-danger">
                 <AgentErrorDetails error={message.error} />
+              </article>
+            );
+          }
+          if (message.kind === "cancelled") {
+            return (
+              <article key={message.id} role="status" className="text-xs text-ink-muted">
+                {t("agent.cancelled")}
               </article>
             );
           }
@@ -294,15 +303,19 @@ export function AgentWorkspace({
             </span>
             <button
               type="button"
-              aria-label={t("agent.send")}
-              disabled={sendDisabled}
-              onClick={onRequestSend}
+              aria-label={t(tab.phase === "RUNNING" ? "agent.cancelResponse" : "agent.send")}
+              disabled={tab.phase === "RUNNING" ? false : sendDisabled}
+              onClick={tab.phase === "RUNNING" ? onCancelTurn : onRequestSend}
               className="grid size-[26px] place-items-center rounded-full bg-white text-black transition hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-95 disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-dim disabled:opacity-70"
             >
-              <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-4">
+              {tab.phase === "RUNNING" ? (
+                <svg aria-hidden viewBox="0 0 24 24" fill="currentColor" className="size-4">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-4">
                 <path d="M12 19V5" strokeLinecap="round" strokeLinejoin="round" />
                 <path d="M6.5 10.5 12 5l5.5 5.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              </svg>}
             </button>
           </div>
         </div>

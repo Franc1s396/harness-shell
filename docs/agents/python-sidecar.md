@@ -29,6 +29,8 @@ Chat Completions 与 Responses 接收采用类似 Open WebUI 的宽松聚合规�
 
 普通模型调用实时发布可见文本，包括工具调用前的说明。前缀扩展发送 text_delta，done / final 或 Chat message 修订通过 text_replace 更新完整显示内容；大快照以最多 4096 字符的替换首帧及后续增量编码，仍遵守 SSE 字节预算。工具执行期间保留说明，下一次模型调用首段文本替换上一调用内容，成功时显示文本仍与最后一条 AIMessage 一致。已发布任何可见更新后不再重试网络超时；尚未发布文本时维持原有有界重试。publisher 异常身份和取消传播不变。内部摘要仍聚合完整结果并校验完成状态，不发布可见内容。工具参数允许 JSON 对象、JSON 字符串和安全解析的 Python literal 字典，并统一规范为 JSON；不能解析为对象或缺少函数名仍失败，不执行猜测的命令。工具名、参数字段和命令安全由现有 execute_command / Agent graph 边界检查。Responses 本地 Replay 仍只保存支持的 message / reasoning / function_call，按严格本地 JSON Schema 和 api_config_id 校验；不将未知 hosted-tool 元数据转成可执行命令。
 
+节点观测将 asyncio.CancelledError 和 AgentCancelled 作为控制流，以 INFO 记录 agent_node_cancelled 并原样传播，由 Service 持久化 Run 取消终态；真实节点异常继续记录 ERROR 和 traceback。
+
 ## Agent 上下文工程
 
 `RuntimeResources` 在启动时创建 `AgentContextPolicy` 和本地 tokenizer/`ContextBudget`；graph 借用同一数据库创建 `ContextSummaryRepository` 与 `ContextCompactor`。`context_models.py` 定义序号记录、摘要、预算来源和安全错误；`context.py` 负责修复与有效投影；`context_budget.py` 负责估算和预算；`context_summaries.py` 负责短事务；`context_compaction.py` 负责一次有界摘要流程。
@@ -60,7 +62,7 @@ revision 必须独立声明历史 DDL，不能导入当前 ORM metadata；修改
 ## Protocol 约束
 
 - route 在进入 dispatcher 前完成 strict Pydantic/header/media-type/body-size 校验。
-- Agent turn route 要求 `Accept: text/event-stream`。worker 在 shared dispatcher 内取得 conversation lock、创建 durable RUNNING Run、建立 capacity 64 queue 并入队 started 后才允许 HTTP 200；consumer 发送 terminal frame 后才释放 dispatcher request ID/capacity，断连与 shutdown 都必须取消并 await worker。
+- Agent turn route 要求 `Accept: text/event-stream`。worker 在 shared dispatcher 内取得 conversation lock、创建 durable RUNNING Run、建立 capacity 64 queue 并入队 started 后才允许 HTTP 200；consumer 发送 terminal frame 后才释放 dispatcher request ID/capacity，断连与 shutdown 都必须取消并 await worker。route 在 HTTP 200 启动屏障前也监听 ASGI disconnect，取消并等待启动任务与 worker，沿用 AGENT_CANCELLED Problem 映射；正常启动后停止该监听，再交由 StreamingResponse 独占断连接收。SSE session 取消 worker 后，在 AnyIO shield scope 内等待其退出，防止已取消的 HTTP scope 通过 gather 再次取消正在关闭 SDK/SSH 资源的 worker。
 - Agent SSE 固定 frame 65,536 bytes、body 4,194,304 bytes、terminal reserve 65,536 bytes；producer awaited put，不 drop/merge/truncate。完整 Agent result 的 1,048,576-byte 逻辑预算继续生效。
 - Manual SFTP chunk 固定最大 262,144 bytes，使用 raw `application/octet-stream` 和 exact offset/operation identity。
 - WebSocket inbound/outbound queue capacity 固定且不 drop/merge；只有 strict ping 刷新 heartbeat。

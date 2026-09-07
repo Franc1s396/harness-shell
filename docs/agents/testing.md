@@ -48,8 +48,8 @@ Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated 
 - Alembic 新建与同库重启、整批 DDL/data/revision 回滚、STRICT/外键/索引自检、旧 schema 写入前拒绝、短 Session 与 plaintext record；不得重新出现无读取闭环的 Audit/Trace/Artifact 表。
 - credential request envelope、Python repository kind match、Provider key lookup、secret non-logging。
 - direct HTTP Problem、request ID、size/media/header/unknown-field failure；HTTP access log 覆盖 route template、实际返回 status、duration、INFO/WARNING/ERROR 分级、raw path 不泄露，以及 `GET /v1/runtime/state` 不打印 access log。
-- Agent SSE 必测 strict LF/CRLF framing、UTF-8 chunk boundary、frame/body/terminal reserve、started-first HTTP 200 barrier、durable terminal ordering、capacity 64 背压、terminal 发送前 request ID/capacity ownership、disconnect/shutdown cancellation、secret/tool/command/output non-exposure 与 OpenAPI/fixture drift。
-- React Agent 必测 event sequence/correlation/EOF、thinking→provisional text、同 tab 增量滚动、跨 tab isolation，以及 failed/invalid/too-large/interrupted 时丢弃 partial assistant text。
+- Agent SSE 必测 strict LF/CRLF framing、UTF-8 chunk boundary、frame/body/terminal reserve、started-first HTTP 200 barrier、durable terminal ordering、capacity 64 背压、terminal 发送前 request ID/capacity ownership、首事件前后真实 ASGI disconnect/shutdown cancellation、已取消 AnyIO scope 内的异步 SDK 资源关闭及 CANCELLED 落库/取消日志分类、secret/tool/command/output non-exposure 与 OpenAPI/fixture drift。
+- React Agent 必测 event sequence/correlation/EOF、thinking→provisional text、同 tab 增量滚动、跨 tab isolation，以及 failed/invalid/too-large/interrupted 时丢弃 partial assistant text；原位发送/取消按钮、首事件前取消、逐 tab 隔离、取消后继续同一对话、终态与取消竞态、取消和网络错误区分。
 - Runtime WebSocket single owner、ping/pong causation、queue、close、PTY input/event。
 - Manual SFTP React picker/handle/hash/chunk loop和 Python remote temp/commit/abort/recovery。
 - Launcher ready/control/stderr pipe、Backend 独立日志落盘与 10 MiB/4 归档轮转、handle inheritance、Job cleanup、UI-first/Backend-first exit、无 respawn。

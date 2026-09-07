@@ -9,6 +9,7 @@ import {
 
 import {
   agentApi,
+  AgentTurnCancelled,
   normalizeAgentCommandError,
   type AgentApi,
   type AgentCommandError,
@@ -75,6 +76,16 @@ export function useAgentController(
   const [providerMutationError, setProviderMutationError] =
     useState<ProviderMutationFailure | null>(null);
   const turnReservationsRef = useRef(new Set<string>());
+  // 每个标签页拥有自己的网络请求，切换可见标签不改变取消目标。
+  const turnControllersRef = useRef(new Map<string, AbortController>());
+
+  useEffect(() => {
+    const controllers = turnControllersRef.current;
+    return () => {
+      for (const controller of controllers.values()) controller.abort();
+      controllers.clear();
+    };
+  }, []);
 
   const refreshConfigs = useCallback(async (): Promise<ModelApiConfig[]> => {
     setConfigsLoading(true);
@@ -133,6 +144,8 @@ export function useAgentController(
   }, []);
 
   const removeTab = useCallback((tabId: string) => {
+    turnControllersRef.current.get(tabId)?.abort();
+    turnControllersRef.current.delete(tabId);
     turnReservationsRef.current.delete(tabId);
     dispatch({ type: "tab/remove", tabId });
   }, []);
@@ -232,6 +245,8 @@ export function useAgentController(
           model: config.model,
           updatedAt: config.updated_at,
         };
+        const controller = new AbortController();
+        turnControllersRef.current.set(tabId, controller);
         // 跨越每标签页流边界前冻结已验证的 Provider 和 Session 标识；
         // 完成处理由 reducer token 管理。
         dispatch({
@@ -256,6 +271,7 @@ export function useAgentController(
               userMessage,
             },
             (event) => {
+              if (controller.signal.aborted) return;
               if (event.type === "agent.turn.started") {
                 dispatch({
                   type: "run/stream-started",
@@ -274,6 +290,7 @@ export function useAgentController(
                 });
               }
             },
+            controller.signal,
           );
           if (terminal.type === "agent.turn.completed") {
             dispatch({
@@ -297,6 +314,10 @@ export function useAgentController(
             });
           }
         } catch (error) {
+          if (error instanceof AgentTurnCancelled) {
+            dispatch({ type: "run/cancel", tabId, requestToken, messageId: dependencies.makeId() });
+            return;
+          }
           dispatch({
             type: "run/fail",
             tabId,
@@ -305,6 +326,10 @@ export function useAgentController(
             error: normalizeAgentCommandError(error),
             messageId: dependencies.makeId(),
           });
+        } finally {
+          if (turnControllersRef.current.get(tabId) === controller) {
+            turnControllersRef.current.delete(tabId);
+          }
         }
       } finally {
         turnReservationsRef.current.delete(tabId);
@@ -394,6 +419,10 @@ export function useAgentController(
 
   const cancelRisk = useCallback((tabId: string) => {
     dispatch({ type: "risk/cancel", tabId });
+  }, []);
+  const cancelTurn = useCallback((tabId: string) => {
+    // 等待网络读取退出后再收敛 UI；不提前把本轮标记为服务端 CANCELLED。
+    turnControllersRef.current.get(tabId)?.abort();
   }, []);
   const resetConversation = useCallback((tabId: string) => {
     dispatch({ type: "conversation/reset", tabId });
@@ -522,6 +551,7 @@ export function useAgentController(
     requestSend,
     confirmRiskAndSend,
     cancelRisk,
+    cancelTurn,
     resetConversation,
     markRead,
     refreshConfigs,
