@@ -85,3 +85,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 `backend/tests/storage/` 验证真实 SQLite 文件的整批 migration/DDL/batch 回滚、版本身份、STRICT 约束、Session 生命周期与包内资源；`backend/tests/agent/test_session_boundaries.py` 验证并行会话的模型/工具边界无活动 Session。测试使用临时数据库，不运行用户旧库迁移。
 
 `backend/scripts/build_sidecar.ps1` 收集 Alembic env.py、versions 和 Mako 模板，随后执行实际 exe smoke：无关 cwd 的全新建库、同库重启、旧 v7/未知 revision 的无 ready、非零退出和内容不变。Desktop 控制读取在线程启动前完成数据库初始化，避免初始化失败时阻塞关闭；失败不能返回成功退出码。测试与打包 smoke 不代表完整安装版 Desktop 或用户旧数据验收。
+
+
+## Agent HITL 验证
+
+命令策略、原子授权、真实 LangGraph 暂停/恢复与回收、SSH 失效、控制容量、HTTP 决定、SSE 关联、审核气泡与 UI 状态均有独立测试。审核等待用 Event 控制，测试自身的超时不是产品审核期限。验收记录见 [Agent HITL](../testing/agent-human-in-the-loop.md)。真实 Provider、安装版 WebView 和生产 SSH 必须独立验收。

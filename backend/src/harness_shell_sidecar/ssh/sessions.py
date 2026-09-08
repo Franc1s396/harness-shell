@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
@@ -18,6 +19,12 @@ class SshSession:
     connection_profile_version: int
     #: 建立连接时冻结的安全显示名。
     host_label: str
+    #: 建立连接时冻结的目标，审批不重新读取可变配置。
+    host: str
+    #: 建立连接时使用的目标端口。
+    port: int
+    #: 建立连接时认证的用户名。
+    username: str
     #: 已验证目标 Host Key 的 SHA-256 指纹。
     target_host_key_fingerprint: str
     #: 可选跳板配置及其冻结版本和 Host Key 指纹。
@@ -30,6 +37,8 @@ class SshSession:
     jump_connection: Any | None = None
     #: 由该会话派生、关闭会话时必须先收敛的 PTY/exec/SFTP channel。
     child_channels: set[Any] = field(default_factory=set)
+    #: 本地移除会话时立即通知等待者，不等待网络关闭完成。
+    invalidated: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class SshSessionRegistry:
@@ -53,6 +62,9 @@ class SshSessionRegistry:
         *,
         connection_profile_version: int,
         host_label: str,
+        host: str,
+        port: int,
+        username: str,
         target_host_key_fingerprint: str,
         jump_connection_id: UUID | None = None,
         jump_profile_version: int | None = None,
@@ -65,6 +77,9 @@ class SshSessionRegistry:
             connection_id=connection_id,
             connection_profile_version=connection_profile_version,
             host_label=host_label,
+            host=host,
+            port=port,
+            username=username,
             target_host_key_fingerprint=target_host_key_fingerprint,
             jump_connection_id=jump_connection_id,
             jump_profile_version=jump_profile_version,
@@ -97,6 +112,25 @@ class SshSessionRegistry:
             if session.connection_id == connection_id
         )
 
+    async def wait_unavailable(self, session_id: UUID) -> None:
+        """借用传输关闭通知；取消等待只回收 waiter，不关闭 SSH 主连接。"""
+        session = self.get(session_id)
+        if session is None or not self.is_connected(session_id):
+            return
+        # 各 waiter 仅由本方法拥有；本地移除和目标/跳板断连都立即唤醒。
+        tasks = [asyncio.create_task(session.invalidated.wait()),
+                 asyncio.create_task(session.connection.wait_closed())]
+        if session.jump_connection is not None:
+            tasks.append(asyncio.create_task(session.jump_connection.wait_closed()))
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     def find_recovery_session(
         self,
         *,
@@ -127,6 +161,7 @@ class SshSessionRegistry:
         session = self._sessions.pop(session_id, None)
         if session is None:
             return None
+        session.invalidated.set()
         first_error: BaseException | None = None
 
         def remember(error: BaseException) -> None:

@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelApiConfig } from "../../api/agent";
-import { agentReducer, type AgentTabState, type AgentState } from "./agent-state";
+import { agentReducer, type AgentTabState, type AgentState, type AgentApprovalMessage } from "./agent-state";
 import { AgentWorkspace, type AgentWorkspaceProps } from "./AgentWorkspace";
 
 const config: ModelApiConfig = {
@@ -31,8 +31,6 @@ const idleTab: AgentTabState = {
   phase: "IDLE",
   selectedApiConfigId: "config-1",
   activeRun: null,
-  pendingRiskSshSessionId: null,
-  riskAcknowledgedSshSessionId: null,
   lastError: null,
   backgroundState: "NONE",
 };
@@ -81,8 +79,7 @@ const renderWorkspace = (
     onOpenProviderSettings: vi.fn(),
     onRequestSend: vi.fn(),
     onCancelTurn: vi.fn(),
-    onConfirmRiskAndSend: vi.fn(),
-    onCancelRisk: vi.fn(),
+    onApprovalDecision: vi.fn(),
     onResetConversation: vi.fn(),
     onMarkRead: vi.fn(),
     ...overrides,
@@ -92,6 +89,70 @@ const renderWorkspace = (
 
 describe("AgentWorkspace", () => {
   afterEach(cleanup);
+
+  it.each(["", "Preparing the change"])("shows approval without a generation spinner (text=%s)", text => {
+    const tab: AgentTabState = { ...runningTab, activeRun: { ...runningTab.activeRun!, streamedText: text },
+      backgroundState: "AWAITING_APPROVAL", messages: [{ id: "approval-1", kind: "approval", status: "PENDING", submitting: false, error: null,
+        request: { schema_version: 1, type: "agent.turn.approval_requested", request_id: "request-1", sequence: 1,
+          conversation_id: "conversation-1", agent_run_id: "run-1", ssh_session_id: "ssh-1", approval_id: "approval-1",
+          tool_name: "execute_command", tool_call_id: "call-1", arguments: { command: "touch /tmp/test" },
+          target: { display_name: "target", host: "localhost", port: 22, username: "tester" }, reason: "POSSIBLE_MUTATION_OR_UNKNOWN" } }] };
+    const { view, props } = renderWorkspace({ tab });
+    expect(view.container.querySelector(".animate-spin")).toBeNull();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Cancel response" })).toBeEnabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // 上轮断流留下的未知历史不能把新 Run 误判为正在等待审核。
+    view.rerender(<AgentWorkspace {...props} tab={{ ...tab, activeRun: { ...tab.activeRun!, agentRunId: "new-run" } }} />);
+    expect(view.container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it.each(["complete", "fail", "cancel"])("docks approval and folds history on %s", ending => {
+    const approval: AgentApprovalMessage = { id: "approval-dock", kind: "approval", status: "PENDING", submitting: false, error: null,
+      request: { schema_version: 1, type: "agent.turn.approval_requested", request_id: "request-1", sequence: 1,
+        conversation_id: "conversation-1", agent_run_id: "run-1", ssh_session_id: "ssh-1", approval_id: "approval-dock",
+        tool_name: "execute_command", tool_call_id: "call-1", arguments: { command: "touch /tmp/docked" },
+        target: { display_name: "target", host: "localhost", port: 22, username: "tester" }, reason: "POSSIBLE_MUTATION_OR_UNKNOWN" } };
+    const oldApproval = { ...approval, id: "old-approval", status: "REJECTED" as const,
+      request: { ...approval.request, approval_id: "old-approval", agent_run_id: "old-run", arguments: { command: "old-command" } } };
+    const tab = { ...runningTab, messages: [oldApproval, approval] };
+
+    const { view, props } = renderWorkspace({ tab });
+    const dock = screen.getByRole("region", { name: "Pending approval" });
+    expect(dock).toContainElement(screen.getByText("touch /tmp/docked"));
+    expect(dock.parentElement).toContainElement(screen.getByRole("textbox", { name: "Message" }));
+    expect(dock.parentElement).toBe(screen.getByRole("textbox", { name: "Message" }).parentElement);
+    expect(dock).not.toHaveClass("overflow-y-auto", "mb-3");
+    expect(dock).toHaveClass("border-b");
+    const approvalCard = screen.getByText("touch /tmp/docked").closest("article")!;
+    expect(approvalCard).not.toHaveClass("border", "rounded-xl");
+    expect(screen.getByText("touch /tmp/docked")).toHaveClass("overflow-auto", "max-h-[min(16rem,25vh)]");
+
+    view.rerender(<AgentWorkspace {...props} tab={{ ...tab, messages: [{ ...approval, submitting: true }] }} />);
+    expect(screen.queryByText("touch /tmp/docked")).not.toBeInTheDocument();
+    view.rerender(<AgentWorkspace {...props} tab={{ ...tab, messages: [{ ...approval, error: { code: "REQUEST_CAPACITY_EXCEEDED", message: "Busy" } }] }} />);
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Busy");
+    view.rerender(<AgentWorkspace {...props} tab={{ ...tab, messages: [oldApproval, { ...approval, status: "UNKNOWN" }] }} />);
+    expect(screen.getByRole("region", { name: "Pending approval" })).toHaveTextContent("Decision or execution unconfirmed");
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    const initial = { tabs: { tab } };
+    const common = { tabId: "tab", requestToken: "request-1", messageId: "ending" };
+    const state = ending === "cancel" ? agentReducer(initial, { ...common, type: "run/cancel" })
+      : ending === "fail" ? agentReducer(initial, { ...common, type: "run/fail", event: null, error: { code: "FAILED", message: "Failed" } })
+      : agentReducer(initial, { ...common, type: "run/complete", event: {
+        schema_version: 1, type: "agent.turn.completed", request_id: "request-1", sequence: 1,
+        conversation_id: "conversation-1", agent_run_id: "run-1", status: "COMPLETED", react_iteration: 1, error_code: null,
+      } });
+    view.rerender(<AgentWorkspace {...props} tab={state.tabs.tab} />);
+    expect(screen.queryByRole("region", { name: "Pending approval" })).not.toBeInTheDocument();
+    const history = screen.getByText("Approval history (1)").closest("details")!;
+    expect(history).not.toHaveAttribute("open");
+    expect(history).not.toHaveTextContent("old-command");
+    expect(history).toContainElement(screen.getByText("touch /tmp/docked"));
+    expect(screen.queryByRole("button", { name: "Approve", hidden: true })).not.toBeInTheDocument();
+  });
 
   it("renders the single-box composer with the confirmed send button", () => {
     renderWorkspace();

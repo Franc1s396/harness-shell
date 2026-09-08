@@ -1,5 +1,7 @@
 import type {
   AgentCommandError,
+  AgentTurnApprovalRequestedEvent,
+  AgentTurnApprovalResolvedEvent,
   AgentExecutedTool,
   AgentRunStatus,
   AgentTurnCompletedEvent,
@@ -28,12 +30,20 @@ export type AgentRunProjection = {
   provider: ProviderSnapshot;
 };
 
+export type AgentApprovalMessage = {
+  id: string; kind: "approval"; request: AgentTurnApprovalRequestedEvent;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "INVALIDATED" | "UNKNOWN";
+  submitting: boolean; error: AgentCommandError | null;
+};
+
 export type AgentUiMessage =
+  | AgentApprovalMessage
   | { id: string; kind: "user"; text: string }
-  | { id: string; kind: "cancelled" }
+  | { id: string; kind: "cancelled"; approvalIds?: string[] }
   | {
       id: string;
       kind: "assistant";
+      approvalIds?: string[];
       tools: AgentExecutedTool[];
       text: string;
       run: AgentRunProjection;
@@ -41,12 +51,14 @@ export type AgentUiMessage =
   | {
       id: string;
       kind: "error";
+      approvalIds?: string[];
       error: AgentCommandError;
       run: AgentRunProjection | null;
     };
 
 export type AgentBackgroundState =
   | "NONE"
+  | "AWAITING_APPROVAL"
   | "RUNNING"
   | "COMPLETED_UNREAD"
   | "FAILED_UNREAD";
@@ -55,7 +67,7 @@ export type AgentTabState = {
   conversationId: string | null;
   messages: AgentUiMessage[];
   draft: string;
-  phase: "IDLE" | "AWAITING_RISK_CONFIRMATION" | "RUNNING";
+  phase: "IDLE" | "RUNNING";
   selectedApiConfigId: string | null;
   activeRun: {
     requestToken: string;
@@ -69,8 +81,6 @@ export type AgentTabState = {
     tools: AgentExecutedTool[];
     reactIteration: number;
   } | null;
-  pendingRiskSshSessionId: string | null;
-  riskAcknowledgedSshSessionId: string | null;
   lastError: AgentCommandError | null;
   backgroundState: AgentBackgroundState;
 };
@@ -90,13 +100,15 @@ export const createAgentTabState = (
   phase: "IDLE",
   selectedApiConfigId,
   activeRun: null,
-  pendingRiskSshSessionId: null,
-  riskAcknowledgedSshSessionId: null,
   lastError: null,
   backgroundState: "NONE",
 });
 
 export type AgentAction =
+  | { type: "run/approval-requested"; tabId: string; requestToken: string; event: AgentTurnApprovalRequestedEvent }
+  | { type: "run/approval-resolved"; tabId: string; requestToken: string; event: AgentTurnApprovalResolvedEvent }
+  | { type: "approval/protocol-error"; tabId: string; approvalId: string; agentRunId: string; error: AgentCommandError }
+  | { type: "approval/update"; tabId: string; requestToken: string; approvalId: string; submitting: boolean; status?: AgentApprovalMessage["status"]; error: AgentCommandError | null }
   | {
       type: "tab/ensure";
       tabId: string;
@@ -110,9 +122,6 @@ export type AgentAction =
       apiConfigId: string | null;
     }
   | { type: "provider/invalidate"; apiConfigId: string }
-  | { type: "risk/request"; tabId: string; sshSessionId: string }
-  | { type: "risk/acknowledge"; tabId: string; sshSessionId: string }
-  | { type: "risk/cancel"; tabId: string }
   | { type: "error/set"; tabId: string; error: AgentCommandError }
   | { type: "error/clear"; tabId: string }
   | {
@@ -198,7 +207,7 @@ const activeRequestMatches = (
 const streamEventMatches = (
   tab: AgentTabState,
   requestToken: string,
-  event: AgentTurnToolStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
+  event: AgentTurnApprovalRequestedEvent | AgentTurnApprovalResolvedEvent | AgentTurnToolStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent | AgentTurnCompletedEvent | AgentTurnFailedEvent,
 ): boolean =>
   activeRequestMatches(tab, requestToken) &&
   tab.activeRun?.conversationId === event.conversation_id &&
@@ -247,37 +256,6 @@ export const agentReducer = (
           ? { ...tab, selectedApiConfigId: null }
           : tab,
       );
-    case "risk/request":
-      return updateTab(state, action.tabId, (tab) =>
-        tab.phase === "IDLE"
-          ? {
-              ...tab,
-              phase: "AWAITING_RISK_CONFIRMATION",
-              pendingRiskSshSessionId: action.sshSessionId,
-              lastError: null,
-            }
-          : tab,
-      );
-    case "risk/acknowledge":
-      return updateTab(state, action.tabId, (tab) =>
-        tab.phase === "RUNNING"
-          ? tab
-          : {
-              ...tab,
-              riskAcknowledgedSshSessionId: action.sshSessionId,
-              lastError: null,
-            },
-      );
-    case "risk/cancel":
-      return updateTab(state, action.tabId, (tab) =>
-        tab.phase === "AWAITING_RISK_CONFIRMATION"
-          ? {
-              ...tab,
-              phase: "IDLE",
-              pendingRiskSshSessionId: null,
-            }
-          : tab,
-      );
     case "error/set":
       return updateTab(state, action.tabId, (tab) => ({
         ...tab,
@@ -315,7 +293,6 @@ export const agentReducer = (
                 tools: [],
                 reactIteration: 0,
               },
-              pendingRiskSshSessionId: null,
               lastError: null,
               backgroundState: "RUNNING",
             },
@@ -342,6 +319,34 @@ export const agentReducer = (
             nextSequence: 1,
           },
         };
+      });
+    case "run/approval-requested":
+      return updateTab(state, action.tabId, tab => {
+        if (!streamEventMatches(tab, action.requestToken, action.event)) return tab;
+        return { ...tab, backgroundState: "AWAITING_APPROVAL", messages: [...tab.messages, { id: action.event.approval_id, kind: "approval",
+          request: action.event, status: "PENDING", submitting: false, error: null }],
+          activeRun: { ...tab.activeRun!, toolExecuting: false, nextSequence: tab.activeRun!.nextSequence + 1 } };
+      });
+    case "run/approval-resolved":
+      return updateTab(state, action.tabId, tab => {
+        if (!streamEventMatches(tab, action.requestToken, action.event)) return tab;
+        return { ...tab, backgroundState: "RUNNING", messages: tab.messages.map(message => message.kind === "approval" && message.id === action.event.approval_id
+          ? { ...message, status: action.event.status, submitting: false, error: null } : message),
+          activeRun: { ...tab.activeRun!, nextSequence: tab.activeRun!.nextSequence + 1 } };
+      });
+    case "approval/protocol-error":
+      return updateTab(state, action.tabId, tab => ({ ...tab,
+        messages: tab.messages.map(message => message.kind === "approval" && message.id === action.approvalId &&
+          message.request.agent_run_id === action.agentRunId ? { ...message, error: action.error, submitting: false } : message),
+      }));
+    case "approval/update":
+      return updateTab(state, action.tabId, tab => {
+        if (!activeRequestMatches(tab, action.requestToken)) return tab;
+        return { ...tab, messages: tab.messages.map(message => {
+          if (message.kind !== "approval" || message.id !== action.approvalId ||
+              (message.status !== "PENDING" && message.status !== "UNKNOWN")) return message;
+          return { ...message, status: action.status ?? message.status, submitting: action.submitting, error: action.error };
+        }) };
       });
     case "run/tool-started":
     case "run/text-replace":
@@ -382,6 +387,7 @@ export const agentReducer = (
         const message: AgentUiMessage = {
           id: action.messageId,
           kind: "assistant",
+          approvalIds: runApprovalIds(tab),
           tools: activeRun.tools,
           text: activeRun.streamedText,
           run,
@@ -419,10 +425,11 @@ export const agentReducer = (
           ...tab,
           conversationId: action.event?.conversation_id ?? tab.conversationId,
           messages: [
-            ...tab.messages,
+            ...invalidateApprovals(tab.messages, action.event ? "INVALIDATED" : "UNKNOWN"),
             {
               id: action.messageId,
               kind: "error",
+              approvalIds: runApprovalIds(tab),
               error: action.error,
               run,
             },
@@ -439,7 +446,7 @@ export const agentReducer = (
         return {
           ...tab,
           conversationId: tab.activeRun!.conversationId ?? tab.conversationId,
-          messages: [...tab.messages, { id: action.messageId, kind: "cancelled" }],
+          messages: [...invalidateApprovals(tab.messages, "INVALIDATED"), { id: action.messageId, kind: "cancelled", approvalIds: runApprovalIds(tab) }],
           phase: "IDLE",
           activeRun: null,
           lastError: null,
@@ -451,8 +458,7 @@ export const agentReducer = (
         tab.phase === "IDLE"
           ? {
               ...createAgentTabState(tab.selectedApiConfigId),
-              riskAcknowledgedSshSessionId:
-                tab.riskAcknowledgedSshSessionId,
+
             }
           : tab,
       );
@@ -480,6 +486,7 @@ export const aggregateAgentBackground = (
   states: Readonly<Record<string, AgentBackgroundState>>,
 ): AgentBackgroundState => {
   const values = Object.values(states);
+  if (values.includes("AWAITING_APPROVAL")) return "AWAITING_APPROVAL";
   if (values.includes("FAILED_UNREAD")) return "FAILED_UNREAD";
   if (values.includes("COMPLETED_UNREAD")) return "COMPLETED_UNREAD";
   if (values.includes("RUNNING")) return "RUNNING";
@@ -495,3 +502,14 @@ export const isActiveRunForSession = (
       tab.phase === "RUNNING" &&
       tab.activeRun?.sshSessionId === sshSessionId,
   );
+
+function invalidateApprovals(messages: AgentUiMessage[], status: "INVALIDATED" | "UNKNOWN"): AgentUiMessage[] {
+  return messages.map(message => message.kind === "approval" && (message.status === "PENDING" || message.status === "UNKNOWN")
+    ? { ...message, status, submitting: false } : message);
+}
+
+/** 终态只保存本轮审核 ID；详情仍引用原记录，以保留晚到的决定响应。 */
+function runApprovalIds(tab: AgentTabState): string[] {
+  return tab.messages.filter(message => message.kind === "approval" &&
+    message.request.agent_run_id === tab.activeRun?.agentRunId).map(message => message.id);
+}

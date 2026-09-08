@@ -72,7 +72,11 @@ def build_execute_command_tool_definition() -> ExecuteCommandToolDefinition:
     return ExecuteCommandToolDefinition(
         name="execute_command",
         description=("""
-        Execute one complete shell command on the SSH session bound to this
+        Commands requiring approval pause for a human decision in the UI before
+        execution. Rejection returns COMMAND_REJECTED_BY_USER without execution.
+        Do not ask for a separate conversational execution confirmation when the
+        task and scope are clear. Submission is not proof of execution; inspect
+        the tool result. Submit one complete shell command on the SSH session bound to this
         agent run. The command can modify remote state and has a 30-second
         execution timeout. stdout/stderr contain only a bounded prefix;
         inspect truncation metadata and use explicit range or filtered commands

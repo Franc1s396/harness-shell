@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.agent.fakes import FakeSessionRegistry
 
 from harness_shell_sidecar.agent.conversations import ConversationRepository
 
@@ -104,7 +105,7 @@ def _service(
         ),
         ContextService(agent_storage.database),
         session_is_available,
-    )
+    ssh_sessions=FakeSessionRegistry())
 
 
 async def _run_turn(

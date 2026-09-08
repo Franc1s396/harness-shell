@@ -92,6 +92,125 @@
         "agent.turn.completed"
       ],
       "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.text_delta\nid: 1\ndata: {\"schema_version\":1,\"type\":\"agent.turn.text_delta\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"delta\":\"完成\"}\n\nevent: agent.turn.tool_started\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.tool_started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"tool_call_id\":\"call-1\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"pwd\"}}\n\nevent: agent.turn.text_replace\nid: 3\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.text_replace\",\"sequence\":3,\"text\":\"修订后的完整回答\"}\n\nevent: agent.turn.completed\nid: 4\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":4,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n"
+    },
+    {
+      "name": "agent-approval-approve",
+      "request": {
+        "headers": {
+          "Accept": "text/event-stream",
+          "X-Request-ID": "10000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "conversation_id": null,
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "api_config_id": "30000000-0000-4000-8000-000000000003",
+          "user_message": "检查当前目录中的文件。"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream; charset=utf-8",
+        "cache_control": "no-store"
+      },
+      "event_types": [
+        "agent.turn.started",
+        "agent.turn.approval_requested",
+        "agent.turn.approval_resolved",
+        "agent.turn.completed"
+      ],
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.approval_requested\nid: 1\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_requested\",\"sequence\":1,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"ssh_session_id\":\"20000000-0000-4000-8000-000000000002\",\"tool_call_id\":\"change\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"touch /tmp/hitl\"},\"target\":{\"display_name\":\"测试主机\",\"host\":\"localhost\",\"port\":22,\"username\":\"tester\"},\"reason\":\"POSSIBLE_MUTATION_OR_UNKNOWN\"}\n\nevent: agent.turn.approval_resolved\nid: 2\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_resolved\",\"sequence\":2,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"tool_call_id\":\"change\",\"status\":\"APPROVED\",\"reason\":\"user_approved\"}\n\nevent: agent.turn.completed\nid: 3\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":3,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n"
+    },
+    {
+      "name": "approval-decision-approve",
+      "request": {
+        "body": {
+          "conversation_id": "40000000-0000-4000-8000-000000000004",
+          "agent_run_id": "50000000-0000-4000-8000-000000000005",
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "tool_call_id": "change",
+          "decision": "approve"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "approval_id": "60000000-0000-4000-8000-000000000006",
+          "status": "APPROVED"
+        }
+      }
+    },
+    {
+      "name": "agent-approval-reject",
+      "request": {
+        "headers": {
+          "Accept": "text/event-stream",
+          "X-Request-ID": "10000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "conversation_id": null,
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "api_config_id": "30000000-0000-4000-8000-000000000003",
+          "user_message": "检查当前目录中的文件。"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream; charset=utf-8",
+        "cache_control": "no-store"
+      },
+      "event_types": [
+        "agent.turn.started",
+        "agent.turn.approval_requested",
+        "agent.turn.approval_resolved",
+        "agent.turn.completed"
+      ],
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.approval_requested\nid: 1\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_requested\",\"sequence\":1,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"ssh_session_id\":\"20000000-0000-4000-8000-000000000002\",\"tool_call_id\":\"change\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"touch /tmp/hitl\"},\"target\":{\"display_name\":\"测试主机\",\"host\":\"localhost\",\"port\":22,\"username\":\"tester\"},\"reason\":\"POSSIBLE_MUTATION_OR_UNKNOWN\"}\n\nevent: agent.turn.approval_resolved\nid: 2\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_resolved\",\"sequence\":2,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"tool_call_id\":\"change\",\"status\":\"REJECTED\",\"reason\":\"user_rejected\"}\n\nevent: agent.turn.completed\nid: 3\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":3,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n"
+    },
+    {
+      "name": "approval-decision-reject",
+      "request": {
+        "body": {
+          "conversation_id": "40000000-0000-4000-8000-000000000004",
+          "agent_run_id": "50000000-0000-4000-8000-000000000005",
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "tool_call_id": "change",
+          "decision": "reject"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "approval_id": "60000000-0000-4000-8000-000000000006",
+          "status": "REJECTED"
+        }
+      }
+    },
+    {
+      "name": "agent-approval-invalidated",
+      "request": {
+        "headers": {
+          "Accept": "text/event-stream",
+          "X-Request-ID": "10000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "conversation_id": null,
+          "ssh_session_id": "20000000-0000-4000-8000-000000000002",
+          "api_config_id": "30000000-0000-4000-8000-000000000003",
+          "user_message": "检查当前目录中的文件。"
+        }
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream; charset=utf-8",
+        "cache_control": "no-store"
+      },
+      "event_types": [
+        "agent.turn.started",
+        "agent.turn.approval_requested",
+        "agent.turn.approval_resolved",
+        "agent.turn.failed"
+      ],
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.approval_requested\nid: 1\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_requested\",\"sequence\":1,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"ssh_session_id\":\"20000000-0000-4000-8000-000000000002\",\"tool_call_id\":\"change\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"touch /tmp/hitl\"},\"target\":{\"display_name\":\"测试主机\",\"host\":\"localhost\",\"port\":22,\"username\":\"tester\"},\"reason\":\"POSSIBLE_MUTATION_OR_UNKNOWN\"}\n\nevent: agent.turn.approval_resolved\nid: 2\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_resolved\",\"sequence\":2,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"tool_call_id\":\"change\",\"status\":\"INVALIDATED\",\"reason\":\"session_unavailable\"}\n\nevent: agent.turn.failed\nid: 3\ndata: {\"schema_version\":1,\"type\":\"agent.turn.failed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":3,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"FAILED\",\"react_iteration\":0,\"error_code\":\"SSH_SESSION_UNAVAILABLE\",\"message\":\"The bound SSH session is unavailable.\"}\n\n"
     }
   ]
 }

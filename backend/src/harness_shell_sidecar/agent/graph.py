@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Protocol, TypedDict
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.errors import GraphInterrupt
+from langgraph.types import interrupt
+from .approval_models import ApprovalRequest, ApprovalTarget
+from .approvals import ApprovalRegistry
+from .command_policy import classify_command
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
@@ -58,6 +65,9 @@ class AgentGraphState(TypedDict):
     react_iteration: int
     run_status: AgentRunStatus
     last_error_code: str | None
+    pending_approval: dict[str, object] | None  # JSON 审核描述，不包含运行时资源。
+    approval_decision: Literal["approve", "reject"] | None  # 当前工具的恢复决定，结果保存后清空。
+    tool_results: list[ToolMessage]  # 当前工具结果，独立节点保存。
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +84,10 @@ class AgentGraphContext:
     user_message: str
     #: 本 Run 局部的文本与工具状态接收端，不进入图状态或持久化。
     text_sink: AgentTurnEventSink
+    #: 仅借用 Run 的授权注册表，绝不进入 checkpoint。
+    approval_registry: ApprovalRegistry | None = None
+    #: 已建立 SSH 会话的冻结显示快照。
+    approval_target: ApprovalTarget | None = None
 
 
 class ModelInvoker(SummaryInvoker, Protocol):
@@ -163,6 +177,9 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
                 extra={"harness_event": "agent_node_cancelled", "harness_fields": fields},
             )
             raise
+        except GraphInterrupt:
+            LOGGER.debug("agent_node_interrupted node=%s", node)
+            raise
         except BaseException as error:
             # 结构化字段只收集稳定元数据；当前异常日志仍附带 traceback，
             # 其中可能包含 Provider 正文、命令或远程输出，不能视为安全过滤。
@@ -210,6 +227,7 @@ def _instrument_agent_node(node: str, handler: NodeHandler) -> NodeHandler:
 
 def build_agent_graph(
     dependencies: AgentGraphDependencies,
+    *, checkpointer: InMemorySaver | None = None,
 ) -> CompiledStateGraph[AgentGraphState, AgentGraphContext, AgentGraphState, AgentGraphState]:
     """编译有界 ReAct 图，不使用 LangGraph checkpointer。"""
 
@@ -336,13 +354,13 @@ def build_agent_graph(
 
     def route_after_limit(
         state: AgentGraphState,
-    ) -> Literal["execute_tool", "reject_limit"]:
+    ) -> Literal["prepare_tool", "reject_limit"]:
         """仅依据显式持久化的业务限制决策路由。"""
 
         target = (
             "reject_limit"
             if state["last_error_code"] == "REACT_LIMIT_REACHED"
-            else "execute_tool"
+            else "prepare_tool"
         )
         LOGGER.debug(
             "agent_route_selected agent_run_id=%s conversation_id=%s "
@@ -367,46 +385,86 @@ def build_agent_graph(
         )
         return target
 
-    async def execute_tool(
-        state: AgentGraphState,
-        runtime: Runtime[AgentGraphContext],
-    ) -> dict[str, object]:
-        """为模型调用配对结构化结果，最多派发一条命令。"""
-
-        # 1. 读取已持久化的工具决策；多个调用全部配对拒绝结果，不派发命令。
+    async def prepare_tool(state: AgentGraphState, runtime: Runtime[AgentGraphContext]) -> dict[str, object]:
+        """冻结一次操作，所有校验与 ID 生成在中断节点之前完成。"""
         calls = _last_ai_message(state).tool_calls
+        results: list[ToolMessage] = []
+        pending: dict[str, object] | None = None
         if len(calls) > 1:
-            messages = [
-                tool_message(
-                    call["id"],
-                    _failure_envelope(
-                        "MULTIPLE_TOOL_CALLS_UNSUPPORTED",
-                        "Only one tool call is supported per model response.",
-                    ),
-                )
-                for call in calls
-            ]
+            results = [tool_message(call["id"], _failure_envelope(
+                "MULTIPLE_TOOL_CALLS_UNSUPPORTED", "Only one tool call is supported per model response.")) for call in calls]
         else:
             call = calls[0]
-            # 2. 单调用进入工具名、参数和安全审查边界后，才可在冻结会话上执行。
-            envelope = await _execute_one_tool_call(
-                call,
-                state["ssh_session_id"],
-                runtime.context.cancelled,
-                dependencies,
-                runtime.context.text_sink,
-            )
-            messages = [tool_message(call["id"], envelope)]
-        # 3. 原子保存全部工具结果，再按真实序号更新图历史并继续模型循环。
+            if call["name"] != "execute_command":
+                results = [tool_message(call["id"], _failure_envelope("UNKNOWN_TOOL", "The requested tool is not registered."))]
+            else:
+                try:
+                    arguments = ExecuteCommandArguments.model_validate(call["args"])
+                except ValidationError:
+                    results = [tool_message(call["id"], _failure_envelope("COMMAND_REJECTED_INVALID_ARGUMENTS", "The execute_command arguments are invalid."))]
+                else:
+                    disposition = classify_command(arguments.command)
+                    if disposition == "BLOCKED":
+                        results = [tool_message(call["id"], _failure_envelope("COMMAND_REJECTED_DANGEROUS_PATTERN", "The command matched a blocked direct-danger pattern."))]
+                    elif disposition == "REQUIRE_APPROVAL":
+                        if runtime.context.approval_target is None or runtime.context.approval_registry is None:
+                            raise RuntimeError("approval runtime context is required")
+                        pending = ApprovalRequest(approval_id=uuid4(), conversation_id=state["conversation_id"],
+                            agent_run_id=state["agent_run_id"], ssh_session_id=state["ssh_session_id"],
+                            tool_call_id=call["id"], arguments=arguments,
+                            target=runtime.context.approval_target).model_dump(mode="json")
+        return {"pending_approval": pending, "approval_decision": None, "tool_results": results}
+
+    def route_prepared(state: AgentGraphState) -> Literal["record_tool_result", "await_approval", "execute_tool"]:
+        """只将确实可执行或需要审核的调用送向对应节点。"""
+        if state["tool_results"]:
+            return "record_tool_result"
+        return "await_approval" if state["pending_approval"] is not None else "execute_tool"
+
+    def await_approval(state: AgentGraphState, runtime: Runtime[AgentGraphContext]) -> dict[str, object]:
+        """纯审核节点可安全从头重跑，不发布事件或执行任何 I/O。"""
+        request = ApprovalRequest.model_validate_json(json.dumps(state["pending_approval"]))
+        resumed = interrupt(request.model_dump(mode="json"))
+        if not isinstance(resumed, dict) or set(resumed) != {"approval_id", "decision"}:
+            raise RuntimeError("invalid approval resume fields")
+        if resumed["approval_id"] != str(request.approval_id) or resumed["decision"] not in ("approve", "reject"):
+            raise RuntimeError("invalid approval resume identity or decision")
+        results = [] if resumed["decision"] == "approve" else [tool_message(request.tool_call_id,
+            _failure_envelope("COMMAND_REJECTED_BY_USER", "The user rejected this command; it was not executed. Find another approach without bypassing the rejection."))]
+        return {"approval_decision": resumed["decision"], "tool_results": results}
+
+    def route_approved(state: AgentGraphState) -> Literal["execute_tool", "record_tool_result"]:
+        """拒绝只写工具结果，通过才进入执行节点。"""
+        return "record_tool_result" if state["tool_results"] else "execute_tool"
+
+    async def execute_tool(state: AgentGraphState, runtime: Runtime[AgentGraphContext]) -> dict[str, object]:
+        """消费当前操作授权后只派发一次，不在本节点设置 interrupt。"""
+        if runtime.context.cancelled.is_set():
+            raise AgentCancelled()
+        call = _last_ai_message(state).tool_calls[0]
+        if state["pending_approval"] is not None:
+            request = ApprovalRequest.model_validate_json(json.dumps(state["pending_approval"]))
+            # 恢复状态也必须与用户看到的原操作完全一致；授权不能移给其他调用。
+            if (request.ssh_session_id != state["ssh_session_id"] or request.tool_call_id != call["id"]
+                    or call["name"] != "execute_command" or call["args"] != request.arguments.model_dump()):
+                raise RuntimeError("approved operation differs from execution input")
+            if runtime.context.approval_registry is None:
+                raise RuntimeError("approval registry is required")
+            runtime.context.approval_registry.consume(request)
+        envelope = await _execute_one_tool_call(call, state["ssh_session_id"], runtime.context.cancelled,
+            dependencies, runtime.context.text_sink)
+        return {"tool_results": [tool_message(call["id"], envelope)]}
+
+    async def record_tool_result(state: AgentGraphState, runtime: Runtime[AgentGraphContext]) -> dict[str, object]:
+        """单次短事务保存配对结果，随后清空上一次工具的临时授权状态。"""
+        messages = state["tool_results"]
         with dependencies.database.write_session() as session:
             sequences = ConversationRepository(session, PlaintextRecordStore(session)).append_messages_atomic(
-                state["agent_run_id"],
-                state["conversation_id"],
-                messages,
-            )
+                state["agent_run_id"], state["conversation_id"], messages)
         return {"messages": messages, "records": [*state["records"],
             *(ContextMessage(sequence, state["agent_run_id"], message)
-              for sequence, message in zip(sequences, messages, strict=True))]}
+              for sequence, message in zip(sequences, messages, strict=True))],
+            "pending_approval": None, "approval_decision": None, "tool_results": []}
 
     async def return_response(
         state: AgentGraphState,
@@ -468,6 +526,9 @@ def build_agent_graph(
         "check_react_limit",
         _instrument_agent_node("check_react_limit", check_react_limit),
     )
+    builder.add_node("prepare_tool", _instrument_agent_node("prepare_tool", prepare_tool))
+    builder.add_node("await_approval", _instrument_agent_node("await_approval", await_approval))
+    builder.add_node("record_tool_result", _instrument_agent_node("record_tool_result", record_tool_result))
     builder.add_node("execute_tool", _instrument_agent_node("execute_tool", execute_tool))
     builder.add_node(
         "return_response",
@@ -480,10 +541,13 @@ def build_agent_graph(
     builder.add_edge("prepare_model_context", "call_model")
     builder.add_conditional_edges("call_model", route_after_model)
     builder.add_conditional_edges("check_react_limit", route_after_limit)
-    builder.add_edge("execute_tool", "prepare_model_context")
+    builder.add_conditional_edges("prepare_tool", route_prepared)
+    builder.add_conditional_edges("await_approval", route_approved)
+    builder.add_edge("execute_tool", "record_tool_result")
+    builder.add_edge("record_tool_result", "prepare_model_context")
     builder.add_edge("return_response", END)
     builder.add_edge("reject_limit", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
 async def _execute_one_tool_call(

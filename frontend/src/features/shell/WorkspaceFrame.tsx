@@ -307,7 +307,9 @@ export function WorkspaceFrame({
               <AgentStatusDot
                 state={agentBadge}
                 label={t(
-                  agentBadge === "RUNNING"
+                  agentBadge === "AWAITING_APPROVAL"
+                    ? "agent.tabAwaitingApproval"
+                    : agentBadge === "RUNNING"
                     ? "agent.tabRunning"
                     : agentBadge === "COMPLETED_UNREAD"
                       ? "agent.tabCompleted"

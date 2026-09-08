@@ -141,6 +141,7 @@ def setup_manager():
         uuid4(),
         connection,
         connection_profile_version=1,
+        host="localhost", port=22, username="tester",
         host_label="test-host",
         target_host_key_fingerprint="SHA256:test-target",
     )

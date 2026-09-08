@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -14,6 +15,12 @@ from uuid import UUID
 
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.types import Command
+from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
+from .approval_models import ApprovalRequest, ApprovalTarget, ApprovalDecision, ApprovalResolution
+from .approvals import ApprovalRegistry, ApprovalError
 
 from harness_shell_sidecar.runtime.models import MAX_JSON_BODY_BYTES
 from .api_configs import ApiConfigRepository
@@ -93,9 +100,9 @@ class AgentService:
         gateway: ModelInvoker,
         context: ContextService,
         session_is_available: Callable[[UUID], bool],
-        *, budget: ContextBudget | None = None,
+        *, ssh_sessions: SshSessionRegistry, budget: ContextBudget | None = None,
     ) -> None:
-        """利用长期非秘密运行时协作者构建可复用图。"""
+        """保存长期协作者，各 Run 独立构建内存图。"""
 
         self._database = database  # 短数据库操作的工厂，绝不保存跨 await Session。
         self._session_is_available = session_is_available
@@ -108,7 +115,9 @@ class AgentService:
             executor=executor,
             budget=budget,
         )
-        self._graph = build_agent_graph(dependencies)  # 编译时不使用 checkpointer。
+        self._dependencies = dependencies  # 各 Run 借用依赖，独立编译内存图。
+        self._ssh_sessions = ssh_sessions  # 借用 Runtime 的唯一会话权威。
+        self._approvals = ApprovalRegistry()  # 只持有当前 Run 决定，结束时释放。
 
     async def run_turn(
         self,
@@ -193,15 +202,12 @@ class AgentService:
                 cancelled=cancelled,
                 user_message=request.user_message,
                 text_sink=event_sink,
+                approval_registry=self._approvals,
             )
             try:
                 # 4. Run 已持久化后发布 started，再运行图和最终文本一致性检查。
                 await event_sink.started(run)
-                state = await self._graph.ainvoke(
-                    initial_state,
-                    config={"recursion_limit": 1024},
-                    context=graph_context,
-                )
+                state = await self._invoke_until_terminal(initial_state, graph_context)
                 if state["run_status"] is AgentRunStatus.COMPLETED:
                     final_text = _final_text(state)
                     if event_sink.streamed_text != final_text:
@@ -290,6 +296,97 @@ class AgentService:
                     )
                 await event_sink.failed(finished, _REACT_LIMIT_FAILURE_MESSAGE)
             return _result_from_run(finished, final_text=final_text)
+
+    def decide_approval(self, approval_id: UUID, decision: ApprovalDecision) -> ApprovalResolution:
+        """HTTP 只提交决定，原 worker 独占恢复和执行。"""
+        resolution = self._approvals.decide(approval_id, decision)
+        if not self._session_is_available(decision.ssh_session_id):
+            self._approvals.invalidate_run(decision.agent_run_id, "session_unavailable")
+            raise ApprovalError("AGENT_APPROVAL_INACTIVE", "the bound SSH session is unavailable")
+        return resolution
+
+    async def _invoke_until_terminal(self, initial_state: AgentGraphState, context: AgentGraphContext) -> AgentGraphState:
+        """原 SSE worker 驱动内存图直到真正结束，并确定性回收 checkpoint。"""
+        from dataclasses import replace
+        run_id = initial_state["agent_run_id"]
+        session = self._ssh_sessions.get(initial_state["ssh_session_id"])
+        if session is None:
+            raise AgentServiceError("SSH_SESSION_UNAVAILABLE", "the bound SSH session is unavailable")
+        context = replace(context, approval_target=ApprovalTarget(
+            display_name=session.host_label, host=session.host, port=session.port, username=session.username))
+        # 只允许图中实际保存的项目类型，秘密和运行时资源不进入 serializer。
+        saver = InMemorySaver(serde=JsonPlusSerializer(pickle_fallback=False, allowed_msgpack_modules=[
+            ("harness_shell_sidecar.agent.context_models", "ContextMessage"),
+            ("harness_shell_sidecar.agent.context_models", "ContextSummary"),
+            ("harness_shell_sidecar.agent.contracts", "AgentRunStatus"),
+        ]))
+        graph = build_agent_graph(self._dependencies, checkpointer=saver)
+        config = {"configurable": {"thread_id": str(run_id)}, "recursion_limit": 2048}
+        graph_input = initial_state
+        try:
+            while True:
+                if context.cancelled.is_set():
+                    raise AgentCancelled()
+                state = await graph.ainvoke(graph_input, config=config, context=context)
+                interrupts = state.get("__interrupt__", ())
+                if not interrupts:
+                    return state
+                if len(interrupts) != 1:
+                    raise AgentServiceError("AGENT_APPROVAL_CONFLICT", "exactly one approval interrupt is required")
+                item = interrupts[0]
+                request = ApprovalRequest.model_validate_json(json.dumps(item.value))
+                if (request.agent_run_id != run_id or request.conversation_id != initial_state["conversation_id"]
+                        or request.ssh_session_id != initial_state["ssh_session_id"]):
+                    raise AgentServiceError("AGENT_APPROVAL_CONFLICT", "approval interrupt identity does not match the run")
+                self._approvals.register(request)
+                await context.text_sink.approval_requested(request)
+                resolution = await self._wait_for_approval(request, context.cancelled)
+                await context.text_sink.approval_resolved(resolution, request.tool_call_id)
+                graph_input = Command(resume={item.id: {"approval_id": str(request.approval_id),
+                    "decision": "approve" if resolution.status == "APPROVED" else "reject"}})
+        finally:
+            # 内存 saver 的 delete 没有网络 I/O；同步删除确保取消 scope 内也能完成清理。
+            primary_failure = sys.exception()
+            cleanup_failure: Exception | None = None
+            try:
+                self._approvals.release_run(run_id)
+            except Exception as error:
+                cleanup_failure = error
+                LOGGER.exception("agent_approval_cleanup_failed")
+            try:
+                saver.delete_thread(str(run_id))
+            except Exception as error:
+                if cleanup_failure is None:
+                    cleanup_failure = error
+                LOGGER.exception("agent_checkpoint_cleanup_failed")
+            # 清理失败可见，但不能把原业务失败或取消替换成另一个终态。
+            if primary_failure is None and cleanup_failure is not None:
+                raise cleanup_failure
+
+    async def _wait_for_approval(self, request: ApprovalRequest, cancelled: asyncio.Event) -> ApprovalResolution:
+        """明确不限时等待用户，同时监听取消与原 SSH 传输失效。"""
+        decision = asyncio.create_task(self._approvals.wait(request.approval_id))
+        cancel = asyncio.create_task(cancelled.wait())
+        unavailable = asyncio.create_task(self._ssh_sessions.wait_unavailable(request.ssh_session_id))
+        tasks = (decision, cancel, unavailable)
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            if cancelled.is_set():
+                self._approvals.invalidate_run(request.agent_run_id, "run_cancelled")
+                raise AgentCancelled()
+            if unavailable in done or not self._session_is_available(request.ssh_session_id):
+                if unavailable in done:
+                    unavailable.result()
+                self._approvals.invalidate_run(request.agent_run_id, "session_unavailable")
+                raise AgentServiceError("SSH_SESSION_UNAVAILABLE", "the SSH session closed while awaiting approval")
+            resolution = decision.result()
+            if resolution.status == "INVALIDATED":
+                raise AgentServiceError("AGENT_APPROVAL_INACTIVE", "the pending approval is no longer active")
+            return resolution
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _validate_run_authorities(
         self,

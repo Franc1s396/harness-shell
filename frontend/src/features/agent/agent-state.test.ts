@@ -158,17 +158,12 @@ describe("agentReducer", () => {
     expect(state.tabs["tab-b"].messages).toHaveLength(0);
   });
 
-  it("resets only one conversation and preserves provider plus risk acknowledgement", () => {
+  it("resets only one conversation and preserves provider", () => {
     let state = createAgentState();
     state = agentReducer(state, {
       type: "tab/ensure",
       tabId: "tab-a",
       selectedApiConfigId: "config-1",
-    });
-    state = agentReducer(state, {
-      type: "risk/acknowledge",
-      tabId: "tab-a",
-      sshSessionId: "ssh-a",
     });
     state = agentReducer(state, {
       type: "conversation/reset",
@@ -178,7 +173,6 @@ describe("agentReducer", () => {
     expect(state.tabs["tab-a"]).toMatchObject({
       conversationId: null,
       selectedApiConfigId: "config-1",
-      riskAcknowledgedSshSessionId: "ssh-a",
       messages: [],
     });
   });
@@ -283,41 +277,6 @@ describe("agentReducer", () => {
     expect(next.tabs["tab-a"].phase).toBe("RUNNING");
   });
 
-  it("moves risk confirmation through request, acknowledge, and cancel without changing other tabs", () => {
-    let state = createAgentState();
-    state = agentReducer(state, {
-      type: "tab/ensure",
-      tabId: "tab-a",
-      selectedApiConfigId: null,
-    });
-    state = agentReducer(state, {
-      type: "tab/ensure",
-      tabId: "tab-b",
-      selectedApiConfigId: null,
-    });
-    state = agentReducer(state, {
-      type: "risk/request",
-      tabId: "tab-a",
-      sshSessionId: "ssh-a",
-    });
-    expect(state.tabs["tab-a"]).toMatchObject({
-      phase: "AWAITING_RISK_CONFIRMATION",
-      pendingRiskSshSessionId: "ssh-a",
-    });
-    state = agentReducer(state, {
-      type: "risk/acknowledge",
-      tabId: "tab-a",
-      sshSessionId: "ssh-a",
-    });
-    expect(state.tabs["tab-a"].riskAcknowledgedSshSessionId).toBe("ssh-a");
-    state = agentReducer(state, { type: "risk/cancel", tabId: "tab-a" });
-    expect(state.tabs["tab-a"]).toMatchObject({
-      phase: "IDLE",
-      pendingRiskSshSessionId: null,
-    });
-    expect(state.tabs["tab-b"].phase).toBe("IDLE");
-  });
-
   it("removes only an existing tab and marks unread results as read", () => {
     let state = agentReducer(startedState("request-1"), {
       type: "run/fail",
@@ -369,4 +328,21 @@ describe("tool status cleanup", () => {
     expect(state.tabs["tab-a"].activeRun).toBeNull();
     expect(state.tabs["tab-a"].phase).toBe("IDLE");
   });
+});
+
+
+it("keeps approval bubbles after cancellation and text replacement", () => {
+  let state = startedState("request-1");
+  const common = { tabId: "tab-a", requestToken: "request-1" };
+  state = agentReducer(state, { ...common, type: "run/stream-started", event: started });
+  const request = { ...started, type: "agent.turn.approval_requested" as const, sequence: 1,
+    approval_id: "approval-1", tool_call_id: "call-1", tool_name: "execute_command" as const,
+    arguments: { command: "touch /tmp/x" }, ssh_session_id: "ssh-a",
+    target: { display_name: "test", host: "localhost", port: 22, username: "ops" },
+    reason: "POSSIBLE_MUTATION_OR_UNKNOWN" as const };
+  state = agentReducer(state, { ...common, type: "run/approval-requested", event: request });
+  expect(state.tabs["tab-a"].messages.filter(m => m.kind === "approval")).toHaveLength(1);
+  state = agentReducer(state, { ...common, type: "run/text-replace", event: { ...delta, type: "agent.turn.text_replace", text: "next", sequence: 2 } });
+  state = agentReducer(state, { ...common, type: "run/cancel", messageId: "cancelled" });
+  expect(state.tabs["tab-a"].messages.find(m => m.kind === "approval")).toMatchObject({ status: "INVALIDATED" });
 });

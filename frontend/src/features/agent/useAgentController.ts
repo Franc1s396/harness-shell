@@ -78,12 +78,22 @@ export function useAgentController(
   const turnReservationsRef = useRef(new Set<string>());
   // 每个标签页拥有自己的网络请求，切换可见标签不改变取消目标。
   const turnControllersRef = useRef(new Map<string, AbortController>());
+  // 独立 HTTP 与 SSE 可能先后到达；同步记录避免依赖 React render 时序。
+  const approvalOutcomesRef = useRef(new Map<string, { tabId: string; requestToken: string; status: "APPROVED" | "REJECTED" }>());
+  const recordApprovalOutcome = useCallback((tabId: string, requestToken: string, approvalId: string, status: "APPROVED" | "REJECTED") => {
+    const previous = approvalOutcomesRef.current.get(approvalId);
+    if (previous && previous.requestToken === requestToken && previous.status !== status) {
+      throw Object.assign(new Error("Approval HTTP and SSE decisions conflict."), { code: "BACKEND_AGENT_STREAM_INVALID" });
+    }
+    approvalOutcomesRef.current.set(approvalId, { tabId, requestToken, status });
+  }, []);
 
   useEffect(() => {
     const controllers = turnControllersRef.current;
     return () => {
       for (const controller of controllers.values()) controller.abort();
       controllers.clear();
+      approvalOutcomesRef.current.clear();
     };
   }, []);
 
@@ -147,6 +157,9 @@ export function useAgentController(
     turnControllersRef.current.get(tabId)?.abort();
     turnControllersRef.current.delete(tabId);
     turnReservationsRef.current.delete(tabId);
+    for (const [id, outcome] of approvalOutcomesRef.current) {
+      if (outcome.tabId === tabId) approvalOutcomesRef.current.delete(id);
+    }
     dispatch({ type: "tab/remove", tabId });
   }, []);
 
@@ -247,6 +260,9 @@ export function useAgentController(
         };
         const controller = new AbortController();
         turnControllersRef.current.set(tabId, controller);
+        for (const [id, outcome] of approvalOutcomesRef.current) {
+          if (outcome.tabId === tabId) approvalOutcomesRef.current.delete(id);
+        }
         // 跨越每标签页流边界前冻结已验证的 Provider 和 Session 标识；
         // 完成处理由 reducer token 管理。
         dispatch({
@@ -279,6 +295,11 @@ export function useAgentController(
                   requestToken,
                   event,
                 });
+              } else if (event.type === "agent.turn.approval_requested") {
+                dispatch({ type: "run/approval-requested", tabId, requestToken, event });
+              } else if (event.type === "agent.turn.approval_resolved") {
+                if (event.status !== "INVALIDATED") recordApprovalOutcome(tabId, requestToken, event.approval_id, event.status);
+                dispatch({ type: "run/approval-resolved", tabId, requestToken, event });
               } else if (event.type === "agent.turn.tool_started") {
                 dispatch({ type: "run/tool-started", tabId, requestToken, event });
               } else if (event.type === "agent.turn.text_replace") {
@@ -337,7 +358,7 @@ export function useAgentController(
         turnReservationsRef.current.delete(tabId);
       }
     },
-    [dependencies, refreshConfigs],
+    [dependencies, refreshConfigs, recordApprovalOutcome],
   );
 
   const requestSend = useCallback(
@@ -373,55 +394,48 @@ export function useAgentController(
         });
         return;
       }
-      if (tab.riskAcknowledgedSshSessionId !== session.sshSessionId) {
-        dispatch({
-          type: "risk/request",
-          tabId,
-          sshSessionId: session.sshSessionId,
-        });
-        return;
-      }
       await dispatchTurn(tabId, session.sshSessionId, "IDLE");
     },
     [dispatchTurn],
   );
 
-  const confirmRiskAndSend = useCallback(
-    async (tabId: string): Promise<void> => {
-      const tab = stateRef.current.tabs[tabId];
-      if (!tab || tab.phase !== "AWAITING_RISK_CONFIRMATION") return;
-      const session = sessionsRef.current.find((item) => item.tabId === tabId);
-      if (
-        !session ||
-        session.state !== "CONNECTED" ||
-        session.sshSessionId === null ||
-        session.sshSessionId !== tab.pendingRiskSshSessionId
-      ) {
-        dispatch({ type: "risk/cancel", tabId });
-        dispatch({
-          type: "error/set",
-          tabId,
-          error: uiError("UI_AGENT_ACTIVE_SESSION_REQUIRED"),
-        });
-        return;
+  const approvalSubmissionsRef = useRef(new Set<string>());
+  const decideApproval = useCallback(async (tabId: string, approvalId: string, decision: "approve" | "reject") => {
+    const tab = stateRef.current.tabs[tabId];
+    const message = tab?.messages.find(item => item.kind === "approval" && item.id === approvalId);
+    if (!tab?.activeRun || tab.phase !== "RUNNING" || message?.kind !== "approval" || message.status !== "PENDING" ||
+        message.submitting || approvalSubmissionsRef.current.has(approvalId)) return;
+    const requestToken = tab.activeRun.requestToken;
+    const request = message.request;
+    if (request.agent_run_id !== tab.activeRun.agentRunId) return;
+    approvalSubmissionsRef.current.add(approvalId);
+    dispatch({ type: "approval/update", tabId, requestToken, approvalId, submitting: true, error: null });
+    try {
+      const result = await dependencies.api.decideAgentApproval(approvalId, {
+        conversation_id: request.conversation_id, agent_run_id: request.agent_run_id,
+        ssh_session_id: request.ssh_session_id, tool_call_id: request.tool_call_id, decision,
+      }, turnControllersRef.current.get(tabId)?.signal);
+      const current = stateRef.current.tabs[tabId];
+      if (!current || current.activeRun && current.activeRun.requestToken !== requestToken) return;
+      recordApprovalOutcome(tabId, requestToken, approvalId, result.status);
+      dispatch({ type: "approval/update", tabId, requestToken, approvalId, submitting: false, status: result.status, error: null });
+    } catch (error) {
+      const normalized = normalizeAgentCommandError(error);
+      if (normalized.code === "BACKEND_AGENT_STREAM_INVALID") {
+        dispatch({ type: "approval/protocol-error", tabId, approvalId, agentRunId: request.agent_run_id, error: normalized });
+        if (stateRef.current.tabs[tabId]?.activeRun?.requestToken === requestToken) {
+          dispatch({ type: "run/fail", tabId, requestToken, event: null, error: normalized, messageId: dependencies.makeId() });
+          turnControllersRef.current.get(tabId)?.abort();
+        }
       }
-      dispatch({
-        type: "risk/acknowledge",
-        tabId,
-        sshSessionId: session.sshSessionId,
-      });
-      await dispatchTurn(
-        tabId,
-        session.sshSessionId,
-        "AWAITING_RISK_CONFIRMATION",
-      );
-    },
-    [dispatchTurn],
-  );
-
-  const cancelRisk = useCallback((tabId: string) => {
-    dispatch({ type: "risk/cancel", tabId });
-  }, []);
+      const inactive = ["AGENT_APPROVAL_NOT_FOUND", "AGENT_APPROVAL_INACTIVE", "AGENT_APPROVAL_CONFLICT"].includes(normalized.code);
+      const retryable = ["REQUEST_CAPACITY_EXCEEDED", "REQUEST_VALIDATION_FAILED"].includes(normalized.code);
+      dispatch({ type: "approval/update", tabId, requestToken, approvalId, submitting: false,
+        status: inactive ? "INVALIDATED" : retryable ? "PENDING" : "UNKNOWN", error: normalized });
+    } finally {
+      approvalSubmissionsRef.current.delete(approvalId);
+    }
+  }, [dependencies, recordApprovalOutcome]);
   const cancelTurn = useCallback((tabId: string) => {
     // 等待网络读取退出后再收敛 UI；不提前把本轮标记为服务端 CANCELLED。
     turnControllersRef.current.get(tabId)?.abort();
@@ -551,8 +565,7 @@ export function useAgentController(
     changeDraft,
     selectProvider,
     requestSend,
-    confirmRiskAndSend,
-    cancelRisk,
+    decideApproval,
     cancelTurn,
     resetConversation,
     markRead,

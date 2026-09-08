@@ -88,3 +88,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend\scripts\build_sideca
 Python tests证明源码行为；packaged smoke证明本次 `.exe` 的局部 loopback 行为；SSH Lab、Desktop、真实 Provider 与生产主机必须分别验收。
 
 Agent graph 在工具参数校验与安全审查通过后、调用执行器前，经本轮 event sink 发布 `tool_started` 状态。该事件携带工具调用 ID、名称与已校验的完整参数，不新增持久化记录；事件发布失败时不派发命令。协议与展示区间以 [HTTP 契约](../protocol/http/README.md) 为准。
+
+
+## Agent 人工审核所有权
+
+`command_policy.py` 使用确定性的封闭字面量语法识别明确只读命令，其余 REQUIRE_APPROVAL；原危险命令硬阻断保留且不可通过审核覆盖。不得依赖模型声明只读或改写命令。
+
+`AgentService` 每 Run 创建 LangGraph `InMemorySaver`，原 SSE worker 在 `prepare_tool → await_approval → execute_tool → record_tool_result` 间恢复。`await_approval` 为纯 interrupt 节点，重跑不执行 I/O；GraphInterrupt 只记 DEBUG 节点中断，不当作 ERROR。`ApprovalRegistry` 只拥有冻结请求、原子决定和一次消费标志，不拥有 worker。决定 HTTP 不调用 graph、不创建新 Run、不返回执行结果。拒绝写配对 COMMAND_REJECTED_BY_USER ToolMessage 并继续模型循环。
+
+审核无限等待，监听取消与原 SSH/ProxyJump 失效；冻结目标来自活动 SshSession 而非后来编辑的配置。SSH 移除立即通知失效，借用的 wait_closed 监听只取消自身。派发前检查原调用参数、Session 与取消，并消费一次授权；执行器再次检查传输可用性。Run 退出在 finally 释放审核记录，并同步删除纯内存 saver 的 thread、writes、blobs；不允许 pickle fallback，不跨重启恢复或复用授权，业务 SQLite 历史仍按原规则持久化。
+
+shared dispatcher 保留普通请求 16 容量，只有固定 `agent.approvals.decide` 使用额外 1 个 control 槽；两类共用 request ID 表、取消和 shutdown owner。

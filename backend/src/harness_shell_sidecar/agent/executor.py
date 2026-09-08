@@ -61,7 +61,7 @@ class SshCommandExecutor:
 
         # 1. 只使用本轮冻结的活动会话；派发前再次检查取消。
         owner = self._ssh_sessions.get(ssh_session_id)
-        if owner is None:
+        if owner is None or not self._ssh_sessions.is_connected(ssh_session_id):
             return _failure(
                 "SSH_SESSION_UNAVAILABLE",
                 "The bound SSH session is unavailable.",

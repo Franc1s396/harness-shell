@@ -210,11 +210,9 @@ def test_system_message_sets_internal_operations_behavior_contract() -> None:
     assert "优先执行只读检查" in content
     assert "不要无限重试，不要掩盖失败" in content
     assert "区分已验证事实、推断、待验证假设、建议操作和已完成操作" in content
-    assert "都必须在执行前获得用户对具体目标、动作和影响范围的明确确认" in content
-    assert (
-        "预览影响范围 → 说明风险 → 请求确认 → 执行 → 验证 → 提供回滚或恢复信息"
-        in content
-    )
+    assert "通过 UI 审核气泡获取用户决定" in content
+    assert "不要仅为获取执行授权而返回最终回答要求用户再次确认" in content
+    assert "COMMAND_REJECTED_BY_USER" in content
 
 
 @pytest.mark.parametrize("historical_turns", [3, 4])

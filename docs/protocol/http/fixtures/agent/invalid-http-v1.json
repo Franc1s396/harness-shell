@@ -3,7 +3,9 @@
     {
       "name": "create-api-config-with-unknown-api-type",
       "request": {
-        "headers": {"X-Request-ID": "1a0a01b8-af36-4cdf-b524-b37158dafaf4"},
+        "headers": {
+          "X-Request-ID": "1a0a01b8-af36-4cdf-b524-b37158dafaf4"
+        },
         "body": {
           "display_name": "Invalid provider",
           "api_type": "UNKNOWN",
@@ -66,12 +68,18 @@
     },
     {
       "name": "frame-too-large",
-      "generated_wire": {"kind": "single-frame", "encoded_bytes": 65537},
+      "generated_wire": {
+        "kind": "single-frame",
+        "encoded_bytes": 65537
+      },
       "expected_error_code": "BACKEND_AGENT_STREAM_TOO_LARGE"
     },
     {
       "name": "body-too-large",
-      "generated_wire": {"kind": "complete-body", "encoded_bytes": 4194305},
+      "generated_wire": {
+        "kind": "complete-body",
+        "encoded_bytes": 4194305
+      },
       "expected_error_code": "BACKEND_AGENT_STREAM_TOO_LARGE"
     },
     {
@@ -92,6 +100,21 @@
     {
       "name": "bare-cr",
       "wire_utf8": "event: agent.turn.started\rid: 0\rdata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"RUNNING\",\"react_iteration\":0}\r\revent: agent.turn.completed\rid: 1\rdata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":1,\"conversation_id\":\"20000000-0000-4000-8000-000000000002\",\"agent_run_id\":\"30000000-0000-4000-8000-000000000003\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\r\r",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "approval-unknown-deadline",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.approval_requested\nid: 1\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_requested\",\"sequence\":1,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"ssh_session_id\":\"20000000-0000-4000-8000-000000000002\",\"tool_call_id\":\"change\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"touch /tmp/hitl\"},\"target\":{\"display_name\":\"测试主机\",\"host\":\"localhost\",\"port\":22,\"username\":\"tester\"},\"reason\":\"POSSIBLE_MUTATION_OR_UNKNOWN\",\"expires_at\":\"2026-09-08\"}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "approval-wrong-session",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.approval_requested\nid: 1\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_requested\",\"sequence\":1,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"ssh_session_id\":\"60000000-0000-4000-8000-000000000006\",\"tool_call_id\":\"change\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"touch /tmp/hitl\"},\"target\":{\"display_name\":\"测试主机\",\"host\":\"localhost\",\"port\":22,\"username\":\"tester\"},\"reason\":\"POSSIBLE_MUTATION_OR_UNKNOWN\"}\n\n",
+      "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
+    },
+    {
+      "name": "approval-pending-completed",
+      "wire_utf8": "event: agent.turn.started\nid: 0\ndata: {\"schema_version\":1,\"type\":\"agent.turn.started\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":0,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"RUNNING\",\"react_iteration\":0}\n\nevent: agent.turn.approval_requested\nid: 1\ndata: {\"schema_version\":1,\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"type\":\"agent.turn.approval_requested\",\"sequence\":1,\"approval_id\":\"60000000-0000-4000-8000-000000000006\",\"ssh_session_id\":\"20000000-0000-4000-8000-000000000002\",\"tool_call_id\":\"change\",\"tool_name\":\"execute_command\",\"arguments\":{\"command\":\"touch /tmp/hitl\"},\"target\":{\"display_name\":\"测试主机\",\"host\":\"localhost\",\"port\":22,\"username\":\"tester\"},\"reason\":\"POSSIBLE_MUTATION_OR_UNKNOWN\"}\n\nevent: agent.turn.completed\nid: 2\ndata: {\"schema_version\":1,\"type\":\"agent.turn.completed\",\"request_id\":\"10000000-0000-4000-8000-000000000001\",\"sequence\":2,\"conversation_id\":\"40000000-0000-4000-8000-000000000004\",\"agent_run_id\":\"50000000-0000-4000-8000-000000000005\",\"status\":\"COMPLETED\",\"react_iteration\":0,\"error_code\":null}\n\n",
       "expected_error_code": "BACKEND_AGENT_STREAM_INVALID"
     }
   ]

@@ -14,6 +14,8 @@ from harness_shell_sidecar.agent.handlers import (
     ModelApiConfigUpdateRequest,
 )
 from harness_shell_sidecar.agent.streaming import (
+    AgentTurnApprovalRequestedEvent,
+    AgentTurnApprovalResolvedEvent,
     AgentTurnCompletedEvent,
     AgentTurnFailedEvent,
     AgentTurnStartedEvent,
@@ -21,6 +23,7 @@ from harness_shell_sidecar.agent.streaming import (
     AgentTurnTextReplaceEvent,
     AgentTurnToolStartedEvent,
 )
+from harness_shell_sidecar.agent.approval_models import ApprovalDecision
 from harness_shell_sidecar.connections.handlers import (
     ConnectionCreateRequest,
     ConnectionUpdateRequest,
@@ -86,6 +89,7 @@ _JSON_BODY_MODELS: dict[tuple[str, str], type[BaseModel]] = {
     ("post", "/v1/agent/api-configs"): ModelApiConfigCreateRequest,
     ("patch", "/v1/agent/api-configs/{api_config_id}"): ModelApiConfigUpdateRequest,
     ("post", "/v1/agent/turns"): AgentTurnRequest,
+    ("post", "/v1/agent/approvals/{approval_id}/decision"): ApprovalDecision,
 }
 
 _WEBSOCKET_TYPES = [
@@ -269,6 +273,8 @@ def build_openapi_document() -> dict[str, object]:
             AgentTurnTextDeltaEvent,
             AgentTurnTextReplaceEvent,
             AgentTurnToolStartedEvent,
+            AgentTurnApprovalRequestedEvent,
+            AgentTurnApprovalResolvedEvent,
             AgentTurnCompletedEvent,
             AgentTurnFailedEvent,
         )

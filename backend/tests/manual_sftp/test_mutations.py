@@ -243,6 +243,7 @@ def manager_with_operations(
         CONNECTION_ID,
         FakeConnection(remote),
         connection_profile_version=1,
+        host="localhost", port=22, username="tester",
         host_label="demo-host",
         target_host_key_fingerprint="SHA256:test-target",
     )
@@ -281,6 +282,7 @@ def test_upload_preflight_returns_hash_inside_existing_regular_target_metadata(
             CONNECTION_ID,
             FakeConnection(remote),
             connection_profile_version=1,
+            host="localhost", port=22, username="tester",
             host_label="demo-host",
             target_host_key_fingerprint="SHA256:test-target",
         )

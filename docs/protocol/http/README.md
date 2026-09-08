@@ -4,7 +4,7 @@
 
 ## 契约文件
 
-- `openapi-v1.json`：FastAPI 实际导出的 47 个 typed HTTP operations。
+- `openapi-v1.json`：FastAPI 实际导出的 48 个 typed HTTP operations。
 - `runtime-websocket-v1.schema.json`：单 owner Runtime WebSocket 的九类 strict text messages。
 - `fixtures/problem-details-v1.json`：稳定 Problem Details 示例。
 - `fixtures/limits-v1.json`：JSON、Agent SSE、WebSocket、PTY、SFTP、capacity、startup、heartbeat 与 shutdown 固定限制。
@@ -64,7 +64,7 @@ data: {"schema_version":1,"type":"agent.turn.completed","request_id":"10000000-0
 
 ```
 
-合法序列只有 `started -> (text_delta | text_replace | tool_started)* -> completed -> EOF` 或 `started -> (text_delta | text_replace | tool_started)* -> failed -> EOF`。每个 stream 的 `sequence` 从 0 连续递增，request/conversation/run identity 固定；公开实时 AI 可见文本 delta 与完整 text_replace 更新，包括工具前说明，仅 tool_started 公开已校验的工具调用 ID、工具名与完整 command 参数；不公开 reasoning、stdout/stderr、usage 或 Provider response metadata。不存在 JSON success、fallback parser、reconnect、resume 或 replay。
+合法序列只有 `started -> (text_delta | text_replace | tool_started | approval_requested | approval_resolved)* -> completed -> EOF` 或 `started -> (text_delta | text_replace | tool_started | approval_requested | approval_resolved)* -> failed -> EOF`。每个 stream 的 `sequence` 从 0 连续递增，request/conversation/run identity 固定；公开实时 AI 可见文本 delta 与完整 text_replace 更新，包括工具前说明，tool_started 和 approval_requested 公开已校验的工具调用 ID、工具名与完整 command 参数，approval_requested 另外携带冻结目标和审核原因；不公开 reasoning、stdout/stderr、usage 或 Provider response metadata。不存在 JSON success、fallback parser、reconnect、resume 或 replay。
 
 HTTP 200 的启动边界是：request header/body、dispatcher capacity、Provider config/credential、conversation/SSH Session 全部校验完成，conversation lock 已取得、durable `RUNNING` Run 已创建、capacity 64 的 queue 已建立且 `started` 已安全入队。此前失败返回 Problem Details；此后失败先落 durable terminal Run，再通过唯一 `failed` event 结束。terminal frame 被 consumer 发送前，dispatcher request ID 与 capacity 仍保持占用；发送后 worker 收敛并以 clean EOF 结束。
 
@@ -95,3 +95,8 @@ backend\.venv\Scripts\python.exe -m pytest backend\tests\web\test_contract_artif
 `agent.turn.tool_started` 携带公共关联字段、`tool_call_id`（1–1024 字符）、`tool_name: "execute_command"` 和 `arguments: {command: string}`（原始已校验命令，1–4096 字符，禁止 NUL/额外字段）。工具名、参数与安全审查通过后，Backend 在调用执行器前先将事件入队；发布失败不继续执行。该事件共用连续 sequence、字节预算和队列背压，不修改可见文本。UI 保留已有回复并显示“工具执行中…”，直到下一合法业务事件到达；连续 tool_started 继续显示，text_delta/text_replace 清除提示，终态、取消和断流也清除提示。因此工具结束后等待模型输出期间仍可能显示此提示。
 
 UI 按本 turn 事件顺序累计工具记录，重复调用分别保留，文本替换不清空记录。成功完成后记录随 assistant 消息保存在当前页面内存中，并在完整回答下方显示默认折叠的“执行工具（数量）”；展开以纯文本 JSON 显示完整参数，无工具时不显示入口。记录表示进入执行器的调用尝试，不保证远程命令成功；校验或审查拒绝的调用不计入。失败、取消或断流丢弃当前临时列表，本次不提供这些终态的工具列表 UI 或历史恢复。仅此工具记录允许向 UI 传递 command；stdout/stderr、Provider 原始响应和凭据解析结果仍不进入事件或日志。
+
+
+## Agent HITL
+
+新增 `POST /v1/agent/approvals/{approval_id}/decision` 和 `agent.turn.approval_requested`、`agent.turn.approval_resolved` 两种原 turn SSE 事件；精确字段见 OpenAPI。审核没有 expires_at、TTL 或超时决定。决定成功只确认记录，原 worker 通过 Command(resume=...) 继续；approve 消费一次后派发，reject 写工具拒绝结果并继续模型。普通容量 16，独立审核控制容量 1，共用请求 ID 与 shutdown。错误和身份边界见 [Protocol & Security](../../agents/protocol-security.md#agent-审核协议)。

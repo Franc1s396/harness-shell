@@ -143,3 +143,13 @@ def test_clip_output_boundary(length: int) -> None:
     assert len(text) == min(length, 6000)
     assert meta.truncated == (length > 6000)
     assert meta.omitted_chars == max(length - 6000, 0)
+
+
+def test_tool_and_system_prompt_explain_ui_approval_without_extra_confirmation() -> None:
+    from harness_shell_sidecar.agent.context import DEFAULT_SYSTEM_PROMPT
+    definition = build_execute_command_tool_definition()
+    assert "COMMAND_REJECTED_BY_USER" in definition.description
+    assert "UI" in definition.description
+    assert "审核气泡" in DEFAULT_SYSTEM_PROMPT
+    assert "不要仅为获取执行授权" in DEFAULT_SYSTEM_PROMPT
+    assert set(definition.parameters["properties"]) == {"command"}

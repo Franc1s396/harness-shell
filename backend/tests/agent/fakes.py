@@ -27,6 +27,8 @@ class RecordingTurnSink:
         self.events: list[tuple[str, AgentRun | str | dict[str, object]]] = []
         self.parts: list[str] = []
         self.failure_messages: list[str] = []
+        self.approval_ready = asyncio.Event()
+        self.approval_requests = []
 
     @property
     def streamed_text(self) -> str:
@@ -53,6 +55,16 @@ class RecordingTurnSink:
         """记录完整文本更新及其发生顺序。"""
         self.parts[:] = [text]
         self.events.append(("replace", text))
+
+    async def approval_requested(self, request) -> None:
+        """保存完整测试审核并唤醒测试调用方。"""
+        self.approval_requests.append(request)
+        self.events.append(("approval_requested", request))
+        self.approval_ready.set()
+
+    async def approval_resolved(self, resolution, tool_call_id: str) -> None:
+        """记录审核终态。"""
+        self.events.append(("approval_resolved", resolution))
 
     async def completed(self, run: AgentRun) -> None:
         """记录持久化成功终态快照。"""
@@ -356,3 +368,16 @@ def chat_events(message: AIMessage) -> list[object]:
     if message.tool_calls:
         return [chat_chunk(tool_calls=[{"index": index, "id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": json.dumps(call["args"], separators=(",", ":"))}} for index, call in enumerate(message.tool_calls)]), chat_chunk(finish_reason="tool_calls")]
     return [chat_chunk(content=message.content), chat_chunk(finish_reason="stop")]
+
+
+class FakeSessionRegistry:
+    """为非 SSH 集成测试提供固定目标和不会自行断连的借用会话。"""
+
+    def get(self, session_id):
+        """返回仅用于目标展示的非秘密快照。"""
+        from types import SimpleNamespace
+        return SimpleNamespace(host_label="test", host="localhost", port=22, username="tester")
+
+    async def wait_unavailable(self, session_id) -> None:
+        """等待测试取消，明确模拟始终连接的会话。"""
+        await asyncio.Event().wait()

@@ -87,6 +87,196 @@
         "title": "AgentApiConfigResponse",
         "type": "object"
       },
+      "AgentTurnApprovalRequestedEvent": {
+        "additionalProperties": false,
+        "description": "向页面内存发布冻结操作，禁止写入日志或持久化 UI store。",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "approval_id": {
+            "description": "本次申请的随机单次授权标识。",
+            "format": "uuid",
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "arguments": {
+            "$ref": "#/components/schemas/ExecuteCommandArguments",
+            "description": "原样冻结的待执行命令参数。"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "reason": {
+            "const": "POSSIBLE_MUTATION_OR_UNKNOWN",
+            "default": "POSSIBLE_MUTATION_OR_UNKNOWN",
+            "description": "不能明确认定只读的操作。",
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "ssh_session_id": {
+            "description": "执行目标会话，不允许重新绑定。",
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ApprovalTarget",
+            "description": "来自已建立会话的显示快照。"
+          },
+          "tool_call_id": {
+            "description": "模型调用关联 ID。",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "const": "execute_command",
+            "default": "execute_command",
+            "description": "唯一可审核工具。",
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.approval_requested",
+            "default": "agent.turn.approval_requested",
+            "description": "人工审核请求事件。",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "agent_run_id",
+          "ssh_session_id",
+          "tool_call_id",
+          "approval_id",
+          "arguments",
+          "target",
+          "request_id",
+          "sequence"
+        ],
+        "title": "AgentTurnApprovalRequestedEvent",
+        "type": "object"
+      },
+      "AgentTurnApprovalResolvedEvent": {
+        "additionalProperties": false,
+        "description": "审核决定事件，独立于远程执行结果。",
+        "properties": {
+          "agent_run_id": {
+            "description": "Durable Agent Run identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "approval_id": {
+            "description": "原审核标识。",
+            "format": "uuid",
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "Conversation identity frozen for the complete stream.",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "安全的决定或失效原因。",
+            "enum": [
+              "user_approved",
+              "user_rejected",
+              "session_unavailable",
+              "run_cancelled"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "HTTP request correlation identifier echoed by every event.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "description": "Frozen Agent turn SSE schema version.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sequence": {
+            "description": "Contiguous JavaScript-safe event sequence number.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "description": "不可逆的审核终态。",
+            "enum": [
+              "APPROVED",
+              "REJECTED",
+              "INVALIDATED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_call_id": {
+            "description": "原工具调用关联。",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.turn.approval_resolved",
+            "default": "agent.turn.approval_resolved",
+            "description": "审核决定事件。",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "status",
+          "reason",
+          "request_id",
+          "sequence",
+          "conversation_id",
+          "agent_run_id",
+          "tool_call_id"
+        ],
+        "title": "AgentTurnApprovalResolvedEvent",
+        "type": "object"
+      },
       "AgentTurnCompletedEvent": {
         "additionalProperties": false,
         "description": "完整消息与成功 Run 均持久化后关闭流。",
@@ -561,6 +751,124 @@
         ],
         "title": "ApiType",
         "type": "string"
+      },
+      "ApprovalDecision": {
+        "additionalProperties": false,
+        "description": "用户仅能决定通过或拒绝，不携带可替换命令。",
+        "properties": {
+          "agent_run_id": {
+            "description": "唯一 Run，内存 checkpoint 的所有者。",
+            "format": "uuid",
+            "title": "Agent Run Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "description": "所属对话，不可由恢复请求更换。",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "decision": {
+            "description": "当前操作的用户决定。",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "ssh_session_id": {
+            "description": "执行目标会话，不允许重新绑定。",
+            "format": "uuid",
+            "title": "Ssh Session Id",
+            "type": "string"
+          },
+          "tool_call_id": {
+            "description": "模型调用关联 ID。",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Tool Call Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "agent_run_id",
+          "ssh_session_id",
+          "tool_call_id",
+          "decision"
+        ],
+        "title": "ApprovalDecision",
+        "type": "object"
+      },
+      "ApprovalDecisionResponse": {
+        "additionalProperties": false,
+        "description": "只确认已记录决定，执行结果经原 SSE 发送。",
+        "properties": {
+          "approval_id": {
+            "description": "本次已决定的审批 ID。",
+            "format": "uuid",
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "已提交的决定，不表示执行成功。",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "status"
+        ],
+        "title": "ApprovalDecisionResponse",
+        "type": "object"
+      },
+      "ApprovalTarget": {
+        "additionalProperties": false,
+        "description": "已建立 SSH 会话的非秘密目标快照，不重新解析可变配置。",
+        "properties": {
+          "display_name": {
+            "description": "建立会话时的显示名。",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "host": {
+            "description": "建立会话时的目标主机。",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host",
+            "type": "string"
+          },
+          "port": {
+            "description": "目标 SSH 端口。",
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "username": {
+            "description": "已认证的 SSH 用户。",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "host",
+          "port",
+          "username"
+        ],
+        "title": "ApprovalTarget",
+        "type": "object"
       },
       "ConnectionCreateRequest": {
         "additionalProperties": false,
@@ -3286,6 +3594,62 @@
         "summary": "Update Api Config"
       }
     },
+    "/v1/agent/approvals/{approval_id}/decision": {
+      "post": {
+        "description": "独立控制请求只提交决定，不接收可替换的命令或目标。",
+        "operationId": "submit_approval_decision_v1_agent_approvals__approval_id__decision_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request correlation identifier.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Submit Approval Decision"
+      }
+    },
     "/v1/agent/turns": {
       "post": {
         "description": "持久化 Run 已存在后才启动 Agent SSE 响应。",
@@ -3334,6 +3698,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/AgentTurnToolStartedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnApprovalRequestedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentTurnApprovalResolvedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/AgentTurnCompletedEvent"

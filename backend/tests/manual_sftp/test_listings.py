@@ -35,6 +35,7 @@ def test_channel_open_has_a_fixed_deadline(monkeypatch: pytest.MonkeyPatch) -> N
             SESSION_CONNECTION_ID,
             HangingConnection(),
             connection_profile_version=1,
+            host="localhost", port=22, username="tester",
             host_label="demo-host",
             target_host_key_fingerprint="SHA256:test-target",
         )
@@ -160,6 +161,7 @@ def sessions_with(*clients: FakeSftpClient):
         SESSION_CONNECTION_ID,
         FakeConnection(list(clients)),
         connection_profile_version=1,
+        host="localhost", port=22, username="tester",
         host_label="demo-host",
         target_host_key_fingerprint="SHA256:test-target",
     )

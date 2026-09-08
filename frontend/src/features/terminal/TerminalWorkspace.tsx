@@ -56,6 +56,7 @@ const toneClass = (session: TerminalSessionModel) =>
 
 const agentDotClass: Record<Exclude<AgentBackgroundState, "NONE">, string> = {
   RUNNING: "bg-accent",
+  AWAITING_APPROVAL: "bg-warning",
   COMPLETED_UNREAD: "bg-success",
   FAILED_UNREAD: "bg-danger",
 };
@@ -188,7 +189,9 @@ export function TerminalWorkspace({
                   <AgentStatusDot
                     state={agentBackgroundByTab[session.tabId] ?? "NONE"}
                     label={t(
-                      agentBackgroundByTab[session.tabId] === "RUNNING"
+                      agentBackgroundByTab[session.tabId] === "AWAITING_APPROVAL"
+                        ? "agent.tabAwaitingApproval"
+                        : agentBackgroundByTab[session.tabId] === "RUNNING"
                         ? "agent.tabRunning"
                         : agentBackgroundByTab[session.tabId] ===
                             "COMPLETED_UNREAD"

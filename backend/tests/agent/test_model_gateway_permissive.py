@@ -1,3 +1,4 @@
+from tests.agent.fakes import FakeSessionRegistry
 """覆盖 Provider 传输变体，不要求完整 SDK schema。"""
 
 from ..storage_support import RepositoryClient, sql
@@ -142,7 +143,7 @@ def test_mixed_tool_turn_displays_commentary_then_updates_final_answer(agent_sto
         executor = RecordingExecutor(before_execute=check_commentary_visible)
         service = AgentService(agent_storage.database, executor,
             ModelGateway(client_builder=RecordingOpenAIClientBuilder(clients)),
-            ContextService(agent_storage.database), lambda _: True)
+            ContextService(agent_storage.database), lambda _: True, ssh_sessions=FakeSessionRegistry())
         turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
         result = await _run_turn(agent_storage, service, turn, event_sink=sink)
         assert result.status is AgentRunStatus.COMPLETED

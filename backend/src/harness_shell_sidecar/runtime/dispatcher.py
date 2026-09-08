@@ -45,6 +45,8 @@ class _ActiveRequest:
     cancelled: asyncio.Event
     #: 正在执行该请求的 asyncio 任务。
     task: asyncio.Task[object]
+    #: 仅审核决定占用独立控制容量。
+    control: bool = False
 
 
 class RequestDispatcher:
@@ -93,7 +95,7 @@ class RequestDispatcher:
                 )
             return payload
 
-        return await self.execute(request_id, invoke)
+        return await self._execute_owned(request_id, invoke, control=operation == "agent.approvals.decide")
 
     async def execute(
         self,
@@ -102,14 +104,19 @@ class RequestDispatcher:
     ) -> ResultT:
         """在共享容量和取消约束下管理一个 typed 应用调用。"""
 
-        # 1. 派发前拒绝关闭状态、重复请求 ID 和超过共享容量的请求。
+        return await self._execute_owned(request_id, work, control=False)
+
+    async def _execute_owned(self, request_id: UUID, work: ApplicationWork[ResultT], *, control: bool) -> ResultT:
+        """在共享取消索引中独立限制普通与单槽审核请求。"""
+        # 1. 派发前拒绝关闭状态、重复请求 ID 和对应池超额。
         if self._closing:
             raise DispatchError("RUNTIME_STOPPING", "runtime is stopping")
         if request_id in self._active:
             raise DispatchError(
                 "DUPLICATE_REQUEST_ID", "request ID is already active"
             )
-        if len(self._active) >= self._capacity:
+        active_count = sum(entry.control == control for entry in self._active.values())
+        if active_count >= (1 if control else self._capacity):
             raise DispatchError(
                 "REQUEST_CAPACITY_EXCEEDED", "active request capacity is exhausted"
             )
@@ -120,7 +127,7 @@ class RequestDispatcher:
             raise RuntimeError("dispatcher requires an asyncio task")
         cancelled = asyncio.Event()
         context = RequestContext(request_id=request_id, cancelled=cancelled)
-        self._active[request_id] = _ActiveRequest(cancelled, task)
+        self._active[request_id] = _ActiveRequest(cancelled, task, control)
         try:
             context.require_active()
             return await work(context)

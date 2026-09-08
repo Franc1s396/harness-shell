@@ -337,3 +337,69 @@ describe("tool event argument validation", () => {
     await expect(agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "ssh-1", apiConfigId: "config-1", userMessage: "inspect" }, () => undefined)).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
   });
 });
+
+
+describe("approval protocol", () => {
+  const approvalId = "40000000-0000-4000-8000-000000000004";
+  const sshSessionId = "50000000-0000-4000-8000-000000000005";
+  const body = { conversation_id: conversationId, agent_run_id: agentRunId, ssh_session_id: sshSessionId, tool_call_id: "change", decision: "approve" as const };
+  const started = { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 };
+  const pending = { ...baseEvent, type: "agent.turn.approval_requested", sequence: 1, approval_id: approvalId,
+    ssh_session_id: sshSessionId, tool_name: "execute_command", tool_call_id: "change", arguments: { command: "touch /tmp/test" },
+    target: { display_name: "test", host: "localhost", port: 22, username: "tester" }, reason: "POSSIBLE_MUTATION_OR_UNKNOWN" };
+  const resolved = { ...baseEvent, type: "agent.turn.approval_resolved", sequence: 2, approval_id: approvalId,
+    tool_call_id: "change", status: "APPROVED", reason: "user_approved" };
+  const completed = { ...baseEvent, type: "agent.turn.completed", sequence: 3, status: "COMPLETED", react_iteration: 1, error_code: null };
+  const turn = { conversationId: null, sshSessionId, apiConfigId: "config-1", userMessage: "change" };
+
+  it("posts only the frozen identity and forwards cancellation", async () => {
+    const signal = new AbortController().signal;
+    request.mockResolvedValue({ approval_id: approvalId, status: "APPROVED" });
+    await agentApi.decideAgentApproval(approvalId, body, signal);
+    expect(request).toHaveBeenLastCalledWith("POST", `/v1/agent/approvals/${approvalId}/decision`, { body, signal });
+    request.mockResolvedValue({ approval_id: approvalId, status: "REJECTED" });
+    await expect(agentApi.decideAgentApproval(approvalId, body)).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
+  });
+
+  it("continues the original stream after a correlated decision", async () => {
+    postSse.mockReturnValue(sse(started, pending, resolved, completed)());
+    const progress = vi.fn();
+    await expect(agentApi.streamAgentTurn(turn, progress)).resolves.toEqual(completed);
+    expect(progress.mock.calls.map(([event]) => event.type)).toContain("agent.turn.approval_requested");
+  });
+
+  it.each([
+    { ...pending, expires_at: "2026-09-08" },
+    { ...pending, ssh_session_id: approvalId },
+  ])("rejects unknown fields and changed session", async invalid => {
+    postSse.mockReturnValue(sse(started, invalid, resolved, completed)());
+    await expect(agentApi.streamAgentTurn(turn, vi.fn())).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
+  });
+
+  it.each(["resolved-first", "duplicate-request", "unknown-resolution"])("rejects invalid approval ordering: %s", async kind => {
+    const events = kind === "resolved-first" ? [started, { ...resolved, sequence: 1 }] : kind === "duplicate-request"
+      ? [started, pending, { ...pending, sequence: 2 }] : [started, pending, { ...resolved, approval_id: sshSessionId }];
+    postSse.mockReturnValue(sse(...events)());
+    await expect(agentApi.streamAgentTurn(turn, vi.fn())).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
+  });
+
+  it("rejects completion while approval is pending", async () => {
+    postSse.mockReturnValue(sse(started, pending, { ...completed, sequence: 2 })());
+    await expect(agentApi.streamAgentTurn(turn, vi.fn())).rejects.toMatchObject({ code: "BACKEND_AGENT_STREAM_INVALID" });
+  });
+});
+
+
+it.each(["agent-approval-approve", "agent-approval-reject", "agent-approval-invalidated"])("consumes shared approval fixture %s through real framing", async name => {
+  const fixture = validAgentFixtures.cases.find(value => value.name === name)!;
+  const client = new BackendHttpClient("http://127.0.0.1:8765", {
+    randomUuid: () => requestId,
+    fetchImpl: async () => new Response(fixture.wire_utf8, {
+      status: 200, headers: { "Content-Type": "text/event-stream", "X-Request-ID": requestId, "Cache-Control": "no-store" },
+    }),
+  });
+  postSse.mockImplementation(client.postSse.bind(client));
+  const progress = vi.fn();
+  await agentApi.streamAgentTurn({ conversationId: null, sshSessionId: "20000000-0000-4000-8000-000000000002", apiConfigId: "config-1", userMessage: "change" }, progress);
+  expect(progress.mock.calls.map(([event]) => event.type)).toContain("agent.turn.approval_resolved");
+});

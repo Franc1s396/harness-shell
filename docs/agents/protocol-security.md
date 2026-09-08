@@ -20,7 +20,7 @@ Backend 只监听 `127.0.0.1`，没有远程监听、TLS 或用户认证。loopb
 ## HTTP/WebSocket
 
 - HTTP 只允许固定 `/v1/...` typed routes、`X-Request-ID`、bounded body/response 与 Problem Details。
-- `POST /v1/agent/turns` 的 success 只允许 strict SSE。durable Run 之前的失败为 Problem Details；HTTP 200 后只允许 correlated `started -> (text_delta | text_replace | tool_started)* -> completed|failed -> EOF`，且只暴露 AI 可见文本（含工具前说明）与已校验的工具执行记录（工具名、调用 ID、完整参数），支持实时增量及完整更新。已知领域失败的 `message` 必须来自异常产生点明确审查的 `safe_message`，未知异常只能使用固定安全文本。
+- `POST /v1/agent/turns` 的 success 只允许 strict SSE。durable Run 之前的失败为 Problem Details；HTTP 200 后只允许 correlated `started -> (text_delta | text_replace | tool_started | approval_requested | approval_resolved)* -> completed|failed -> EOF`，且只暴露 AI 可见文本（含工具前说明）与已校验的工具执行记录（工具名、调用 ID、完整参数），支持实时增量及完整更新。已知领域失败的 `message` 必须来自异常产生点明确审查的 `safe_message`，未知异常只能使用固定安全文本。
 - Agent SSE 由创建本轮的 POST response 独占，不进入 Runtime WebSocket；不使用 EventSource、Socket.IO、reconnect、resume、replay 或 JSON success fallback。
 - Runtime WebSocket 是 single owner，首轮 heartbeat causation、message union、queue capacity、close code 均严格验证；不自动 reconnect、drop、merge 或 replay。
 - Manual SFTP bytes 只经 raw chunk endpoints，以 `application/octet-stream` 和 `X-Chunk-Offset` 关联；禁止 Base64 transport、path-embedded local path 和 high-level aggregate route。
@@ -33,7 +33,7 @@ React 使用 Backend 公钥将用户输入包装为 RSA-OAEP-256 + AES-256-GCM r
 
 连接私钥选择与 strict UTF-8 读取由 React 拥有，HTTP 只携带加密 envelope，不携带文件路径。`GET /v1/runtime/credential-encryption-key` 仍是唯一公开的凭据辅助接口。
 
-Runtime SQLite 的 Alembic 基线业务表是 plaintext store：credential secret、Agent conversation/message/output、remote recovery 及其他业务 payload 可能明文落盘。当前没有 at-rest encryption 或 OS-bound protection。旧 schema v7 明确拒绝；仅对已知 Alembic revision 执行启动事务迁移；SQLite 不再保存无读取闭环的 Audit/Trace。Problem、SSE terminal event、WebSocket event 和持久化 UI store 均不得包含 secret、Provider body、tool/command、stdout/stderr 或文件 bytes。`tool_started` 明确允许传递已校验的工具名、调用 ID 和完整 command 参数，供当前 turn 列表及完成回答详情在页面内存展示；不得主动写入日志或持久化 UI store。日志调用点不得主动加入上述内容；异常日志与 traceback 规则以 [Python Style Guide](python-style.md#异常与失败传播) 为准。
+Runtime SQLite 的 Alembic 基线业务表是 plaintext store：credential secret、Agent conversation/message/output、remote recovery 及其他业务 payload 可能明文落盘。当前没有 at-rest encryption 或 OS-bound protection。旧 schema v7 明确拒绝；仅对已知 Alembic revision 执行启动事务迁移；SQLite 不再保存无读取闭环的 Audit/Trace。Problem、SSE terminal event、WebSocket event 和持久化 UI store 均不得包含 secret、Provider body、tool/command、stdout/stderr 或文件 bytes。`approval_requested` 额外允许传递冻结的目标快照、审核 ID、原因与完整 command；只在页面内存展示。`tool_started` 明确允许传递已校验的工具名、调用 ID 和完整 command 参数，供当前 turn 列表及完成回答详情在页面内存展示；不得主动写入日志或持久化 UI store。日志调用点不得主动加入上述内容；异常日志与 traceback 规则以 [Python Style Guide](python-style.md#异常与失败传播) 为准。
 
 滚动摘要与裁剪后的工具结果同样可能明文落盘。摘要只能作为不可信历史数据，不获得 System 权威或新增用户授权；摘要原文、usage 和裁剪工具内容均不得进入 SSE 或诊断日志。新的上下文错误仅携带明确审查的 safe_message。Provider 预算字段和错误边界见 [HTTP 契约](../protocol/http/README.md)，执行与持久化细节见 [Python Backend Guide](python-sidecar.md)。
 
@@ -44,3 +44,10 @@ React 独占本地 picker、File handle、hash、chunk read/write 和同步 save
 ## 变更要求
 
 任何 route、message、limit、credential envelope、ready/control frame、schema 或 ownership 变更必须同步实现、OpenAPI/fixture、两侧测试和文档。安全失败必须可见；禁止 fallback、兼容解析、猜测关联或静默降级。
+
+
+## Agent 审核协议
+
+`POST /v1/agent/approvals/{approval_id}/decision` 接收 conversation_id、agent_run_id、ssh_session_id、tool_call_id 和 approve/reject；不接收替换命令、目标、期限或自动授权开关。成功只返回 approval_id 与 APPROVED/REJECTED；与原 SSE 的 HTTP 响应到达顺序不作保证。同决定幂等，身份或相反决定冲突为 409，已释放为 404，已失效为 409。只有原 worker 可恢复对应 interrupt，已经消费的授权不可再次执行。
+
+同 Run 只允许一个 pending；requested/resolved 连续参与原 sequence。pending 未解决不得发送 tool_started/completed，失败或取消可以直接使气泡失效。无限审核等待不增加 SSE 帧、不增加 Run 迭代、不占数据库 Session。断流无重连或恢复接口，内存授权不落盘。系统提示词要求目标明确时提交工具调用，UI 决定执行授权；模型不通过 final text 再次索取相同授权，不得绕过用户拒绝。

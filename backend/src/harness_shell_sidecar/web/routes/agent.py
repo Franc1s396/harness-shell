@@ -9,6 +9,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from fastapi.responses import StreamingResponse
 
+from harness_shell_sidecar.agent.approval_models import ApprovalDecision
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
 from harness_shell_sidecar.agent.contracts import ModelApiConfig
 from harness_shell_sidecar.agent.handlers import (
     AgentTurnRequest,
@@ -220,3 +223,25 @@ async def _start_while_connected(
         # 3. 只有一个 receive owner；正常启动后交回 StreamingResponse。
         disconnect_task.cancel()
         await asyncio.gather(disconnect_task, return_exceptions=True)
+
+
+class ApprovalDecisionResponse(BaseModel):
+    """只确认已记录决定，执行结果经原 SSE 发送。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    approval_id: UUID = Field(description="本次已决定的审批 ID。")
+    status: Literal["APPROVED", "REJECTED"] = Field(description="已提交的决定，不表示执行成功。")
+
+
+@router.post("/v1/agent/approvals/{approval_id}/decision", response_model=ApprovalDecisionResponse)
+async def submit_approval_decision(approval_id: UUID, payload: dict[str, object], response: Response,
+                                  request_id: CorrelationId, owner: Owner) -> ApprovalDecisionResponse:
+    """独立控制请求只提交决定，不接收可替换的命令或目标。"""
+    decision = validate_json_model(payload, ApprovalDecision, request_id)
+    try:
+        result = await dispatch_application(owner, request_id, "agent.approvals.decide",
+            {**decision.model_dump(mode="json"), "approval_id": str(approval_id)})
+    except DispatchError as error:
+        raise dispatch_error_problem(request_id, error) from error
+    set_correlation(response, request_id)
+    return model_from_result(result, ApprovalDecisionResponse)

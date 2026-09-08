@@ -134,6 +134,7 @@ def test_child_close_failure_still_closes_target_and_jump_transports() -> None:
             target,
             jump,
             connection_profile_version=1,
+            host="localhost", port=22, username="tester",
             host_label="test-host",
             target_host_key_fingerprint="SHA256:test-target",
         )
@@ -164,6 +165,7 @@ def test_connected_predicate_rejects_closed_target_or_jump_transport() -> None:
         target,
         jump,
         connection_profile_version=1,
+        host="localhost", port=22, username="tester",
         host_label="test-host",
         target_host_key_fingerprint="SHA256:test-target",
     )
@@ -185,6 +187,7 @@ def test_close_all_continues_after_an_earlier_session_fails() -> None:
             uuid4(),
             first_target,
             connection_profile_version=1,
+            host="localhost", port=22, username="tester",
             host_label="first-host",
             target_host_key_fingerprint="SHA256:first-target",
         )
@@ -194,6 +197,7 @@ def test_close_all_continues_after_an_earlier_session_fails() -> None:
             uuid4(),
             second_target,
             connection_profile_version=1,
+            host="localhost", port=22, username="tester",
             host_label="second-host",
             target_host_key_fingerprint="SHA256:second-target",
         )

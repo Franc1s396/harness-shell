@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.agent.fakes import FakeSessionRegistry
 
 from ..storage_support import RepositoryClient, sql
 
@@ -88,7 +89,7 @@ def _service(
         gateway,
         context,
         lambda _session_id: True,
-    )
+    ssh_sessions=FakeSessionRegistry())
     turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
     return service, turn
 
@@ -209,7 +210,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
 
     async def scenario() -> None:
         user_marker = "graph-user-message-marker-1f4b"
-        command_marker = "graph-command-marker-2a5c"
+        command_marker = "cat /graph-command-marker-2a5c"
         tool_output_marker = "graph-tool-output-marker-3b6d"
         model_output_marker = "graph-model-output-marker-4c7e"
         provider_key_marker = "graph-provider-key-marker-5d8f"
@@ -566,7 +567,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
         )
         assert any(
             fields["route_source"] == "check_react_limit"
-            and fields["route_target"] == "execute_tool"
+            and fields["route_target"] == "prepare_tool"
             for fields in routes
         )
         assert any(
@@ -578,8 +579,8 @@ def test_129th_tool_call_is_paired_but_never_executed(
     asyncio.run(scenario())
 
 
-def test_compiled_graph_has_no_checkpointer(agent_storage: AgentStorage) -> None:
-    """保持 SQLite 对话存储为唯一恢复权威。"""
+def test_compiled_graph_uses_explicit_checkpointer(agent_storage: AgentStorage) -> None:
+    """图使用调用方显式提供的内存 saver，不创建跨 Run 恢复权威。"""
 
     model = FakeModelSequence()
     dependencies = AgentGraphDependencies(
@@ -593,9 +594,11 @@ def test_compiled_graph_has_no_checkpointer(agent_storage: AgentStorage) -> None
         executor=RecordingExecutor(),
     )
 
-    graph = build_agent_graph(dependencies)
+    from langgraph.checkpoint.memory import InMemorySaver
+    saver = InMemorySaver()
+    graph = build_agent_graph(dependencies, checkpointer=saver)
 
-    assert graph.checkpointer is None
+    assert graph.checkpointer is saver
 
 
 def test_full_turn_never_persists_or_logs_provider_key_sentinel(
@@ -614,7 +617,7 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
             ModelGateway(client_builder=builder, sleep=instant_sleep),
             ContextService(agent_storage.database),
             lambda _session_id: True,
-        )
+        ssh_sessions=FakeSessionRegistry())
         turn = make_turn_input().model_copy(
             update={"api_config_id": config.api_config_id}
         )
@@ -716,7 +719,7 @@ def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_stora
         budget = ToolOverflowBudget(load_local_encoding(tokenizer_resource_dir(), "o200k_base"), AgentContextPolicy())
         service = AgentService(agent_storage.database, RecordingExecutor(),
             ModelGateway(client_builder=RecordingSequenceClientBuilder(model)),
-            ContextService(agent_storage.database), lambda _: True, budget=budget)
+            ContextService(agent_storage.database), lambda _: True, budget=budget, ssh_sessions=FakeSessionRegistry())
         turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id})
         result = await _run_turn(agent_storage, service, turn)
         assert result.status is AgentRunStatus.FAILED

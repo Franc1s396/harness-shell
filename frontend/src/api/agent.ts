@@ -66,6 +66,7 @@ export const normalizeAgentCommandError = (
 };
 
 export const agentApi = {
+  decideAgentApproval,
   listModelApiConfigs: () =>
     getBackendClient().http.request<{ request_id: string; configs: WireModelApiConfig[] }>(
       "GET", "/v1/agent/api-configs",
@@ -95,6 +96,8 @@ export const agentApi = {
     signal?: AbortSignal,
   ): Promise<AgentTurnTerminalEvent> => {
     let expectedSequence = 0;
+    let pendingApproval: AgentTurnApprovalRequestedEvent | null = null;
+    const approvalIds = new Set<string>();
     let identity: Readonly<{
       requestId: string;
       conversationId: string;
@@ -134,6 +137,18 @@ export const agentApi = {
           ) {
             throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
           }
+        }
+        if (event.type === "agent.turn.approval_requested") {
+          if (pendingApproval !== null || approvalIds.has(event.approval_id) || event.ssh_session_id !== input.sshSessionId)
+            throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+          pendingApproval = event;
+          approvalIds.add(event.approval_id);
+        } else if (event.type === "agent.turn.approval_resolved") {
+          if (pendingApproval?.approval_id !== event.approval_id || pendingApproval.tool_call_id !== event.tool_call_id)
+            throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+          pendingApproval = null;
+        } else if (pendingApproval !== null && (event.type === "agent.turn.tool_started" || event.type === "agent.turn.completed")) {
+          throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
         }
         expectedSequence += 1;
         if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") {
@@ -179,6 +194,32 @@ export type AgentTurnToolStartedEvent = AgentEventBase & AgentExecutedTool & Rea
   type: "agent.turn.tool_started";
 }>;
 
+export type ApprovalDecision = {
+  conversation_id: string; agent_run_id: string; ssh_session_id: string; tool_call_id: string;
+  decision: "approve" | "reject";
+};
+export type AgentTurnApprovalRequestedEvent = AgentEventBase & AgentExecutedTool & Readonly<{
+  type: "agent.turn.approval_requested"; approval_id: string; ssh_session_id: string;
+  target: Readonly<{ display_name: string; host: string; port: number; username: string }>;
+  reason: "POSSIBLE_MUTATION_OR_UNKNOWN";
+}>;
+export type AgentTurnApprovalResolvedEvent = AgentEventBase & Readonly<{
+  type: "agent.turn.approval_resolved"; approval_id: string; tool_call_id: string;
+  status: "APPROVED" | "REJECTED" | "INVALIDATED";
+  reason: "user_approved" | "user_rejected" | "session_unavailable" | "run_cancelled";
+}>;
+
+export async function decideAgentApproval(approvalId: string, body: ApprovalDecision, signal?: AbortSignal) {
+  if (!isCanonicalUuid(approvalId)) throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+  const value = await getBackendClient().http.request<{approval_id: string; status: "APPROVED" | "REJECTED"}>(
+    "POST", `/v1/agent/approvals/${approvalId}/decision`, { body, signal });
+  if (!isRecord(value)) throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+  requireExactKeys(value, ["approval_id", "status"]);
+  if (value.approval_id !== approvalId || value.status !== (body.decision === "approve" ? "APPROVED" : "REJECTED"))
+    throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+  return value;
+}
+
 export type AgentTurnTextDeltaEvent = AgentEventBase & Readonly<{
   type: "agent.turn.text_delta";
   delta: string;
@@ -204,7 +245,7 @@ export type AgentTurnFailedEvent = AgentEventBase & Readonly<{
   message: string;
 }>;
 
-export type AgentTurnProgressEvent = AgentTurnStartedEvent | AgentTurnToolStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent;
+export type AgentTurnProgressEvent = AgentTurnApprovalRequestedEvent | AgentTurnApprovalResolvedEvent | AgentTurnStartedEvent | AgentTurnToolStartedEvent | AgentTurnTextDeltaEvent | AgentTurnTextReplaceEvent;
 export type AgentTurnTerminalEvent = AgentTurnCompletedEvent | AgentTurnFailedEvent;
 
 type WireModelApiConfigInput = ModelApiConfigInput;
@@ -324,6 +365,34 @@ const validateAgentFrame = (frame: BackendSseFrame): AgentTurnEvent => {
       throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
     }
     return value as AgentTurnToolStartedEvent;
+  }
+  if (value.type === "agent.turn.approval_requested") {
+    requireExactKeys(value, [...BASE_KEYS, "approval_id", "ssh_session_id", "tool_call_id", "tool_name", "arguments", "target", "reason"]);
+    if (!isCanonicalUuid(value.approval_id) || !isCanonicalUuid(value.ssh_session_id) ||
+        value.reason !== "POSSIBLE_MUTATION_OR_UNKNOWN" || !isRecord(value.target))
+      throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    requireExactKeys(value.target, ["display_name", "host", "port", "username"]);
+    for (const [key, max] of [["display_name", 80], ["host", 255], ["username", 128]] as const) {
+      const text = value.target[key];
+      if (typeof text !== "string" || [...text].length < 1 || [...text].length > max)
+        throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    }
+    if (!isSafeCount(value.target.port) || value.target.port < 1 || value.target.port > 65535)
+      throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    const tool = Object.fromEntries([...BASE_KEYS, "tool_call_id", "tool_name", "arguments"].map(key => [key, value[key]]));
+    tool.type = "agent.turn.tool_started";
+    validateAgentFrame({ ...frame, event: "agent.turn.tool_started", data: tool });
+    return value as AgentTurnApprovalRequestedEvent;
+  }
+  if (value.type === "agent.turn.approval_resolved") {
+    requireExactKeys(value, [...BASE_KEYS, "approval_id", "tool_call_id", "status", "reason"]);
+    if (!isCanonicalUuid(value.approval_id) || typeof value.tool_call_id !== "string" ||
+        [...value.tool_call_id].length < 1 || [...value.tool_call_id].length > 1024 ||
+        !(value.status === "APPROVED" && value.reason === "user_approved" ||
+          value.status === "REJECTED" && value.reason === "user_rejected" ||
+          value.status === "INVALIDATED" && (value.reason === "session_unavailable" || value.reason === "run_cancelled")))
+      throw agentStreamError("BACKEND_AGENT_STREAM_INVALID");
+    return value as AgentTurnApprovalResolvedEvent;
   }
   if (value.type === "agent.turn.text_delta") {
     requireExactKeys(value, [...BASE_KEYS, "delta"]);

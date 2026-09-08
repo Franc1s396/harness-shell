@@ -5,8 +5,9 @@ import type { AgentCommandError, ModelApiConfig } from "../../api/agent";
 import { Button } from "../../components/ui/controls";
 import { Dialog } from "../../components/ui/Dialog";
 import { ShellIcon } from "../shell/icons";
+import { AgentApprovalBubble } from "./AgentApprovalBubble";
 import { AssistantMarkdown } from "./AssistantMarkdown";
-import type { AgentTabState } from "./agent-state";
+import type { AgentApprovalMessage, AgentTabState } from "./agent-state";
 
 export type AgentWorkspaceProps = {
   width: number;
@@ -20,8 +21,7 @@ export type AgentWorkspaceProps = {
   onOpenProviderSettings: () => void;
   onRequestSend: () => void;
   onCancelTurn: () => void;
-  onConfirmRiskAndSend: () => void;
-  onCancelRisk: () => void;
+  onApprovalDecision: (approvalId: string, decision: "approve" | "reject") => void;
   onResetConversation: () => void;
   onMarkRead: () => void;
 };
@@ -39,6 +39,18 @@ function AgentErrorDetails({ error }: { error: AgentCommandError }) {
   );
 }
 
+/** 审核记录按终态消息绑定的 ID 展示；历史视图不提供重新授权按钮。 */
+function ApprovalHistory({ ids, approvals }: { ids?: string[]; approvals: Map<string, AgentApprovalMessage> }) {
+  const { t } = useTranslation();
+  if (!ids?.length) return null;
+  return <details>
+    <summary className="cursor-pointer text-xs text-ink-muted">{t("agent.approvalHistory", { count: ids.length })}</summary>
+    <ol className="mt-2 space-y-2 text-xs">
+      {ids.map(id => <li key={id}><AgentApprovalBubble message={approvals.get(id)!} /></li>)}
+    </ol>
+  </details>;
+}
+
 export function AgentWorkspace({
   width,
   tabTitle,
@@ -51,8 +63,7 @@ export function AgentWorkspace({
   onOpenProviderSettings,
   onRequestSend,
   onCancelTurn,
-  onConfirmRiskAndSend,
-  onCancelRisk,
+  onApprovalDecision,
   onResetConversation,
   onMarkRead,
 }: AgentWorkspaceProps) {
@@ -61,6 +72,17 @@ export function AgentWorkspace({
   const [resetOpen, setResetOpen] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const lastMessageId = tab?.messages[tab.messages.length - 1]?.id ?? null;
+  const awaitingApproval = tab?.phase === "RUNNING" && tab.messages.some(message =>
+    message.kind === "approval" && message.request.agent_run_id === tab.activeRun?.agentRunId &&
+    (message.status === "PENDING" || message.status === "UNKNOWN"));
+  const approvals = new Map((tab?.messages ?? []).filter((message): message is AgentApprovalMessage =>
+    message.kind === "approval").map(message => [message.id, message]));
+  // 同轮可能依次触发多个审核；只让最后一项占据固定区域，避免旧错误重新浮现。
+  const currentApproval = tab?.phase === "RUNNING" ? [...approvals.values()].reverse().find(message =>
+    message.request.agent_run_id === tab.activeRun?.agentRunId) : undefined;
+  const pendingApproval = currentApproval && !currentApproval.submitting &&
+    (currentApproval.status === "PENDING" || currentApproval.status === "UNKNOWN" || currentApproval.status === "INVALIDATED")
+    ? currentApproval : undefined;
   const streamedText = tab?.activeRun?.streamedText ?? "";
   const streamSequence = tab?.activeRun?.nextSequence ?? null;
   const openProviderSettings = () => {
@@ -141,10 +163,6 @@ export function AgentWorkspace({
         onCollapse={onCollapse}
       />
 
-      <p className="mx-3 mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-        {t("agent.compactRisk")}
-      </p>
-
       <div
         ref={messageListRef}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm"
@@ -155,6 +173,7 @@ export function AgentWorkspace({
           </p>
         ) : null}
         {tab.messages.map((message) => {
+          if (message.kind === "approval") return null;
           if (message.kind === "user") {
             return (
               <article key={message.id} className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap break-words rounded-xl bg-raised px-3 py-2">
@@ -166,6 +185,7 @@ export function AgentWorkspace({
             return (
               <article key={message.id} role="alert" className="w-fit max-w-[88%] break-words rounded-xl border border-danger/40 px-3 py-2 text-danger">
                 <AgentErrorDetails error={message.error} />
+                <ApprovalHistory ids={message.approvalIds} approvals={approvals} />
               </article>
             );
           }
@@ -173,6 +193,7 @@ export function AgentWorkspace({
             return (
               <article key={message.id} role="status" className="text-xs text-ink-muted">
                 {t("agent.cancelled")}
+                <ApprovalHistory ids={message.approvalIds} approvals={approvals} />
               </article>
             );
           }
@@ -194,6 +215,7 @@ export function AgentWorkspace({
                   </ol>
                 </details>
               )}
+              <ApprovalHistory ids={message.approvalIds} approvals={approvals} />
               <details>
                 <summary className="cursor-pointer text-xs text-ink-muted">
                   {t("agent.runDetails")} · {t("agent.sentSnapshot")}
@@ -211,7 +233,7 @@ export function AgentWorkspace({
             </article>
           );
         })}
-        {tab.phase === "RUNNING" && streamedText.length === 0 ? (
+        {tab.phase === "RUNNING" && !awaitingApproval && streamedText.length === 0 ? (
           <article
             role="status"
             className="flex w-fit max-w-[88%] items-center gap-2 rounded-xl border border-line px-3 py-2 text-ink-muted"
@@ -222,15 +244,15 @@ export function AgentWorkspace({
             />
             <span>{t(tab.activeRun?.toolExecuting ? "agent.toolExecuting" : "agent.thinking")}</span>
           </article>
-        ) : tab.phase === "RUNNING" ? (
+        ) : tab.phase === "RUNNING" && streamedText.length > 0 ? (
           <article
             data-provisional="true"
             role="status"
-            aria-busy="true"
+            aria-busy={!awaitingApproval}
             className="w-fit max-w-[88%] rounded-xl border border-line px-3 py-2"
           >
             <AssistantMarkdown text={streamedText} />
-            <div className="mt-2 flex items-center gap-2 text-ink-muted">
+            {!awaitingApproval && <div className="mt-2 flex items-center gap-2 text-ink-muted">
               <span
                 aria-hidden="true"
                 className="size-3 shrink-0 animate-spin rounded-full border-2 border-line-strong border-t-accent motion-reduce:animate-none"
@@ -238,7 +260,7 @@ export function AgentWorkspace({
               <span className={tab.activeRun?.toolExecuting ? undefined : "sr-only"}>
                 {t(tab.activeRun?.toolExecuting ? "agent.toolExecuting" : "agent.running")}
               </span>
-            </div>
+            </div>}
           </article>
         ) : null}
         {tab.lastError &&
@@ -251,6 +273,10 @@ export function AgentWorkspace({
 
       <div className="shrink-0 p-3 pt-0">
         <div className="rounded-xl border border-line-strong bg-app focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/50">
+          {pendingApproval && <section aria-label={t("agent.pendingApproval")} className="rounded-t-xl border-b border-line-strong bg-raised text-sm">
+            <AgentApprovalBubble message={pendingApproval} docked
+              onDecision={pendingApproval.status === "PENDING" ? decision => onApprovalDecision(pendingApproval.id, decision) : undefined} />
+          </section>}
           <textarea
             aria-label={t("agent.message")}
             placeholder={t("agent.messagePlaceholder")}
@@ -345,14 +371,6 @@ export function AgentWorkspace({
             ? t("agent.failedAnnouncement", { name: tabTitle })
             : ""}
       </div>
-
-      <Dialog open={tab.phase === "AWAITING_RISK_CONFIRMATION"} title={t("agent.riskTitle")} onClose={onCancelRisk}>
-        <p className="mt-3 text-sm text-ink-muted">{t("agent.riskBody")}</p>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={onCancelRisk}>{t("common.cancel")}</Button>
-          <Button variant="danger" onClick={onConfirmRiskAndSend}>{t("agent.confirmRisk")}</Button>
-        </div>
-      </Dialog>
 
       <Dialog open={resetOpen} title={t("agent.resetTitle")} onClose={() => setResetOpen(false)}>
         <p className="mt-3 text-sm text-ink-muted">{t("agent.resetBody")}</p>

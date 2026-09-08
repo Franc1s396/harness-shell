@@ -84,6 +84,10 @@ class FakeCommandConnection:
 
         self.calls.clear()
 
+    def is_closed(self) -> bool:
+        """测试连接在显式故障注入前保持活动。"""
+        return False
+
     async def create_process(
         self, command: str, **options: object
     ) -> FakeCommandProcess:
@@ -139,6 +143,7 @@ def _registered(
         uuid4(),
         connection,
         connection_profile_version=1,
+        host="localhost", port=22, username="tester",
         host_label="agent-test",
         target_host_key_fingerprint="SHA256:agent-test",
     )
@@ -198,6 +203,7 @@ def test_selected_session_owns_process_and_nonzero_exit_is_completed() -> None:
             uuid4(),
             other_connection,
             connection_profile_version=1,
+            host="localhost", port=22, username="tester",
             host_label="other-agent-test",
             target_host_key_fingerprint="SHA256:other-agent-test",
         )

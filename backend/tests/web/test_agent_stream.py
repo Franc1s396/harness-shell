@@ -461,3 +461,19 @@ def test_tool_status_is_encoded_in_sequence_without_changing_text() -> None:
         finally:
             await session.aclose()
     asyncio.run(scenario())
+
+
+def test_worst_utf8_approval_event_fits_frame_budget() -> None:
+    """最大合法命令与显示目标仍在现有 SSE 单帧限制以内。"""
+    from harness_shell_sidecar.agent.approval_models import ApprovalTarget
+    from harness_shell_sidecar.agent.streaming import AgentTurnApprovalRequestedEvent
+    from harness_shell_sidecar.web.agent_stream import MAX_AGENT_SSE_FRAME_BYTES
+    from tests.agent.test_approvals import approval_request
+    request = approval_request().model_copy(update={
+        "arguments": ExecuteCommandArguments(command="🧪" * 4096),
+        "target": ApprovalTarget(display_name="🧪" * 80, host="🧪" * 255, port=65535, username="🧪" * 128),
+        "tool_call_id": "🧪" * 1024,
+    })
+    event = AgentTurnApprovalRequestedEvent(**request.model_dump(), request_id=uuid4(), sequence=1)
+    assert len(encode_sse_event(event)) <= MAX_AGENT_SSE_FRAME_BYTES
+    assert "expires_at" not in event.model_dump()

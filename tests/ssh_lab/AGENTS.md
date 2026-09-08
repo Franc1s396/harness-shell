@@ -17,5 +17,5 @@
 - PowerShell 调用 `ssh-keygen.exe` 时保留经过测试的空 passphrase 参数语义，不恢复会在 Windows PowerShell 5.1 丢失空参数的写法。
 - Linux 容器运行的 `*.sh` 必须保持 LF 行尾；根 `.gitattributes` 固定 checkout 规则，字节级契约测试阻止 CRLF shebang 进入 SSH Lab。
 - 测试完成或失败后清理 container、network、临时环境变量和本地进程；不要删除 `.runtime` 之外的用户文件。
-- SSH Lab 通过只证明当前 checkout 对选定 containerized OpenSSH 行为，不是 production host、Provider、Agent Workflow、审批、sudo 或远程写验收。
+- SSH Lab 通过只证明当前 checkout 对选定 containerized OpenSSH 行为，不是 production host、Provider、完整 Agent Workflow、完整审批产品、sudo 或生产远程写验收。Agent marker 测试仅验证指定容器命令的 pending/拒绝零写入和通过一次写入。
 - 任务结束前检查 Protocol、Testing 和本局部规则是否因拓扑、证据或命令变化需要同步更新，并报告结果。

@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from .approval_models import ApprovalRequest, ApprovalResolution
 from .contracts import AgentRun, ExecuteCommandArguments
 
 
@@ -76,6 +77,21 @@ class AgentTurnToolStartedEvent(_AgentTurnEventBase):
     arguments: ExecuteCommandArguments = Field(description="传给执行器的完整已校验参数。")
 
 
+class AgentTurnApprovalRequestedEvent(_AgentTurnEventBase, ApprovalRequest):
+    """向页面内存发布冻结操作，禁止写入日志或持久化 UI store。"""
+
+    type: Literal["agent.turn.approval_requested"] = Field(default="agent.turn.approval_requested", description="人工审核请求事件。")
+    tool_name: Literal["execute_command"] = Field(default="execute_command", description="唯一可审核工具。")
+    reason: Literal["POSSIBLE_MUTATION_OR_UNKNOWN"] = Field(default="POSSIBLE_MUTATION_OR_UNKNOWN", description="不能明确认定只读的操作。")
+
+
+class AgentTurnApprovalResolvedEvent(_AgentTurnEventBase, ApprovalResolution):
+    """审核决定事件，独立于远程执行结果。"""
+
+    type: Literal["agent.turn.approval_resolved"] = Field(default="agent.turn.approval_resolved", description="审核决定事件。")
+    tool_call_id: Annotated[str, StringConstraints(min_length=1, max_length=1024)] = Field(description="原工具调用关联。")
+
+
 class AgentTurnTextDeltaEvent(_AgentTurnEventBase):
     """携带一段精确非空的模型可见文本（包括工具前说明）。"""
 
@@ -143,6 +159,8 @@ class AgentTurnFailedEvent(_AgentTurnEventBase):
 AgentTurnStreamEvent: TypeAlias = Annotated[
     AgentTurnStartedEvent
     | AgentTurnToolStartedEvent
+    | AgentTurnApprovalRequestedEvent
+    | AgentTurnApprovalResolvedEvent
     | AgentTurnTextDeltaEvent
     | AgentTurnTextReplaceEvent
     | AgentTurnCompletedEvent
@@ -178,6 +196,12 @@ class AgentTurnEventSink(AgentTextDeltaSink, Protocol):
     async def tool_started(self, tool_call_id: str, arguments: ExecuteCommandArguments) -> None:
         """校验通过后、实际调用执行器之前发布工具状态。"""
 
+    async def approval_requested(self, request: ApprovalRequest) -> None:
+        """发布当前冻结操作，等待用户决定。"""
+
+    async def approval_resolved(self, resolution: ApprovalResolution, tool_call_id: str) -> None:
+        """发布已提交决定，不表示命令成功。"""
+
     async def completed(self, run: AgentRun) -> None:
         """Run 和最终消息持久化后才发布成功事件。"""
 
@@ -187,6 +211,8 @@ class AgentTurnEventSink(AgentTextDeltaSink, Protocol):
 
 __all__ = [
     "AgentTextDeltaSink",
+    "AgentTurnApprovalRequestedEvent",
+    "AgentTurnApprovalResolvedEvent",
     "AgentTurnCompletedEvent",
     "AgentTurnEventSink",
     "AgentTurnFailedEvent",

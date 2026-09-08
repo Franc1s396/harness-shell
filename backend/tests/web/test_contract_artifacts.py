@@ -62,6 +62,7 @@ EXPECTED_OPERATIONS = {
     ("PATCH", "/v1/agent/api-configs/{api_config_id}"),
     ("DELETE", "/v1/agent/api-configs/{api_config_id}"),
     ("POST", "/v1/agent/turns"),
+    ("POST", "/v1/agent/approvals/{approval_id}/decision"),
     ("GET", "/v1/diagnostics/log-directory"),
     ("POST", "/v1/diagnostics/log-directory/open"),
 }
@@ -322,3 +323,22 @@ def test_http_artifacts_do_not_reintroduce_the_old_transport() -> None:
     for path in paths:
         text = path.read_text(encoding="utf-8")
         assert not any(marker in text for marker in forbidden), path
+
+
+def test_approval_fixtures_validate_against_live_models() -> None:
+    """跨语言请求、决定与事件保持同一严格模型，无审核期限字段。"""
+    from pydantic import TypeAdapter
+    from harness_shell_sidecar.agent.approval_models import ApprovalDecision
+    from harness_shell_sidecar.agent.streaming import AgentTurnStreamEvent
+    from harness_shell_sidecar.web.routes.agent import ApprovalDecisionResponse
+    fixtures = load_json(HTTP_ROOT / "fixtures/agent/valid-http-v1.json")
+    for case in fixtures["cases"]:
+        if case["name"].startswith("agent-approval-"):
+            events = [TypeAdapter(AgentTurnStreamEvent).validate_json(json.dumps(value))
+                      for _, _, value in _parse_fixture_frames(case["wire_utf8"])]
+            assert [event.sequence for event in events] == list(range(len(events)))
+            assert events[1].approval_id == events[2].approval_id
+            assert "expires_at" not in events[1].model_dump()
+        elif case["name"].startswith("approval-decision-"):
+            ApprovalDecision.model_validate_json(json.dumps(case["request"]["body"]))
+            ApprovalDecisionResponse.model_validate_json(json.dumps(case["response"]["body"]))

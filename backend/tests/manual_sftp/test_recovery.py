@@ -194,6 +194,7 @@ def test_recovery_rejects_a_reused_connection_id_with_a_new_profile_version() ->
         CONNECTION_ID,
         object(),
         connection_profile_version=8,
+        host="localhost", port=22, username="tester",
         host_label="edited-host",
         target_host_key_fingerprint="SHA256:test-target",
     )

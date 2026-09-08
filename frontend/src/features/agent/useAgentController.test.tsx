@@ -44,6 +44,7 @@ const mockAgentApi = {
   createModelApiConfig: vi.fn(),
   updateModelApiConfig: vi.fn(),
   deleteModelApiConfig: vi.fn(),
+  decideAgentApproval: vi.fn(),
   streamAgentTurn: vi.fn(),
 } satisfies AgentApi;
 
@@ -137,7 +138,7 @@ const primeTab = async (
     view.result.current.selectProvider(tabId, config.api_config_id),
   );
   act(() => view.result.current.changeDraft(tabId, message));
-  await act(() => view.result.current.requestSend(tabId));
+
 };
 
 describe("useAgentController", () => {
@@ -155,14 +156,52 @@ describe("useAgentController", () => {
     });
   });
 
+  it.each([false, true])("merges SSE before HTTP and exposes conflicting decisions (conflict=%s)", async conflict => {
+    const stream = deferred<AgentTurnCompletedEvent>();
+    const decision = deferred<{ approval_id: string; status: "APPROVED" }>();
+    let progress!: (event: AgentTurnProgressEvent) => void;
+    mockAgentApi.streamAgentTurn.mockImplementation(async (_input, sink) => {
+      progress = sink;
+      emitSuccess(sink);
+      return stream.promise;
+    });
+    mockAgentApi.decideAgentApproval.mockReturnValue(decision.promise);
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "change");
+    let send!: Promise<void>;
+    act(() => { send = view.result.current.requestSend("tab-1"); });
+    await waitFor(() => expect(view.result.current.state.tabs["tab-1"].activeRun?.streamedText).toBe("ok"));
+    const identity = { schema_version: 1 as const, request_id: "request-id-1", conversation_id: "conversation-1", agent_run_id: "run-1" };
+    act(() => progress({ ...identity, type: "agent.turn.approval_requested", sequence: 2, approval_id: "approval-1",
+      ssh_session_id: "ssh-1", tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "touch /tmp/test" },
+      target: { display_name: "original", host: "localhost", port: 22, username: "tester" }, reason: "POSSIBLE_MUTATION_OR_UNKNOWN" }));
+    expect(view.result.current.state.tabs["tab-1"].backgroundState).toBe("AWAITING_APPROVAL");
+    let submission!: Promise<void>;
+    act(() => {
+      submission = view.result.current.decideApproval("tab-1", "approval-1", "approve");
+      void view.result.current.decideApproval("tab-1", "approval-1", "reject");
+    });
+    expect(mockAgentApi.decideAgentApproval).toHaveBeenCalledTimes(1);
+    expect(mockAgentApi.decideAgentApproval).toHaveBeenCalledWith("approval-1", {
+      conversation_id: "conversation-1", agent_run_id: "run-1", ssh_session_id: "ssh-1", tool_call_id: "call-1", decision: "approve",
+    }, expect.any(AbortSignal));
+    act(() => progress({ ...identity, type: "agent.turn.approval_resolved", sequence: 3, approval_id: "approval-1", tool_call_id: "call-1", status: conflict ? "REJECTED" : "APPROVED", reason: conflict ? "user_rejected" : "user_approved" }));
+    stream.resolve({ ...completedResult("conversation-1", "run-1"), sequence: 4 });
+    await act(() => send);
+    decision.resolve({ approval_id: "approval-1", status: "APPROVED" });
+    await act(() => submission);
+    expect(view.result.current.state.tabs["tab-1"].messages.find(message => message.kind === "approval")).toMatchObject({ status: conflict ? "REJECTED" : "APPROVED", submitting: false, error: conflict ? { code: "BACKEND_AGENT_STREAM_INVALID" } : null });
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("refreshes and freezes Provider plus Session before a streamed turn", async () => {
     const view = renderController([connectedSession]);
 
     await primeTab(view, "tab-1", "inspect service");
     expect(view.result.current.state.tabs["tab-1"].phase).toBe(
-      "AWAITING_RISK_CONFIRMATION",
+      "IDLE",
     );
-    await act(() => view.result.current.confirmRiskAndSend("tab-1"));
+    await act(() => view.result.current.requestSend("tab-1"));
 
     expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledWith(
       {
@@ -192,7 +231,7 @@ describe("useAgentController", () => {
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "inspect");
     let send!: Promise<void>;
-    act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
+    act(() => { send = view.result.current.requestSend("tab-1"); });
     await waitFor(() => expect(view.result.current.state.tabs["tab-1"].activeRun?.streamedText).toBe("ok"));
     act(() => progress({
       schema_version: 1, type: "agent.turn.tool_started", tool_call_id: "call-1", tool_name: "execute_command", arguments: { command: "pwd" }, request_id: "request-id-1",
@@ -220,7 +259,7 @@ describe("useAgentController", () => {
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "inspect");
     let send!: Promise<void>;
-    act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
+    act(() => { send = view.result.current.requestSend("tab-1"); });
     await waitFor(() => expect(view.result.current.activeAgentRunCount).toBe(1));
     act(() => {
       view.result.current.cancelTurn("tab-1");
@@ -257,8 +296,8 @@ describe("useAgentController", () => {
     let first!: Promise<void>;
     let second!: Promise<void>;
     act(() => {
-      first = view.result.current.confirmRiskAndSend("tab-1");
-      second = view.result.current.confirmRiskAndSend("tab-2");
+      first = view.result.current.requestSend("tab-1");
+      second = view.result.current.requestSend("tab-2");
     });
     await waitFor(() => expect(view.result.current.activeAgentRunCount).toBe(2));
     act(() => view.result.current.cancelTurn("tab-1"));
@@ -283,7 +322,7 @@ describe("useAgentController", () => {
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "inspect");
     let send!: Promise<void>;
-    act(() => { send = view.result.current.confirmRiskAndSend("tab-1"); });
+    act(() => { send = view.result.current.requestSend("tab-1"); });
     await waitFor(() => expect(view.result.current.activeAgentRunCount).toBe(1));
     view.unmount();
     await send;
@@ -314,13 +353,13 @@ describe("useAgentController", () => {
       view.result.current.selectProvider("tab-2", config.api_config_id),
     );
     act(() => view.result.current.changeDraft("tab-2", "inspect two"));
-    await act(() => view.result.current.requestSend("tab-2"));
+
 
     let sendOne!: Promise<void>;
     let sendTwo!: Promise<void>;
     act(() => {
-      sendOne = view.result.current.confirmRiskAndSend("tab-1");
-      sendTwo = view.result.current.confirmRiskAndSend("tab-2");
+      sendOne = view.result.current.requestSend("tab-1");
+      sendTwo = view.result.current.requestSend("tab-2");
     });
     await waitFor(() =>
       expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledTimes(2),
@@ -338,7 +377,7 @@ describe("useAgentController", () => {
     const view = renderController([connectedSession]);
 
     await primeTab(view, "tab-1", "inspect");
-    await act(() => view.result.current.confirmRiskAndSend("tab-1"));
+    await act(() => view.result.current.requestSend("tab-1"));
 
     expect(mockAgentApi.streamAgentTurn).not.toHaveBeenCalled();
     expect(view.result.current.state.tabs["tab-1"].lastError?.code).toBe(
@@ -356,7 +395,7 @@ describe("useAgentController", () => {
     await primeTab(view, "tab-1", "inspect");
     let send!: Promise<void>;
     act(() => {
-      send = view.result.current.confirmRiskAndSend("tab-1");
+      send = view.result.current.requestSend("tab-1");
     });
     await waitFor(() =>
       expect(view.result.current.state.tabs["tab-1"].phase).toBe("RUNNING"),
@@ -414,7 +453,7 @@ describe("useAgentController", () => {
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "inspect");
 
-    await act(() => view.result.current.confirmRiskAndSend("tab-1"));
+    await act(() => view.result.current.requestSend("tab-1"));
 
     expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledOnce();
     expect(
@@ -425,10 +464,10 @@ describe("useAgentController", () => {
     );
   });
 
-  it("requires risk confirmation again after reconnect changes the SSH Session ID", async () => {
+  it("sends directly after reconnect changes the SSH Session ID", async () => {
     const view = renderController([connectedSession]);
     await primeTab(view, "tab-1", "first turn");
-    await act(() => view.result.current.confirmRiskAndSend("tab-1"));
+    await act(() => view.result.current.requestSend("tab-1"));
 
     view.rerender({
       currentSessions: [
@@ -439,10 +478,8 @@ describe("useAgentController", () => {
     await act(() => view.result.current.requestSend("tab-1"));
 
     expect(view.result.current.state.tabs["tab-1"]).toMatchObject({
-      phase: "AWAITING_RISK_CONFIRMATION",
-      pendingRiskSshSessionId: "ssh-reconnected",
-      riskAcknowledgedSshSessionId: "ssh-1",
+      phase: "IDLE",
     });
-    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledOnce();
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledTimes(2);
   });
 });

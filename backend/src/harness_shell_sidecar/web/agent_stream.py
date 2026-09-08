@@ -9,9 +9,12 @@ from typing import Protocol, cast
 from uuid import UUID
 
 from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus, ExecuteCommandArguments
+from harness_shell_sidecar.agent.approval_models import ApprovalRequest, ApprovalResolution
 from harness_shell_sidecar.agent.service import AgentServiceError
 from harness_shell_sidecar.agent.streaming import (
     AgentTurnCompletedEvent,
+    AgentTurnApprovalRequestedEvent,
+    AgentTurnApprovalResolvedEvent,
     AgentTurnEventSink,
     AgentTurnFailedEvent,
     AgentTurnStartedEvent,
@@ -108,6 +111,30 @@ class _AgentEventPublisher:
         encoded_size = self._validated_size(event, terminal=False)
         await self._put(event)
         self._encoded_bytes += encoded_size
+        self._sequence += 1
+
+    async def approval_requested(self, request: ApprovalRequest) -> None:
+        """在原 SSE 中发布完整审核描述，遵守同一预算和背压。"""
+        self._require_open()
+        if request.conversation_id != self._conversation_id or request.agent_run_id != self._agent_run_id:
+            raise RuntimeError("approval event correlation mismatch")
+        event = AgentTurnApprovalRequestedEvent(**request.model_dump(),
+            request_id=self._request_id, sequence=self._sequence)
+        size = self._validated_size(event, terminal=False)
+        await self._put(event)
+        self._encoded_bytes += size
+        self._sequence += 1
+
+    async def approval_resolved(self, resolution: ApprovalResolution, tool_call_id: str) -> None:
+        """发布决定后原 worker 才可恢复图，不由 HTTP 请求发布。"""
+        self._require_open()
+        event = AgentTurnApprovalResolvedEvent(**resolution.model_dump(),
+            request_id=self._request_id, sequence=self._sequence,
+            conversation_id=self._conversation_id, agent_run_id=self._agent_run_id,
+            tool_call_id=tool_call_id)
+        size = self._validated_size(event, terminal=False)
+        await self._put(event)
+        self._encoded_bytes += size
         self._sequence += 1
 
     async def text_delta(self, delta: str) -> None:

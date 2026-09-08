@@ -146,6 +146,7 @@ class RuntimeResources:
                 context,
                 ssh_runtime.sessions.is_connected,
                 budget=context_budget,
+                ssh_sessions=ssh_runtime.sessions,
             )
             agent_turn_application = register_agent_handlers(
                 runtime_dispatcher,

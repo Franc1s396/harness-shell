@@ -33,6 +33,8 @@ from harness_shell_sidecar.runtime.dispatcher import (
 from harness_shell_sidecar.runtime.request_context import RequestContext
 from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 
+from .approval_models import ApprovalDecision, ApprovalResolution
+from .approvals import ApprovalError
 from .api_configs import ApiConfigRepository, ApiConfigRepositoryError
 from .contracts import (
     AgentTurnInput,
@@ -64,6 +66,9 @@ _UNKNOWN_REPOSITORY_ERROR = (
 )
 class _AgentServiceProtocol(Protocol):
     """描述 handler 所需的带秘密轮次服务接口。"""
+
+    def decide_approval(self, approval_id: UUID, decision: ApprovalDecision) -> ApprovalResolution:
+        """提交已验证的审核决定，不在此恢复图。"""
 
     async def run_turn(
         self,
@@ -231,6 +236,12 @@ class AgentTurnApplication:
             zeroize(decoded)
 
 
+class _ApprovalDecisionParams(ApprovalDecision):
+    """dispatcher 接收路由合并后的审批 ID 和严格决定。"""
+
+    approval_id: UUID = Field(description="路由中的原审批 ID。")
+
+
 def register_agent_handlers(
     dispatcher: RequestDispatcher,
     agent_service: _AgentServiceProtocol,
@@ -336,7 +347,19 @@ def register_agent_handlers(
             )
             return {"deleted": True}
 
+    async def decide_approval(context: RequestContext, raw_params: Mapping[str, object]) -> dict[str, object]:
+        """只提交当前操作决定，不等待会话锁、模型或 SSH。"""
+        context.require_active()
+        params = _params(raw_params, _ApprovalDecisionParams)
+        decision = ApprovalDecision.model_validate(params.model_dump(exclude={"approval_id"}))
+        try:
+            result = agent_service.decide_approval(params.approval_id, decision)
+        except ApprovalError as error:
+            raise DispatchError(error.error_code, error.safe_message) from error
+        return {"approval_id": str(result.approval_id), "status": result.status}
+
     handlers = {
+        "agent.approvals.decide": decide_approval,
         "agent.api_configs.list": list_configs,
         "agent.api_configs.create": create_config,
         "agent.api_configs.update": update_config,

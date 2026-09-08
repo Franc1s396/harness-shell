@@ -460,3 +460,113 @@ def test_agent_turn_post_start_failure_remains_sse(autonomous_client) -> None:
         "provider stream completed without any message chunks"
     )
     assert "partial" not in str(events[-1])
+
+
+def test_approval_decision_http_identity_and_idempotency(autonomous_client: TestClient) -> None:
+    """真实路由和 handler 只接受原审核身份，不接受替换命令。"""
+    from tests.agent.test_approvals import approval_request, decision_for
+    resources = autonomous_client.app.state.runtime_owner.require_resources()
+    service = resources.agent_service
+    service._session_is_available = lambda _session_id: True
+    request = approval_request()
+    # 注册和决定都在 TestClient 的同一事件循环执行。
+    async def register() -> None:
+        service._approvals.register(request)
+    autonomous_client.portal.call(register)
+    path = f"/v1/agent/approvals/{request.approval_id}/decision"
+    body = decision_for(request).model_dump(mode="json")
+    headers = request_headers()
+    wrong = autonomous_client.post(path, headers=headers, json={**body, "ssh_session_id": str(uuid4())})
+    assert wrong.status_code == 409
+    extra = autonomous_client.post(path, headers=headers, json={**body, "command": "pwd"})
+    assert extra.status_code == 422
+    for _ in range(2):
+        response = autonomous_client.post(path, headers=headers, json=body)
+        assert response.status_code == 200
+        assert response.headers["X-Request-ID"] == headers["X-Request-ID"]
+        assert response.json() == {"approval_id": str(request.approval_id), "status": "APPROVED"}
+    conflict = autonomous_client.post(path, headers=headers, json={**body, "decision": "reject"})
+    assert conflict.status_code == 409
+    async def release() -> None:
+        service._approvals.release_run(request.agent_run_id)
+    autonomous_client.portal.call(release)
+    missing = autonomous_client.post(path, headers=headers, json=body)
+    assert missing.status_code == 404
+    assert request.arguments.command not in missing.text
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_decision_resumes_original_asgi_stream(tmp_path: Path, decision: str) -> None:
+    """真实 SSE 路由保持打开，另一个 HTTP 请求决定后继续同一流。"""
+    import httpx
+    from tests.agent.test_approvals import approval_request, decision_for
+
+    async def scenario() -> None:
+        app = create_app(settings=RuntimeSettings.from_data_dir((tmp_path / "approval-runtime").resolve()))
+        async with app.router.lifespan_context(app):
+            resources = app.state.runtime_owner.require_resources()
+            service = resources.agent_service
+            service._session_is_available = lambda _session_id: True
+            application = SuccessfulTurnApplication()
+            run = application.run_snapshot
+            pending = approval_request().model_copy(update={
+                "conversation_id": run.conversation_id, "agent_run_id": run.agent_run_id,
+                "ssh_session_id": run.ssh_session_id,
+            })
+
+            async def run_approval(_context, _params, sink) -> None:
+                """只由原 worker 发布恢复后的事件；HTTP handler 不发布。"""
+                try:
+                    await sink.started(run)
+                    service._approvals.register(pending)
+                    await sink.approval_requested(pending)
+                    resolution = await service._approvals.wait(pending.approval_id)
+                    await sink.approval_resolved(resolution, pending.tool_call_id)
+                    if resolution.status == "APPROVED":
+                        service._approvals.consume(pending)
+                        await sink.tool_started(pending.tool_call_id, pending.arguments)
+                    await sink.completed(run.model_copy(update={"status": AgentRunStatus.COMPLETED, "ended_at": datetime.now(UTC)}))
+                finally:
+                    service._approvals.release_run(run.agent_run_id)
+
+            application.run = run_approval
+            resources.agent_turn_application = application
+            incoming: asyncio.Queue[Message] = asyncio.Queue()
+            incoming.put_nowait({"type": "http.request", "body": json.dumps({
+                "conversation_id": None, "ssh_session_id": str(run.ssh_session_id),
+                "api_config_id": str(run.api_config_id), "user_message": "change",
+            }).encode(), "more_body": False})
+            chunks: list[bytes] = []
+            requested = asyncio.Event()
+            async def send(message: Message) -> None:
+                if message["type"] == "http.response.body":
+                    chunks.append(message.get("body", b""))
+                    if b"agent.turn.approval_requested" in chunks[-1]:
+                        requested.set()
+            scope: Scope = {
+                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1", "method": "POST", "scheme": "http",
+                "path": "/v1/agent/turns", "raw_path": b"/v1/agent/turns", "query_string": b"", "root_path": "",
+                "headers": [(b"content-type", b"application/json"), (b"accept", b"text/event-stream"), (b"x-request-id", str(uuid4()).encode())],
+                "client": ("127.0.0.1", 12345), "server": ("127.0.0.1", 8765),
+            }
+            task = asyncio.create_task(app(scope, incoming.get, send))
+            try:
+                await asyncio.wait_for(requested.wait(), 2)
+                assert not task.done()
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
+                    response = await client.post(f"/v1/agent/approvals/{pending.approval_id}/decision",
+                        headers=request_headers(), json=decision_for(pending, decision).model_dump(mode="json"))
+                    assert response.status_code == 200
+                await asyncio.wait_for(task, 2)
+                events = parse_sse_events(b"".join(chunks).decode())
+                expected = ["agent.turn.started", "agent.turn.approval_requested", "agent.turn.approval_resolved"]
+                if decision == "approve":
+                    expected.append("agent.turn.tool_started")
+                assert [event["type"] for event in events] == [*expected, "agent.turn.completed"]
+                assert [event["sequence"] for event in events] == list(range(len(events)))
+                assert {event["agent_run_id"] for event in events} == {str(run.agent_run_id)}
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(scenario())

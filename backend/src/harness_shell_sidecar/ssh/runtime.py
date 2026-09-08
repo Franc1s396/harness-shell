@@ -253,6 +253,7 @@ class SshRuntime:
                     connection,
                     connection_profile_version=profile.version,
                     host_label=profile.display_name,
+                    host=profile.host, port=profile.port, username=profile.username,
                     target_host_key_fingerprint=active_host_key.fingerprint_sha256,
                 )
                 status = self._status(
@@ -368,6 +369,7 @@ class SshRuntime:
                     jump_connection,
                     connection_profile_version=profile.version,
                     host_label=profile.display_name,
+                    host=profile.host, port=profile.port, username=profile.username,
                     target_host_key_fingerprint=active_target_key.fingerprint_sha256,
                     jump_connection_id=jump.connection_id,
                     jump_profile_version=jump.version,

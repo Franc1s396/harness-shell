@@ -1240,11 +1240,8 @@ export function WorkspaceController() {
             onCancelTurn={() => {
               if (activeTabId) agent.cancelTurn(activeTabId);
             }}
-            onConfirmRiskAndSend={() => {
-              if (activeTabId) void agent.confirmRiskAndSend(activeTabId);
-            }}
-            onCancelRisk={() => {
-              if (activeTabId) agent.cancelRisk(activeTabId);
+            onApprovalDecision={(approvalId, decision) => {
+              if (activeTabId) void agent.decideApproval(activeTabId, approvalId, decision);
             }}
             onResetConversation={() => {
               if (activeTabId) agent.resetConversation(activeTabId);
