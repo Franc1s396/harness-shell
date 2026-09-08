@@ -7,6 +7,8 @@ import { Dialog } from "../../components/ui/Dialog";
 import { ShellIcon } from "../shell/icons";
 import { AgentApprovalBubble } from "./AgentApprovalBubble";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { AgentMessageActions } from "./AgentMessageActions";
+import { lastRetryableUser } from "./agent-state";
 import type { AgentApprovalMessage, AgentTabState } from "./agent-state";
 
 export type AgentWorkspaceProps = {
@@ -20,6 +22,7 @@ export type AgentWorkspaceProps = {
   onProviderSelect: (apiConfigId: string | null) => void;
   onOpenProviderSettings: () => void;
   onRequestSend: () => void;
+  onRetry: () => void;
   onCancelTurn: () => void;
   onApprovalDecision: (approvalId: string, decision: "approve" | "reject") => void;
   onResetConversation: () => void;
@@ -62,6 +65,7 @@ export function AgentWorkspace({
   onProviderSelect,
   onOpenProviderSettings,
   onRequestSend,
+  onRetry,
   onCancelTurn,
   onApprovalDecision,
   onResetConversation,
@@ -136,6 +140,8 @@ export function AgentWorkspace({
     selectedConfig === undefined ||
     messageLength < 1 ||
     messageLength > 65_536;
+  const lastReply = [...tab.messages].reverse().find(message => message.kind !== "approval");
+  const retryUser = lastRetryableUser(tab);
 
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (
@@ -165,7 +171,7 @@ export function AgentWorkspace({
 
       <div
         ref={messageListRef}
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm"
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-panel p-3 text-sm"
       >
         {tab.messages.length === 0 ? (
           <p className="grid min-h-32 place-content-center text-center text-ink-dim">
@@ -174,6 +180,10 @@ export function AgentWorkspace({
         ) : null}
         {tab.messages.map((message) => {
           if (message.kind === "approval") return null;
+          const actions = retryUser && message.id === lastReply?.id ? <AgentMessageActions
+            text={message.kind === "error" ? `error_code: ${message.error.code}\nerror_message: ${message.error.message}`
+              : message.kind === "cancelled" ? t("agent.cancelled") : message.text}
+            retryDisabled={selectedConfig === undefined} onRetry={onRetry} /> : null;
           if (message.kind === "user") {
             return (
               <article key={message.id} className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap break-words rounded-xl bg-raised px-3 py-2">
@@ -183,22 +193,29 @@ export function AgentWorkspace({
           }
           if (message.kind === "error") {
             return (
-              <article key={message.id} role="alert" className="w-fit max-w-[88%] break-words rounded-xl border border-danger/40 px-3 py-2 text-danger">
+              <div key={message.id}>
+              <article role="alert" className="w-fit max-w-[88%] break-words rounded-xl border border-danger/40 px-3 py-2 text-danger">
                 <AgentErrorDetails error={message.error} />
                 <ApprovalHistory ids={message.approvalIds} approvals={approvals} />
               </article>
+              {actions}
+              </div>
             );
           }
           if (message.kind === "cancelled") {
             return (
-              <article key={message.id} role="status" className="text-xs text-ink-muted">
+              <div key={message.id}>
+              <article role="status" className="text-xs text-ink-muted">
                 {t("agent.cancelled")}
                 <ApprovalHistory ids={message.approvalIds} approvals={approvals} />
               </article>
+              {actions}
+              </div>
             );
           }
           return (
-            <article key={message.id} className="w-fit max-w-[88%] space-y-2 rounded-xl border border-line px-3 py-2">
+            <div key={message.id}>
+            <article className="w-fit max-w-[88%] space-y-2 rounded-xl border border-line px-3 py-2">
               <AssistantMarkdown text={message.text} />
               {message.tools.length > 0 && (
                 <details>
@@ -231,6 +248,8 @@ export function AgentWorkspace({
                 </dl>
               </details>
             </article>
+            {actions}
+            </div>
           );
         })}
         {tab.phase === "RUNNING" && !awaitingApproval && streamedText.length === 0 ? (

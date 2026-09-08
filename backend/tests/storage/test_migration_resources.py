@@ -10,7 +10,7 @@ from harness_shell_sidecar.storage import migration_runner as runner
 def test_resource_manifest_and_unrelated_cwd(tmp_path: Path, monkeypatch) -> None:
     """源码资源完整，切换 cwd 后仍能迁移。"""
     directory = runner.migration_resource_dir()
-    for name in ["env.py", "script.py.mako", "versions/0001_initial.py"]:
+    for name in ["env.py", "script.py.mako", "versions/0001_initial.py", "versions/0002_agent_retry.py"]:
         assert (directory / name).is_file()
     monkeypatch.chdir(tmp_path)
     runner.upgrade_database(tmp_path / "runtime.sqlite3")
@@ -21,6 +21,7 @@ def test_missing_revision_fails_before_database_creation(tmp_path: Path, monkeyp
     directory = tmp_path / "alembic"
     shutil.copytree(runner.migration_resource_dir(), directory)
     (directory / "versions/0001_initial.py").unlink()
+    (directory / "versions/0002_agent_retry.py").unlink()
     monkeypatch.setattr(runner, "migration_resource_dir", lambda: directory)
     path = tmp_path / "runtime.sqlite3"
     with pytest.raises(StorageSelfCheckFailed, match="one head"):
@@ -34,8 +35,8 @@ def test_multiple_heads_fail_before_database_creation(tmp_path, monkeypatch):
     from .test_migration_transactions import add_revision
     directory = tmp_path / "alembic"
     shutil.copytree(runner.migration_resource_dir(), directory)
-    add_revision(directory, "branch_a", "0001_initial", "pass")
-    add_revision(directory, "branch_b", "0001_initial", "pass")
+    add_revision(directory, "branch_a", "0002_agent_retry", "pass")
+    add_revision(directory, "branch_b", "0002_agent_retry", "pass")
     monkeypatch.setattr(runner, "migration_resource_dir", lambda: directory)
     path = tmp_path / "runtime.sqlite3"
     with pytest.raises(StorageSelfCheckFailed, match="one head"):

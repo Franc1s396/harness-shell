@@ -137,6 +137,9 @@ class AgentTurnInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
+    user_message_id: UUID | None = Field(default=None, description="Stable user message identity across explicit retries.")
+    retry: bool = Field(default=False, description="Replace the last turn belonging to this user message.")
+
     conversation_id: UUID | None = Field(
         default=None,
         description="Existing conversation identity or None to create one.",

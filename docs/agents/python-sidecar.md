@@ -33,6 +33,8 @@ Chat Completions 与 Responses 接收采用类似 Open WebUI 的宽松聚合规�
 
 ## Agent 上下文工程
 
+用户显式重试复用 `user_message_id`，通过 `retry=true` 发起；每次执行仍创建新的 Run。`AgentService` 先按用户消息身份、再按会话身份加锁，处理 started 丢失时的会话定位。已有尝试必须为当前会话最后一个终态 Run，且用户正文一致；在创建新 RUNNING 的同一事务内删除旧 Run 的消息正文/索引和以该 Run 为源的摘要，保留旧 Run 元数据，后续图重新构建历史修复与摘要。尚未落库的尝试没有历史可替换，可按同一消息身份重新发送；不猜测最后一条相似文本。旧命令不撤销、旧审核授权不复用。`0002_agent_retry` 为 `agent_runs` 添加 nullable 用户消息关联和索引，既有 Run 保持空关联。
+
 `RuntimeResources` 在启动时创建 `AgentContextPolicy` 和本地 tokenizer/`ContextBudget`；graph 借用同一数据库创建 `ContextSummaryRepository` 与 `ContextCompactor`。`context_models.py` 定义序号记录、摘要、预算来源和安全错误；`context.py` 负责修复与有效投影；`context_budget.py` 负责估算和预算；`context_summaries.py` 负责短事务；`context_compaction.py` 负责一次有界摘要流程。
 
 调用链固定为 `load_context → compact_context → prepare_model_context → call_model`；工具执行后仅回到 `prepare_model_context`。新 HumanMessage 入库后只检查一次压缩。按 Human 边界保留最近 3 个完整历史轮次及当前用户轮，修复 ToolMessage 归属其前一历史轮；未摘要的历史不会按固定轮数丢弃。模型投影为 canonical System Prompt、可选的带历史数据标记的摘要 HumanMessage、覆盖边界后的完整消息。

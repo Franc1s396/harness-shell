@@ -50,6 +50,68 @@ from .fakes import (
 from .test_graph import RecordingExecutor
 
 
+def test_retry_replaces_last_turn_in_model_context(agent_storage: AgentStorage) -> None:
+    """重试必须清除旧回答，只保留一条最后用户消息和更早历史。"""
+    async def scenario() -> None:
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        model = FakeModelSequence([AIMessage(content="earlier"), AIMessage(content="obsolete"), AIMessage(content="replacement"), AIMessage(content="next")])
+        service = _service(agent_storage, model, RecordingExecutor())
+        first_input = make_turn_input().model_copy(update={"api_config_id": config.api_config_id, "user_message": "first"})
+        first = await _run_turn(agent_storage, service, first_input, "key", asyncio.Event())
+        last_input = first_input.model_copy(update={"conversation_id": first.conversation_id, "user_message": "last", "user_message_id": uuid4()})
+        await _run_turn(agent_storage, service, last_input, "key", asyncio.Event())
+        retry = last_input.model_copy(update={"retry": True})
+        result = await _run_turn(agent_storage, service, retry, "key", asyncio.Event())
+        assert result.status is AgentRunStatus.COMPLETED
+        history = agent_storage.conversations.load_messages(first.conversation_id)
+        assert [message.content for message in history] == ["first", "earlier", "last", "replacement"]
+        model_text = json.dumps(model.message_calls[-1])
+        assert "obsolete" not in model_text
+        assert "earlier" in model_text
+        await _run_turn(agent_storage, service, first_input.model_copy(update={"conversation_id": first.conversation_id}), "key", asyncio.Event())
+        with pytest.raises(AgentServiceError, match="last"):
+            await _run_turn(agent_storage, service, retry, "key", asyncio.Event())
+    asyncio.run(scenario())
+
+
+def test_retry_after_lost_started_recovers_exact_conversation(agent_storage: AgentStorage) -> None:
+    """首帧发送时取消仍可用稳定消息身份找到已落库的 Run。"""
+    class LostStartedSink(RecordingTurnSink):
+        """模拟客户端在收到任何身份之前断开连接。"""
+        async def started(self, run: AgentRun) -> None:
+            """让服务走真实 CancelledError 持久化路径。"""
+            raise asyncio.CancelledError()
+
+    async def scenario() -> None:
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        service = _service(agent_storage, FakeModelSequence([AIMessage(content="retried")]), RecordingExecutor())
+        turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id, "user_message_id": uuid4()})
+        with pytest.raises(asyncio.CancelledError):
+            await _run_turn(agent_storage, service, turn, "key", asyncio.Event(), LostStartedSink())
+        original = agent_storage.conversations.find_user_turn(turn.user_message_id)
+        assert original.status is AgentRunStatus.CANCELLED
+        result = await _run_turn(agent_storage, service, turn.model_copy(update={"retry": True}), "key", asyncio.Event())
+        assert result.conversation_id == original.conversation_id
+        assert result.agent_run_id != original.agent_run_id
+        assert [message.content for message in agent_storage.conversations.load_messages(result.conversation_id)] == [turn.user_message, "retried"]
+        assert sql(agent_storage.database, "SELECT COUNT(*) FROM agent_conversations").fetchone() == (1,)
+    asyncio.run(scenario())
+
+
+def test_retry_before_durable_run_and_wrong_message_conflict(agent_storage: AgentStorage) -> None:
+    """未落库的尝试可重新发送，已有用户消息不允许被重试改写。"""
+    async def scenario() -> None:
+        config = agent_storage.api_configs.create(valid_api_config_input())
+        service = _service(agent_storage, FakeModelSequence([AIMessage(content="ok")]), RecordingExecutor())
+        turn = make_turn_input().model_copy(update={"api_config_id": config.api_config_id, "user_message_id": uuid4(), "retry": True})
+        result = await _run_turn(agent_storage, service, turn, "key", asyncio.Event())
+        before = agent_storage.conversations.load_messages(result.conversation_id)
+        with pytest.raises(AgentServiceError, match="original user"):
+            await _run_turn(agent_storage, service, turn.model_copy(update={"user_message": "different"}), "key", asyncio.Event())
+        assert agent_storage.conversations.load_messages(result.conversation_id) == before
+    asyncio.run(scenario())
+
+
 def _run_lifecycle_records(
     caplog: pytest.LogCaptureFixture,
     agent_run_id: UUID,

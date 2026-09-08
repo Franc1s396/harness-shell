@@ -17,6 +17,35 @@ from harness_shell_sidecar.storage import PlaintextRecord
 from .conftest import AgentStorage, valid_api_config_input
 
 
+@pytest.mark.parametrize("status", [AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELLED, AgentRunStatus.LIMIT_REACHED])
+def test_retry_removes_old_tools_and_summary_atomically(agent_storage: AgentStorage, status: AgentRunStatus) -> None:
+    """任何终态均删除本轮工具和正文，并使引用其边界的摘要失效。"""
+    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    repo = agent_storage.conversations
+    conversation, old = _started_run(agent_storage)
+    repo.append_messages_atomic(old.agent_run_id, conversation, [HumanMessage(content="first"), AIMessage(content="earlier")])
+    repo.finish_run(old.agent_run_id, AgentRunStatus.COMPLETED, None)
+    current = repo.start_run(conversation, uuid4(), old.api_config_id)
+    repo.append_messages_atomic(current.agent_run_id, conversation, [HumanMessage(content="last"),
+        AIMessage(content="old", tool_calls=[{"id": "call-1", "name": "execute_command", "args": {"command": "pwd"}}]),
+        ToolMessage(content="obsolete result", tool_call_id="call-1")])
+    summaries = RepositoryClient(agent_storage.database, ContextSummaryRepository)
+    summaries.commit_candidate(conversation_id=conversation, expected_revision=0, covered_through_sequence=2,
+        summary_text="earlier history", source_run_id=current.agent_run_id)
+    finished = repo.finish_run(current.agent_run_id, status, None)
+    with pytest.raises(RuntimeError, match="rollback"):
+        with agent_storage.database.write_session() as session:
+            from harness_shell_sidecar.agent.conversations import ConversationRepository
+            ConversationRepository(session, PlaintextRecordStore(session)).remove_last_turn(finished, "last")
+            raise RuntimeError("rollback")
+    assert len(repo.load_messages(conversation)) == 5
+    assert summaries.load(conversation) is not None
+    repo.remove_last_turn(finished, "last")
+    assert [message.content for message in repo.load_messages(conversation)] == ["first", "earlier"]
+    assert summaries.load(conversation) is None
+    assert sql(agent_storage.database, "SELECT COUNT(*) FROM runtime_records WHERE record_type='agent_message'").fetchone() == (2,)
+
+
 def _started_run(agent_storage: AgentStorage) -> tuple[UUID, AgentRun]:
     """创建最小持久化配置、会话和运行中 Run。"""
 

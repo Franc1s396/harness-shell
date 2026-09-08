@@ -5,7 +5,7 @@ from __future__ import annotations
 from .context_models import ContextMessage
 
 import json
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -25,7 +25,7 @@ from langchain_core.messages import (
 from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore
 
 from .contracts import AgentRun, AgentRunStatus
-from harness_shell_sidecar.storage.orm import AgentConversationRow, AgentRunRow, AgentMessageRow
+from harness_shell_sidecar.storage.orm import AgentConversationRow, AgentRunRow, AgentMessageRow, AgentContextSummaryRow
 
 
 class ConversationRepositoryError(RuntimeError):
@@ -61,11 +61,13 @@ class ConversationRepository:
         return self._session.scalar(select(AgentConversationRow.conversation_id).where(
             AgentConversationRow.conversation_id == str(conversation_id))) is not None
 
-    def start_run(self, conversation_id: UUID, ssh_session_id: UUID, api_config_id: UUID) -> AgentRun:
+    def start_run(self, conversation_id: UUID, ssh_session_id: UUID, api_config_id: UUID,
+                  *, user_message_id: UUID | None = None) -> AgentRun:
         """持久化 RUNNING，引用无效时立即失败。"""
         identity = uuid4()
         try:
             self._session.add(AgentRunRow(agent_run_id=str(identity), conversation_id=str(conversation_id),
+                user_message_id=str(user_message_id) if user_message_id else None,
                 ssh_session_id=str(ssh_session_id), api_config_id=str(api_config_id), status="RUNNING",
                 react_iteration=0, error_code=None, started_at=_utc_now(), ended_at=None))
             self._session.flush()
@@ -75,6 +77,39 @@ class ConversationRepository:
         if result is None:
             raise ConversationRepositoryError("AGENT_RUN_PERSISTENCE_FAILED", "created Agent run was not found")
         return result
+
+    def find_user_turn(self, user_message_id: UUID) -> AgentRun | None:
+        """查找同一用户消息最近一次已落库的尝试，包括 started 丢失的 Run。"""
+        identity = self._session.scalar(select(AgentRunRow.agent_run_id).where(
+            AgentRunRow.user_message_id == str(user_message_id)
+        ).order_by(AgentRunRow.started_at.desc(), AgentRunRow.agent_run_id.desc()).limit(1))
+        return None if identity is None else self._get_run(UUID(identity))
+
+    def remove_last_turn(self, run: AgentRun, user_text: str) -> None:
+        """在调用者会话锁和写事务内删除末轮正文；Run 元数据仍保留。"""
+        # 1. 包括没有消息的失败 Run 在内，只有最后一次已结束的尝试可被替换。
+        latest = self._session.scalar(select(AgentRunRow.agent_run_id).where(
+            AgentRunRow.conversation_id == str(run.conversation_id)
+        ).order_by(AgentRunRow.started_at.desc(), AgentRunRow.agent_run_id.desc()).limit(1))
+        if latest != str(run.agent_run_id) or run.status is AgentRunStatus.RUNNING:
+            raise ConversationRepositoryError("AGENT_RETRY_CONFLICT", "only the last terminal turn can be retried")
+        records = self.load_context_messages(run.conversation_id)
+        users = [record.message for record in records if record.agent_run_id == run.agent_run_id
+                 and isinstance(record.message, HumanMessage)]
+        if len(users) > 1 or (users and users[0].content != user_text):
+            raise ConversationRepositoryError("AGENT_RETRY_CONFLICT", "retry must resend the original user message")
+        # 2. 摘要源 Run 的 Human 边界即将删除，必须移除该摘要以便重新计算。
+        self._session.execute(delete(AgentContextSummaryRow).where(
+            AgentContextSummaryRow.conversation_id == str(run.conversation_id),
+            AgentContextSummaryRow.source_run_id == str(run.agent_run_id)))
+        rows = self._session.scalars(select(AgentMessageRow).where(
+            AgentMessageRow.agent_run_id == str(run.agent_run_id))).all()
+        for row in rows:
+            self._session.delete(row)
+            if not self._record_store.delete("agent_message", row.record_id):
+                raise ConversationRepositoryError("AGENT_MESSAGE_RECORD_MISSING", "Agent message record is missing")
+        # 3. 新 Run 与删除操作由外层共同提交；失败不留下半次重试。
+        self._session.flush()
 
     def append_message(
         self,

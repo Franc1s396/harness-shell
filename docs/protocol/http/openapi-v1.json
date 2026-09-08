@@ -462,6 +462,12 @@
             "default": null,
             "title": "Conversation Id"
           },
+          "retry": {
+            "default": false,
+            "description": "Replace the last turn belonging to this user message.",
+            "title": "Retry",
+            "type": "boolean"
+          },
           "ssh_session_id": {
             "format": "uuid",
             "title": "Ssh Session Id",
@@ -472,6 +478,20 @@
             "minLength": 1,
             "title": "User Message",
             "type": "string"
+          },
+          "user_message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Stable user message identity across explicit retries.",
+            "title": "User Message Id"
           }
         },
         "required": [

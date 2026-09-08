@@ -280,8 +280,13 @@ def test_agent_turn_accepts_only_identities_and_missing_config_is_typed(
         "ssh_session_id": str(uuid4()),
         "api_config_id": str(uuid4()),
         "user_message": "do not run",
+        "user_message_id": str(uuid4()),
+        "retry": True,
     }
     assert AgentTurnRequest.model_validate_json(json.dumps(payload))
+    parsed = AgentTurnRequest.model_validate_json(json.dumps(payload)).to_input()
+    assert str(parsed.user_message_id) == payload["user_message_id"]
+    assert parsed.retry is True
 
     response = autonomous_client.post(
         "/v1/agent/turns",

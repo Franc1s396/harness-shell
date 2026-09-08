@@ -142,6 +142,43 @@ const primeTab = async (
 };
 
 describe("useAgentController", () => {
+  it.each(["failed", "cancelled"])("replaces a %s attempt and keeps its stable identity before started", async outcome => {
+    mockAgentApi.streamAgentTurn.mockRejectedValueOnce(outcome === "cancelled" ? new AgentTurnCancelled() : new Error("network failed"));
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "same question");
+    await act(() => view.result.current.requestSend("tab-1"));
+    const user = view.result.current.state.tabs["tab-1"].messages[0];
+    expect(view.result.current.state.tabs["tab-1"].messages[1].kind).toBe(outcome === "failed" ? "error" : "cancelled");
+    await act(() => view.result.current.retryLastTurn("tab-1"));
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      conversationId: null, userMessageId: user.id, userMessage: "same question", retry: true,
+    }), expect.any(Function), expect.any(AbortSignal));
+    expect(view.result.current.state.tabs["tab-1"].messages.map(message => message.kind)).toEqual(["user", "assistant"]);
+  });
+  it("retries the same user message without duplicating history or clearing the draft", async () => {
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "original question");
+    await act(() => view.result.current.requestSend("tab-1"));
+    const original = view.result.current.state.tabs["tab-1"].messages[0];
+    act(() => view.result.current.changeDraft("tab-1", "unsent draft"));
+    const finish = deferred<AgentTurnCompletedEvent>();
+    mockAgentApi.streamAgentTurn.mockImplementation(async (_input, sink) => {
+      emitSuccess(sink, "conversation-1", "run-2");
+      return finish.promise;
+    });
+    let retry!: Promise<void>;
+    act(() => { retry = view.result.current.retryLastTurn("tab-1"); void view.result.current.retryLastTurn("tab-1"); });
+    await waitFor(() => expect(view.result.current.state.tabs["tab-1"].phase).toBe("RUNNING"));
+    expect(view.result.current.state.tabs["tab-1"].messages).toEqual([original]);
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      userMessageId: original.id, userMessage: "original question", retry: true,
+    }), expect.any(Function), expect.any(AbortSignal));
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenCalledTimes(2);
+    finish.resolve(completedResult("conversation-1", "run-2"));
+    await act(() => retry);
+    expect(view.result.current.state.tabs["tab-1"].messages.map(message => message.kind)).toEqual(["user", "assistant"]);
+    expect(view.result.current.state.tabs["tab-1"].draft).toBe("unsent draft");
+  });
   beforeEach(() => {
     generatedId = 0;
     vi.resetAllMocks();
@@ -209,6 +246,8 @@ describe("useAgentController", () => {
         sshSessionId: "ssh-1",
         apiConfigId: config.api_config_id,
         userMessage: "inspect service",
+        userMessageId: "agent-test-id-2",
+        retry: false,
       },
       expect.any(Function),
       expect.any(AbortSignal),

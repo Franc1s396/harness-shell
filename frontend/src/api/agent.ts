@@ -30,6 +30,8 @@ export type ModelApiConfig = ModelApiConfigInput & {
 };
 
 export type RunAgentTurnInput = {
+  userMessageId?: string;
+  retry?: boolean;
   conversationId: string | null;
   sshSessionId: string;
   apiConfigId: string;
@@ -269,6 +271,8 @@ const toWireInput = (input: ModelApiConfigInput): WireModelApiConfigInput => ({
 });
 
 const toWireTurnInput = (input: RunAgentTurnInput) => ({
+  ...(input.userMessageId === undefined ? {} : { user_message_id: input.userMessageId }),
+  ...(input.retry === undefined ? {} : { retry: input.retry }),
   conversation_id: input.conversationId,
   ssh_session_id: input.sshSessionId,
   api_config_id: input.apiConfigId,

@@ -124,6 +124,9 @@ class AgentTurnRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    user_message_id: UUID | None = Field(default=None, description="Stable user message identity across explicit retries.")
+    retry: bool = Field(default=False, description="Replace the last turn belonging to this user message.")
+
     conversation_id: UUID | None = None
     ssh_session_id: UUID
     api_config_id: UUID
@@ -133,6 +136,8 @@ class AgentTurnRequest(BaseModel):
         """配置检查通过后构建非秘密 Agent 输入。"""
 
         return AgentTurnInput(
+            user_message_id=self.user_message_id,
+            retry=self.retry,
             conversation_id=self.conversation_id,
             ssh_session_id=self.ssh_session_id,
             api_config_id=self.api_config_id,

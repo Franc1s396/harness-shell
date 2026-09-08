@@ -20,7 +20,7 @@ def test_initial_revision_creates_strict_business_tables(tmp_path: Path) -> None
     path = tmp_path / "runtime.sqlite3"
     upgrade(path)
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0001_initial",)]
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0002_agent_retry",)]
         strict = {row[1]: row[5] for row in connection.execute("PRAGMA table_list")}
         assert strict["runtime_records"] == 1
         assert strict["connection_profiles"] == 1
@@ -38,3 +38,27 @@ def test_legacy_database_is_rejected_without_changes(tmp_path: Path) -> None:
     with pytest.raises(StorageSelfCheckFailed):
         upgrade(path)
     assert path.read_bytes() == before
+
+
+def test_retry_upgrade_preserves_existing_data(tmp_path: Path) -> None:
+    """从真实 0001 revision 升级，不重建或丢弃旧正文。"""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine
+    from harness_shell_sidecar.storage.migration_runner import migration_resource_dir
+    path = tmp_path / "old.sqlite3"
+    engine = create_engine("sqlite:///" + str(path))
+    try:
+        with engine.begin() as connection:
+            config = Config()
+            config.set_main_option("script_location", str(migration_resource_dir()))
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0001_initial")
+            connection.exec_driver_sql("INSERT INTO runtime_records VALUES ('test','old',1,X'6162','c','u')")
+    finally:
+        engine.dispose()
+    upgrade(path)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT payload FROM runtime_records WHERE record_id='old'").fetchone() == (b"ab",)
+        assert "user_message_id" in {row[1] for row in connection.execute("PRAGMA table_info(agent_runs)")}
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

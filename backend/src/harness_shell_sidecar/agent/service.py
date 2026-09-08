@@ -33,7 +33,7 @@ from .contracts import (
     AgentTurnResult,
     ModelApiConfig,
 )
-from .conversations import ConversationRepository
+from .conversations import ConversationRepository, ConversationRepositoryError
 from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
 from .executor import AgentCancelled
 from .graph import (
@@ -106,7 +106,7 @@ class AgentService:
 
         self._database = database  # 短数据库操作的工厂，绝不保存跨 await Session。
         self._session_is_available = session_is_available
-        self._conversation_locks: dict[UUID, _ConversationLockEntry] = {}
+        self._conversation_locks: dict[UUID | tuple[str, UUID], _ConversationLockEntry] = {}  # 分域串行化消息尝试和会话。
         dependencies = AgentGraphDependencies(
             database=database,
             context=context,
@@ -120,6 +120,29 @@ class AgentService:
         self._approvals = ApprovalRegistry()  # 只持有当前 Run 决定，结束时释放。
 
     async def run_turn(
+        self, request: AgentTurnInput, api_key: SecretStr, cancelled: asyncio.Event,
+        *, expected_config: ModelApiConfig | None, event_sink: AgentTurnEventSink,
+    ) -> AgentTurnResult:
+        """先锁定用户消息身份，再进入会话锁，避免首帧丢失时并发创建会话。"""
+        # 1. retry 才是调用方的重试意图；重试必须提供用于定位原轮次的消息 ID。
+        # 消息 ID 是客户端输入的关联键，不是授权凭证；实际目标仍需按数据库校验。
+        if request.retry and request.user_message_id is None:
+            raise AgentServiceError("AGENT_RETRY_CONFLICT", "retry requires a user message identity")
+        try:
+            # 2. 此分支只决定是否加消息锁，不据此判断普通发送还是重试。
+            # 无 ID 的普通发送仍被接口允许；当前 WebView 的普通发送会提供新 ID。
+            if request.user_message_id is None:
+                return await self._run_turn(request, api_key, cancelled,
+                    expected_config=expected_config, event_sink=event_sink)
+            # 3. 首次发送和重试共用此锁，避免同一消息在尚未获知会话 ID 时并发执行。
+            # _run_turn 在持锁期间检查 retry 和已有 Run，再取得具体会话锁。
+            async with self._conversation_lock(("message", request.user_message_id)):
+                return await self._run_turn(request, api_key, cancelled,
+                    expected_config=expected_config, event_sink=event_sink)
+        except ConversationRepositoryError as error:
+            raise AgentServiceError(error.error_code, error.safe_message) from error
+
+    async def _run_turn(
         self,
         request: AgentTurnInput,
         api_key: SecretStr,
@@ -136,6 +159,15 @@ class AgentService:
         conversation_id = request.conversation_id
         with self._database.write_session() as session:
             repository = ConversationRepository(session, PlaintextRecordStore(session))
+            # 查到已有 Run 不代表自动重试：普通发送复用已有 ID 必须拒绝。
+            # retry=true 但没有已落库 Run 时，没有旧历史可替换，继续创建新 Run。
+            previous = repository.find_user_turn(request.user_message_id) if request.user_message_id else None
+            if previous is not None:
+                # 只有显式重试且会话身份不冲突，才能使用数据库中的原会话。
+                # conversation_id 允许为空，以覆盖客户端没有收到 started 的情况。
+                if not request.retry or (conversation_id is not None and conversation_id != previous.conversation_id):
+                    raise AgentServiceError("AGENT_RETRY_CONFLICT", "user message already belongs to an existing turn")
+                conversation_id = previous.conversation_id
             if conversation_id is None:
                 conversation_id = repository.create_conversation()
             elif not repository.conversation_exists(conversation_id):
@@ -153,10 +185,16 @@ class AgentService:
             )
             started_ns = time.monotonic_ns()
             with self._database.write_session() as session:
-                run = ConversationRepository(session, PlaintextRecordStore(session)).start_run(
+                repository = ConversationRepository(session, PlaintextRecordStore(session))
+                if previous is not None:
+                    # 前面的校验已确保 retry=true；这里再检查末轮终态和已保存的用户原文。
+                    # 清理旧消息和创建新 Run 共用事务，任何失败都整体回滚。
+                    repository.remove_last_turn(previous, request.user_message)
+                run = repository.start_run(
                     conversation_id,
                     request.ssh_session_id,
                     request.api_config_id,
+                    user_message_id=request.user_message_id,
                 )
             LOGGER.info(
                 "agent_run_started agent_run_id=%s conversation_id=%s "
@@ -428,7 +466,7 @@ class AgentService:
     @asynccontextmanager
     async def _conversation_lock(
         self,
-        conversation_id: UUID,
+        conversation_id: UUID | tuple[str, UUID],
     ) -> AsyncIterator[None]:
         """串行化同一会话，最后一个使用者退出后移除锁。"""
 

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import "../../i18n";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelApiConfig } from "../../api/agent";
@@ -78,6 +78,7 @@ const renderWorkspace = (
     onProviderSelect: vi.fn(),
     onOpenProviderSettings: vi.fn(),
     onRequestSend: vi.fn(),
+    onRetry: vi.fn(),
     onCancelTurn: vi.fn(),
     onApprovalDecision: vi.fn(),
     onResetConversation: vi.fn(),
@@ -89,6 +90,82 @@ const renderWorkspace = (
 
 describe("AgentWorkspace", () => {
   afterEach(cleanup);
+
+  it("copies the terminal error and places copy and retry outside its bubble", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { props } = renderWorkspace({ tab: { ...idleTab, messages: [
+      { id: "u", kind: "user", text: "inspect" },
+      { id: "e", kind: "error", run: null, error: { code: "MODEL_REQUEST_FAILED", message: "provider failed" } },
+    ] } });
+    const copy = screen.getByRole("button", { name: "Copy" });
+    const retry = screen.getByRole("button", { name: "Retry" });
+    expect(copy.closest("article")).toBeNull();
+    expect(copy.parentElement).toBe(retry.parentElement);
+    expect(copy.compareDocumentPosition(retry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledWith("error_code: MODEL_REQUEST_FAILED\nerror_message: provider failed");
+    fireEvent.click(retry);
+    expect(props.onRetry).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Resend this message?" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Resend" }));
+    expect(props.onRetry).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it.each(["cancel", "escape"])("keeps the reply when retry confirmation is dismissed with %s", action => {
+    const { props } = renderWorkspace({ tab: { ...idleTab, messages: [
+      { id: "u", kind: "user", text: "inspect" },
+      { id: "e", kind: "error", run: null, error: { code: "FAILED", message: "original error" } },
+    ] } });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    if (action === "cancel") fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    else fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(props.onRetry).not.toHaveBeenCalled();
+    expect(screen.getByText(/original error/)).toBeVisible();
+  });
+
+  it("does not carry retry confirmation to a different message", () => {
+    const tab: AgentTabState = { ...idleTab, messages: [
+      { id: "u", kind: "user", text: "inspect" },
+      { id: "e", kind: "error", run: null, error: { code: "FAILED", message: "original" } },
+    ] };
+    const { props, view } = renderWorkspace({ tab });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    view.rerender(<AgentWorkspace {...props} tab={{ ...tab, messages: [
+      { id: "other-u", kind: "user", text: "other" }, { id: "other-e", kind: "cancelled" },
+    ] }} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(props.onRetry).not.toHaveBeenCalled();
+  });
+
+  it("hides terminal actions while a turn is running", () => {
+    renderWorkspace({ tab: { ...runningTab, messages: [{ id: "e", kind: "error", run: null,
+      error: { code: "FAILED", message: "old" } }] } });
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+  });
+
+  it("copies only the last answer Markdown and reports clipboard rejection", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    renderWorkspace({ tab: { ...idleTab, messages: [
+      { id: "u1", kind: "user", text: "old" }, { id: "e1", kind: "error", run: null, error: { code: "OLD", message: "old" } },
+      { id: "u2", kind: "user", text: "current" }, { id: "a2", kind: "assistant", text: "**done**", tools: [],
+        run: { agentRunId: "r2", status: "COMPLETED", reactIteration: 0, sshSessionId: "ssh-1", provider: runningTab.activeRun!.provider } },
+    ] } });
+    expect(screen.getAllByRole("button", { name: "Copy" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(screen.getByText("Copied")).toBeInTheDocument());
+    expect(writeText).toHaveBeenCalledWith("**done**");
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(screen.getByText("Could not copy to clipboard.")).toBeVisible());
+    expect(screen.queryByText("Copied")).toBeNull();
+  });
 
   it.each(["", "Preparing the change"])("shows approval without a generation spinner (text=%s)", text => {
     const tab: AgentTabState = { ...runningTab, activeRun: { ...runningTab.activeRun!, streamedText: text },

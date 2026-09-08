@@ -160,6 +160,8 @@ class AgentRunRow(Base):
     )
     # 持久化轮次标识，关联该轮次的状态与消息。
     agent_run_id: Mapped[str] = mapped_column(Text, primary_key=True, nullable=False)
+    # 前端用户消息的稳定标识；同一消息的多次重试拥有不同 Run。
+    user_message_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     # 持久化会话标识，决定 Run、消息和摘要归属。
     conversation_id: Mapped[str] = mapped_column(Text, ForeignKey('agent_conversations.conversation_id', ondelete='NO ACTION'), nullable=False)
     # 本轮冻结的 SSH 会话标识，不用于自动恢复连接。

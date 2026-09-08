@@ -91,6 +91,15 @@ export type AgentState = {
 
 export const createAgentState = (): AgentState => ({ tabs: {} });
 
+/** 只有末尾可见回复结束后才能重试，审核元数据不充当回复。 */
+export function lastRetryableUser(tab: AgentTabState) {
+  if (tab.phase !== "IDLE") return null;
+  const visible = tab.messages.filter(message => message.kind !== "approval");
+  const last = visible[visible.length - 1];
+  if (!last || last.kind === "user") return null;
+  return [...visible].reverse().find(message => message.kind === "user") ?? null;
+}
+
 export const createAgentTabState = (
   selectedApiConfigId: string | null,
 ): AgentTabState => ({
@@ -132,6 +141,7 @@ export type AgentAction =
       provider: ProviderSnapshot;
       userMessageId: string;
       userMessage: string;
+      retry?: boolean;
     }
   | {
       type: "run/stream-started";
@@ -271,7 +281,7 @@ export const agentReducer = (
           ? tab
           : {
               ...tab,
-              messages: [
+              messages: action.retry ? tab.messages.slice(0, tab.messages.findIndex(message => message.id === action.userMessageId) + 1) : [
                 ...tab.messages,
                 {
                   id: action.userMessageId,
@@ -279,7 +289,7 @@ export const agentReducer = (
                   text: action.userMessage,
                 },
               ],
-              draft: "",
+              draft: action.retry ? tab.draft : "",
               phase: "RUNNING",
               activeRun: {
                 requestToken: action.requestToken,

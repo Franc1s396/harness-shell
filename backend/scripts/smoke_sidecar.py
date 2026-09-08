@@ -292,7 +292,7 @@ def main() -> int:
         run_smoke(data_dir)
         path = data_dir / "runtime.sqlite3"
         with closing(sqlite3.connect(path)) as connection:
-            if connection.execute("SELECT version_num FROM alembic_version").fetchall() != [("0001_initial",)]:
+            if connection.execute("SELECT version_num FROM alembic_version").fetchall() != [("0002_agent_retry",)]:
                 raise RuntimeError("packaged migration did not reach baseline")
         run_smoke(data_dir)
         with closing(sqlite3.connect(path)) as connection:

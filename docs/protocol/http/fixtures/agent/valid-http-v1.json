@@ -23,7 +23,9 @@
           "conversation_id": null,
           "ssh_session_id": "20000000-0000-4000-8000-000000000002",
           "api_config_id": "30000000-0000-4000-8000-000000000003",
-          "user_message": "检查当前目录中的文件。"
+          "user_message": "检查当前目录中的文件。",
+          "user_message_id": "60000000-0000-4000-8000-000000000006",
+          "retry": false
         }
       },
       "response": {

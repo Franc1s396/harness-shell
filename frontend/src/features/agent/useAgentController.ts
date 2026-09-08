@@ -23,6 +23,7 @@ import {
   aggregateAgentBackground,
   createAgentState,
   isActiveRunForSession,
+  lastRetryableUser,
   type ProviderSnapshot,
 } from "./agent-state";
 import {
@@ -193,6 +194,7 @@ export function useAgentController(
       tabId: string,
       sshSessionId: string,
       expectedPhase: "IDLE" | "AWAITING_RISK_CONFIRMATION",
+      retry = false,
     ): Promise<void> => {
       const tab = stateRef.current.tabs[tabId];
       if (
@@ -203,6 +205,8 @@ export function useAgentController(
       ) {
         return;
       }
+      const retryUser = retry ? lastRetryableUser(tab) : null;
+      if (retry && !retryUser) return;
       // React 尚未发布 RUNNING，因此同步预留状态，
       // 避免第二次 Enter 或点击为同一标签页启动另一轮。
       turnReservationsRef.current.add(tabId);
@@ -232,6 +236,8 @@ export function useAgentController(
         );
         if (
           stateRef.current.tabs[tabId] === undefined ||
+          stateRef.current.tabs[tabId].messages !== tab.messages ||
+          stateRef.current.tabs[tabId].conversationId !== tab.conversationId ||
           !currentSession ||
           currentSession.state !== "CONNECTED" ||
           currentSession.sshSessionId !== sshSessionId
@@ -247,8 +253,8 @@ export function useAgentController(
         }
 
         const requestToken = dependencies.makeId();
-        const userMessageId = dependencies.makeId();
-        const userMessage = tab.draft;
+        const userMessageId = retryUser?.id ?? dependencies.makeId();
+        const userMessage = retryUser?.text ?? tab.draft;
         const conversationId = tab.conversationId;
         const snapshot: ProviderSnapshot = {
           apiConfigId: config.api_config_id,
@@ -273,6 +279,7 @@ export function useAgentController(
           provider: snapshot,
           userMessageId,
           userMessage,
+          retry,
         });
         useAgentPreferencesStore
           .getState()
@@ -285,6 +292,8 @@ export function useAgentController(
               sshSessionId,
               apiConfigId: config.api_config_id,
               userMessage,
+              userMessageId,
+              retry,
             },
             (event) => {
               if (controller.signal.aborted) return;
@@ -400,6 +409,20 @@ export function useAgentController(
   );
 
   const approvalSubmissionsRef = useRef(new Set<string>());
+  const retryLastTurn = useCallback(async (tabId: string): Promise<void> => {
+    const tab = stateRef.current.tabs[tabId];
+    if (!tab || !lastRetryableUser(tab)) return;
+    const session = sessionsRef.current.find(item => item.tabId === tabId);
+    if (!session || session.state !== "CONNECTED" || session.sshSessionId === null) {
+      dispatch({ type: "error/set", tabId, error: uiError("UI_AGENT_ACTIVE_SESSION_REQUIRED") });
+      return;
+    }
+    if (tab.selectedApiConfigId === null) {
+      dispatch({ type: "error/set", tabId, error: uiError("UI_AGENT_PROVIDER_REQUIRED") });
+      return;
+    }
+    await dispatchTurn(tabId, session.sshSessionId, "IDLE", true);
+  }, [dispatchTurn]);
   const decideApproval = useCallback(async (tabId: string, approvalId: string, decision: "approve" | "reject") => {
     const tab = stateRef.current.tabs[tabId];
     const message = tab?.messages.find(item => item.kind === "approval" && item.id === approvalId);
@@ -565,6 +588,7 @@ export function useAgentController(
     changeDraft,
     selectProvider,
     requestSend,
+    retryLastTurn,
     decideApproval,
     cancelTurn,
     resetConversation,

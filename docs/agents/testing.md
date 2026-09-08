@@ -82,6 +82,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 
 ## 数据库迁移验证
 
+`test_retry_upgrade_preserves_existing_data` 验证临时 `0001_initial` 数据库升级到 `0002_agent_retry` 后保留正文、STRICT 与外键；Agent service/repository 测试覆盖原位重试、丢失 started、历史轮次拒绝、工具/摘要清理和事务回滚。前端覆盖终态按钮、剪贴板内容与失败、重复点击、草稿保留和失败/取消后的显式重试。这些不替代真实 Provider 或安装版剪贴板验收。
+
 `backend/tests/storage/` 验证真实 SQLite 文件的整批 migration/DDL/batch 回滚、版本身份、STRICT 约束、Session 生命周期与包内资源；`backend/tests/agent/test_session_boundaries.py` 验证并行会话的模型/工具边界无活动 Session。测试使用临时数据库，不运行用户旧库迁移。
 
 `backend/scripts/build_sidecar.ps1` 收集 Alembic env.py、versions 和 Mako 模板，随后执行实际 exe smoke：无关 cwd 的全新建库、同库重启、旧 v7/未知 revision 的无 ready、非零退出和内容不变。Desktop 控制读取在线程启动前完成数据库初始化，避免初始化失败时阻塞关闭；失败不能返回成功退出码。测试与打包 smoke 不代表完整安装版 Desktop 或用户旧数据验收。

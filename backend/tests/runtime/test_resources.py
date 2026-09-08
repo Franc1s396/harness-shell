@@ -80,7 +80,7 @@ def test_runtime_resources_initialization_failure_closes_partial_database(
     import sqlite3
     from contextlib import closing
     with closing(sqlite3.connect(runtime_settings.database_path)) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0001_initial",)]
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0002_agent_retry",)]
     database = RuntimeDatabase.open(runtime_settings.database_path)
     database.close()
 
@@ -157,7 +157,7 @@ def test_tokenizer_startup_failure_preserves_code_and_closes_database(
     import sqlite3
     from contextlib import closing
     with closing(sqlite3.connect(runtime_settings.database_path)) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0001_initial",)]
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0002_agent_retry",)]
     database = RuntimeDatabase.open(runtime_settings.database_path)
     database.close()
 

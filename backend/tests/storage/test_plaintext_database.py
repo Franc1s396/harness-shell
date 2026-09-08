@@ -15,7 +15,7 @@ def test_open_plaintext_bootstraps_alembic_baseline(tmp_path: Path) -> None:
     try:
         assert sql(database,
             "SELECT version_num FROM alembic_version"
-        ).fetchall() == [("0001_initial",)]
+        ).fetchall() == [("0002_agent_retry",)]
     finally:
         database.close()
 

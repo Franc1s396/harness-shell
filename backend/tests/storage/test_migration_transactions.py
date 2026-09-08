@@ -36,7 +36,7 @@ def test_entire_upgrade_chain_rolls_back(tmp_path: Path, monkeypatch: pytest.Mon
     before = snapshot(path)
     directory = tmp_path / "alembic"
     shutil.copytree(runner.migration_resource_dir(), directory)
-    add_revision(directory, "test_second", "0001_initial",
+    add_revision(directory, "test_second", "0002_agent_retry",
                  "op.execute(\"UPDATE runtime_records SET payload=X'6368616E676564'\")")
     body = 'op.create_table("migration_probe", sa.Column("id", sa.Integer, primary_key=True))'
     if failure == "batch":
@@ -94,7 +94,7 @@ def test_successful_batch_preserves_strict_and_rows(tmp_path: Path, monkeypatch)
         connection.execute("INSERT INTO runtime_records VALUES ('test','one',1,X'61','c','u')")
     directory = tmp_path / "alembic"
     shutil.copytree(runner.migration_resource_dir(), directory)
-    add_revision(directory, "test_batch", "0001_initial",
+    add_revision(directory, "test_batch", "0002_agent_retry",
                  'with op.batch_alter_table("runtime_records", recreate="always", table_args=[sa.CheckConstraint("schema_version > 0")], table_kwargs={"sqlite_strict": True}) as batch:\n    pass')
     monkeypatch.setattr(runner, "migration_resource_dir", lambda: directory)
     runner.upgrade_database(path)
@@ -111,7 +111,7 @@ def test_foreign_key_validation_rolls_back_data_and_revision(tmp_path: Path, mon
     before = snapshot(path)
     directory = tmp_path / "alembic"
     shutil.copytree(runner.migration_resource_dir(), directory)
-    add_revision(directory, "test_orphan", "0001_initial",
+    add_revision(directory, "test_orphan", "0002_agent_retry",
                  "op.execute(\"INSERT INTO host_keys VALUES ('h','missing','ssh-ed25519','fingerprint',X'61','active','now',NULL)\")")
     monkeypatch.setattr(runner, "migration_resource_dir", lambda: directory)
     with pytest.raises(StorageSelfCheckFailed, match="foreign key"):
@@ -146,7 +146,7 @@ def test_failure_during_batch_copy_rolls_back_temporary_table(tmp_path, monkeypa
     before = snapshot(path)
     directory = tmp_path / "alembic"
     shutil.copytree(runner.migration_resource_dir(), directory)
-    add_revision(directory, "test_copy", "0001_initial",
+    add_revision(directory, "test_copy", "0002_agent_retry",
                  'with op.batch_alter_table("runtime_records", recreate="always", table_args=[sa.CheckConstraint("schema_version > 0")], table_kwargs={"sqlite_strict": True}) as batch:\n    pass')
     monkeypatch.setattr(runner, "migration_resource_dir", lambda: directory)
     observed = []
@@ -197,7 +197,7 @@ def test_batch_preserves_foreign_key_and_partial_index(tmp_path, monkeypatch, fa
 sa.Index("one_active_host_key_per_connection", table.c.connection_id, unique=True, sqlite_where=sa.text("status = 'active'"))
 with op.batch_alter_table("host_keys", recreate="always", copy_from=table, table_kwargs={"sqlite_strict": True}) as batch:
     pass"""
-    add_revision(directory, "test_keys", "0001_initial", body)
+    add_revision(directory, "test_keys", "0002_agent_retry", body)
     add_revision(directory, "test_final", "test_keys",
                  'raise RuntimeError("after rebuild")' if fail_after_rebuild else 'pass')
     monkeypatch.setattr(runner, "migration_resource_dir", lambda: directory)

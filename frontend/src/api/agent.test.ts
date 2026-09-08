@@ -62,6 +62,18 @@ const invalidStreamFixtures = (
 ).filter((fixture) => fixture.wire_utf8 || fixture.generated_wire);
 
 describe("agentApi", () => {
+  it("sends the stable user identity and explicit retry flag through the SSE request", async () => {
+    postSse.mockImplementation(sse(
+      { ...baseEvent, type: "agent.turn.started", sequence: 0, status: "RUNNING", react_iteration: 0 },
+      { ...baseEvent, type: "agent.turn.completed", sequence: 1, status: "COMPLETED", react_iteration: 0, error_code: null },
+    ));
+    await agentApi.streamAgentTurn({ conversationId, sshSessionId: "ssh-1", apiConfigId: "config-1",
+      userMessage: "same", userMessageId: requestId, retry: true }, () => undefined);
+    expect(postSse).toHaveBeenCalledWith("/v1/agent/turns", {
+      conversation_id: conversationId, ssh_session_id: "ssh-1", api_config_id: "config-1",
+      user_message: "same", user_message_id: requestId, retry: true,
+    }, undefined);
+  });
   it("passes cancellation to the HTTP stream and distinguishes it from interrupted EOF", async () => {
     const controller = new AbortController();
     const client = new BackendHttpClient("http://127.0.0.1:8765", {

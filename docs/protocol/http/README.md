@@ -39,7 +39,9 @@
 
 ## Agent turn SSE
 
-`POST /v1/agent/turns` 保持原 JSON request body，并要求以下 header：
+`POST /v1/agent/turns` 接收 `conversation_id`、`ssh_session_id`、`api_config_id`、`user_message`，以及可选 `user_message_id`（UUID，默认 null）与 `retry`（严格 boolean，默认 false）。WebView 为每条新用户消息生成稳定 ID；重试必须携带同一 ID、原文及 `retry=true`。后端只替换该消息对应的最后终态尝试，创建新 Run，不追加重复用户消息或回放旧授权。身份冲突、正文改变、目标已不是末轮或仍运行返回 `AGENT_RETRY_CONFLICT`（409）。若该消息从未落库，则没有历史可删除，重新执行首次发送；若 started 丢失且 conversation_id 为 null，按稳定 ID 找回准确会话。该行为不撤销已执行的远程命令，也不恢复断开的 SSE。
+
+请求要求以下 header：
 
 ```http
 Accept: text/event-stream

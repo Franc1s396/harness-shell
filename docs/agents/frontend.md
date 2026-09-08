@@ -24,6 +24,8 @@
 
 ## 状态与交互
 
+- Agent 最后一条可见终态回复（回答、错误、取消）在气泡外下方左对齐显示复制、重试两个 SVG 图标按钮。复制只写回答 Markdown 原文、原始 error_code/error_message 或取消提示；剪贴板失败明确展示。运行中和等待审核时隐藏操作栏。点击重试先打开现有 Dialog 确认弹窗，说明替换回复、重新执行以及不撤销旧变更；仅确认后调用 controller，取消或关闭保留原回复，确认状态随当前回复操作栏卸载。显式重试使用原用户消息 ID 和文本、当前 Provider/connected Session，保留输入草稿；替换本轮旧回复、工具和审核记录，不追加用户消息。controller 复用同步预留与 per-tab SSE owner 防止重复点击，网络层仍不自动重试。后端重试语义见 HTTP 契约。
+
 - 原生滚动区域统一使用 `src/styles/globals.css` 的 WebKit 滚动条样式，沿用 Agent 的透明轨道、8px 宽/高及圆角滑块；不再依赖 Agent 专用 class，也不混用会覆盖 WebView2 伪元素样式的 `scrollbar-color`/`scrollbar-width`。
 - Connection、Terminal、Agent 与 SFTP 只绑定用户显式选择的 connected Session；不得按列表顺序回退或在 tab 切换时偷换 owner。
 - pending transfer/run 的 disconnect、Session close 和 application close 必须有显式门禁。

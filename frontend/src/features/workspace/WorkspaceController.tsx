@@ -1237,6 +1237,9 @@ export function WorkspaceController() {
             onRequestSend={() => {
               if (activeTabId) void agent.requestSend(activeTabId);
             }}
+            onRetry={() => {
+              if (activeTabId) void agent.retryLastTurn(activeTabId);
+            }}
             onCancelTurn={() => {
               if (activeTabId) agent.cancelTurn(activeTabId);
             }}
