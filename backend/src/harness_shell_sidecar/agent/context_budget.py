@@ -39,8 +39,7 @@ class ContextBudget:
 
     def request_identity(self, config: ModelApiConfig) -> str:
         """为静态输入和配置生成指纹，不包含凭据或历史。"""
-        values = config.model_dump(mode="json", include={"api_config_id", "api_type", "base_url",
-            "model", "context_window_size", "context_compaction_threshold_ratio", "max_output_tokens"})
+        values = config.model_dump(mode="json", include={"api_config_id", "api_type", "base_url", "model"})
         values.update(request_mapping_version=1, tokenizer=self._policy.tokenizer_encoding,
                       static_input=model_input_payload(config, [SYSTEM_MESSAGE], include_tools=True))
         return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False,
