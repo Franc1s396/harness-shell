@@ -675,7 +675,7 @@ def test_compaction_streams_only_main_answer_and_preserves_history(agent_storage
         assert model.calls == (3 if tool_loop else 2)
         assert repo.load_messages(conversation)[:len(before)] == before
         summary = RepositoryClient(agent_storage.database, ContextSummaryRepository).load(conversation)
-        assert summary.covered_through_sequence == 2
+        assert summary[-1].covered_through_sequence == 5
         assert "HISTORY SUMMARY ONLY" in str(model.message_calls[1])
     from langchain_core.messages import HumanMessage
     asyncio.run(scenario())
@@ -697,6 +697,44 @@ def test_tool_prefix_is_identical_in_database_and_model(agent_storage: AgentStor
     asyncio.run(scenario())
 
 
+def test_two_turns_append_summaries_and_replay_both_to_main_model(agent_storage: AgentStorage) -> None:
+    from uuid import uuid4
+    from langchain_core.messages import HumanMessage
+    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+
+    async def scenario() -> None:
+        """经真实 graph 和网关记录摘要请求与主模型请求，保证消息序列端到端一致。"""
+        model = FakeModelSequence([AIMessage(content="SUMMARY ONE"), AIMessage(content="first answer"),
+                                   AIMessage(content="SUMMARY TWO"), AIMessage(content="second answer")])
+        service, turn = _service(agent_storage, model, RecordingExecutor())
+        config = agent_storage.api_configs.get(turn.api_config_id)
+        agent_storage.api_configs.update(config.api_config_id, valid_api_config_input().model_copy(update={
+            "api_key_credential_id": config.api_key_credential_id, "context_compaction_threshold_ratio": 0.01}))
+        repo = agent_storage.conversations
+        conversation = repo.create_conversation()
+        for i in range(4):
+            run = repo.start_run(conversation, turn.ssh_session_id, config.api_config_id)
+            repo.append_messages_atomic(run.agent_run_id, conversation,
+                [HumanMessage(content="historical data " * 500), AIMessage(content=f"answer {i}")])
+            repo.finish_run(run.agent_run_id, AgentRunStatus.COMPLETED, None)
+        for i in range(2):
+            sink = RecordingTurnSink()
+            result = await _run_turn(agent_storage, service, turn.model_copy(update={
+                "conversation_id": conversation, "user_message_id": uuid4(), "user_message": f"continue {i}"}), event_sink=sink)
+            assert result.status is AgentRunStatus.COMPLETED
+            assert sink.streamed_text == ("first answer" if i == 0 else "second answer")
+        summaries = RepositoryClient(agent_storage.database, ContextSummaryRepository).load(conversation)
+        assert [summary.summary_text for summary in summaries] == ["SUMMARY ONE", "SUMMARY TWO"]
+        assert [summary.covered_through_sequence for summary in summaries] == [5, 8]
+        assert "SUMMARY ONE" not in str(model.message_calls[2])
+        main_messages = model.message_calls[3]
+        assert "SUMMARY ONE" in main_messages[1]["content"]
+        assert "SUMMARY TWO" in main_messages[2]["content"]
+        assert [message["content"] for message in main_messages[3:]] == ["continue 0", "first answer", "continue 1"]
+
+    asyncio.run(scenario())
+
+
 def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_storage: AgentStorage) -> None:
     from collections.abc import Sequence
     from harness_shell_sidecar.agent.context_budget import ContextBudget
@@ -707,7 +745,7 @@ def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_stora
     class ToolOverflowBudget(ContextBudget):
         """模拟大型工具结果，不制造巨大测试载荷。"""
         def estimate(self, config: ModelApiConfig, records: Sequence[ContextMessage],
-                     summary: ContextSummary | None) -> TokenEstimate:
+                     summaries: Sequence[ContextSummary]) -> TokenEstimate:
             """仅工具后的投影超过实际默认预算。"""
             return TokenEstimate(120000 if any(r.message.type == "tool" for r in records) else 500,
                                  "TOKENIZER_ESTIMATE")

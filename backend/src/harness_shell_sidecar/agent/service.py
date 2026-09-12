@@ -229,7 +229,7 @@ class AgentService:
                 "messages": [],
                 "model_messages": [],
                 "records": [],
-                "summary": None,
+                "summaries": (),
                 "react_iteration": 0,
                 "run_status": AgentRunStatus.RUNNING,
                 "last_error_code": None,

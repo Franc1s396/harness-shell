@@ -1,4 +1,4 @@
-"""滚动摘要只重试有限次数，并保留原始历史。"""
+"""追加摘要只重试有限次数，并保留原始历史。"""
 
 from ..storage_support import RepositoryClient, sql
 import asyncio
@@ -17,7 +17,7 @@ from .conftest import AgentStorage, valid_api_config_input
 class ControlledBudget:
     """仅控制 Provider 规模估算，历史和存储使用真实实现。"""
     def estimate(self, config: ModelApiConfig, records: Sequence[ContextMessage],
-                 summary: ContextSummary | None) -> TokenEstimate:
+                 summaries: Sequence[ContextSummary]) -> TokenEstimate:
         """强制达到阈值，同时保留实际历史投影。"""
         return TokenEstimate(96000, "TOKENIZER_ESTIMATE")
     def should_compact(self, config: ModelApiConfig, tokens: int) -> bool:
@@ -38,13 +38,15 @@ class SummaryGateway:
         """让指定次数的初始尝试失败。"""
         self.failures = failures  # 模拟远程失败次数。
         self.calls = 0  # 包含失败在内的实际尝试次数。
+        self.inputs: list[Sequence[AnyMessage]] = []  # 实际摘要请求，不使用主模型投影。
     async def summarize_once(self, config: ModelApiConfig, api_key: SecretStr,
                              messages: Sequence[AnyMessage], cancelled: asyncio.Event) -> str:
         """每次调用返回一个远程结果。"""
         self.calls += 1
+        self.inputs.append(messages)
         if self.calls <= self.failures:
             raise ModelGatewayError("MODEL_REQUEST_FAILED", "summary failed")
-        return "Only the first completed turn was summarized."
+        return "Independent summary segment."
 
 
 @pytest.mark.parametrize("failures", [0, 2, 3])
@@ -65,47 +67,55 @@ def test_compaction_retries_and_preserves_messages(agent_storage: AgentStorage, 
     summaries = RepositoryClient(agent_storage.database, ContextSummaryRepository)
     gateway = SummaryGateway(failures)
     compactor = ContextCompactor(agent_storage.database, ControlledBudget(), gateway, sleep=instant_sleep)
-    async def perform() -> ContextSummary | None:
+    async def perform() -> tuple[ContextSummary, ...]:
         """对持久化历史调用真实压缩器。"""
         return await compactor.compact(config=config, api_key=SecretStr("key"),
-            records=repo.load_context_messages(conversation), summary=None,
+            records=repo.load_context_messages(conversation), summaries=(),
             conversation_id=conversation, source_run_id=current.agent_run_id, cancelled=asyncio.Event())
     if failures == 3:
         with pytest.raises(ContextError) as error:
             asyncio.run(perform())
         assert error.value.error_code == "CONTEXT_COMPACTION_FAILED"
-        assert summaries.load(conversation) is None
+        assert summaries.load(conversation) == ()
     else:
         saved = asyncio.run(perform())
-        assert saved.covered_through_sequence == 2
-        assert saved.revision == 1
+        assert saved[-1].covered_through_sequence == 5
+        assert saved[-1].revision == 1
     assert gateway.calls == min(failures + 1, 3)
     assert repo.load_messages(conversation) == before
     if failures == 3:
         repo.finish_run(current.agent_run_id, AgentRunStatus.FAILED, "CONTEXT_COMPACTION_FAILED")
         following = repo.start_run(conversation, uuid4(), config.api_config_id)
         repo.append_message(following.agent_run_id, conversation, HumanMessage(content="retry next turn"))
-        async def retry_next_turn() -> ContextSummary | None:
+        async def retry_next_turn() -> tuple[ContextSummary, ...]:
             """上一轮失败不得永久禁用此会话。"""
             return await compactor.compact(config=config, api_key=SecretStr("key"),
-                records=repo.load_context_messages(conversation), summary=None,
+                records=repo.load_context_messages(conversation), summaries=(),
                 conversation_id=conversation, source_run_id=following.agent_run_id, cancelled=asyncio.Event())
         retried = asyncio.run(retry_next_turn())
-        assert retried.revision == 1
+        assert retried[-1].revision == 1
         assert gateway.calls == 4
     if failures == 0:
         repo.append_message(current.agent_run_id, conversation, AIMessage(content="current complete"))
         repo.finish_run(current.agent_run_id, AgentRunStatus.COMPLETED, None)
         following = repo.start_run(conversation, uuid4(), config.api_config_id)
         repo.append_message(following.agent_run_id, conversation, HumanMessage(content="another turn"))
-        async def roll() -> ContextSummary | None:
-            """只将新变旧的历史前缀与已有摘要一同压缩。"""
+        async def roll() -> tuple[ContextSummary, ...]:
+            """只压缩未覆盖消息中的旧前缀，旧摘要原样保留。"""
             return await compactor.compact(config=config, api_key=SecretStr("key"),
-                records=repo.load_context_messages(conversation), summary=saved,
+                records=repo.load_context_messages(conversation), summaries=saved,
                 conversation_id=conversation, source_run_id=following.agent_run_id, cancelled=asyncio.Event())
         rolled = asyncio.run(roll())
-        assert rolled.revision == 2
-        assert rolled.covered_through_sequence == 4
+        assert rolled[-1].revision == 2
+        assert rolled[-1].covered_through_sequence == 8
+        assert rolled[0] == saved[0]
+        assert len(rolled) == 2
+        assert summaries.load(conversation) == rolled
+        import json
+        second_input = json.loads(gateway.inputs[-1][1].content)
+        assert set(second_input) == {"history"}
+        assert [message["content"] for message in second_input["history"]] == ["answer-2", "user-3", "answer-3"]
+        assert "Independent summary segment." not in str(gateway.inputs[-1])
 
 
 @pytest.mark.parametrize("failure_stage", ["source", "candidate", "cancel_retry"])
@@ -152,10 +162,10 @@ def test_failed_candidate_preserves_existing_summary(
         expected_error = AgentCancelled if failure_stage == "cancel_retry" else ContextError
         with pytest.raises(expected_error):
             await compactor.compact(config=config, api_key=SecretStr("key"),
-                records=repo.load_context_messages(conversation), summary=previous,
+                records=repo.load_context_messages(conversation), summaries=(previous,),
                 conversation_id=conversation, source_run_id=current.agent_run_id, cancelled=cancelled)
         assert gateway.calls == (0 if failure_stage == "source" else 1)
-        assert summaries.load(conversation) == previous
+        assert summaries.load(conversation) == (previous,)
         assert repo.load_messages(conversation) == before
     asyncio.run(scenario())
 
@@ -167,7 +177,7 @@ def test_summary_input_excludes_usage_and_opaque_replay() -> None:
         ContextMessage(2, run_id, AIMessage(content="service is running",
             usage_metadata={"input_tokens": 100, "output_tokens": 5, "total_tokens": 105},
             additional_kwargs={"harness_responses_replay": "opaque-marker"}))]
-    text = build_summary_messages(None, prefix)[1].content
+    text = build_summary_messages(prefix)[1].content
     assert "inspect service" in text
     assert "service is running" in text
     assert "opaque-marker" not in text

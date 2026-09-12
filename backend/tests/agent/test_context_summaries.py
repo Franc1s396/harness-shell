@@ -26,11 +26,11 @@ def test_summary_commit_preserves_history_and_rejects_stale_writer(agent_storage
         covered_through_sequence=2, summary_text="Completed inspection.", source_run_id=current.agent_run_id)
     saved = summaries.commit_candidate(**args)
     assert saved.revision == 1
-    assert summaries.load(conversation) == saved
+    assert summaries.load(conversation) == (saved,)
     assert repo.load_messages(conversation) == before
     with pytest.raises(ContextError):
         summaries.commit_candidate(**args)
-    assert summaries.load(conversation) == saved
+    assert summaries.load(conversation) == (saved,)
 
 
 def test_summary_cannot_cover_current_user(agent_storage: AgentStorage) -> None:

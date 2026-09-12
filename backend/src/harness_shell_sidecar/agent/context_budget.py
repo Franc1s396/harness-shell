@@ -40,18 +40,18 @@ class ContextBudget:
     def request_identity(self, config: ModelApiConfig) -> str:
         """为静态输入和配置生成指纹，不包含凭据或历史。"""
         values = config.model_dump(mode="json", include={"api_config_id", "api_type", "base_url", "model"})
-        values.update(request_mapping_version=1, tokenizer=self._policy.tokenizer_encoding,
+        values.update(request_mapping_version=2, tokenizer=self._policy.tokenizer_encoding,
                       static_input=model_input_payload(config, [SYSTEM_MESSAGE], include_tools=True))
         return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False,
                               separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def estimate(self, config: ModelApiConfig, records: Sequence[ContextMessage],
-                 summary: ContextSummary | None) -> TokenEstimate:
+                 summaries: Sequence[ContextSummary]) -> TokenEstimate:
         """使用最新兼容 usage，并仅累加其回复之后的消息。"""
         # 1. 确定本轮配置指纹和摘要版本，只在尚未被摘要覆盖的消息中寻找 usage 锚点。
         identity = self.request_identity(config)
-        revision = summary.revision if summary else 0
-        covered = summary.covered_through_sequence if summary else 0
+        revision = summaries[-1].revision if summaries else 0
+        covered = summaries[-1].covered_through_sequence if summaries else 0
         effective = [record for record in records if record.sequence > covered]
         # 2. 从新到旧查找兼容且统计有效的 AI 回复；配置或摘要版本不同的锚点不可复用。
         for index in range(len(effective) - 1, -1, -1):
@@ -73,5 +73,5 @@ class ContextBudget:
             increment = self.estimate_payload(model_input_payload(config, later, include_tools=False)) if later else 0
             return TokenEstimate(incoming + outgoing + increment, "PROVIDER_USAGE")
         # 4. 没有可用 usage 时，本地估算完整投影：System、摘要、有效历史和工具定义。
-        payload = model_input_payload(config, ContextService.project(records, summary), include_tools=True)
+        payload = model_input_payload(config, ContextService.project(records, summaries), include_tools=True)
         return TokenEstimate(self.estimate_payload(payload), "TOKENIZER_ESTIMATE")

@@ -67,7 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 
 `build-requirements.lock` 固定 `tiktoken==0.12.0` 及依赖，准备脚本生成 `o200k_base` ranks/metadata/固定样本，PyInstaller 纳入编码资源和原生扩展。build 脚本严格串行执行 lock、准备、check、PyInstaller 和实际 exe smoke。Runtime 初始化构造并测试 encoding 后才发布 READY；smoke 子进程使用临时空缓存、关闭端口代理及 loopback NO_PROXY。这证明当前产物不借用用户缓存或外网，不能替代真实断网机器和安装版验收。生成资源留在忽略的 build 目录，不提交。
 
-上下文回归覆盖：Provider round-trip 和表单预算、工具首部及 DB/model 一致、usage/revision、完整轮边界、摘要取消/3 次尝试/输入与候选超预算、UI 文本隔离、旧库拒绝和 tokenizer 缺失/损坏。`verify-m3-agent.ps1` 包含全部 Agent/storage 测试和 Manual SFTP/M2 前置链。
+上下文回归覆盖：Provider round-trip 和表单预算、工具首部及 DB/model 一致、usage/revision、完整消息单位边界和 40% 向上取整、连续追加摘要、摘要取消/3 次尝试/输入与候选超预算、UI 文本隔离、旧库拒绝和 tokenizer 缺失/损坏。`verify-m3-agent.ps1` 包含全部 Agent/storage 测试和 Manual SFTP/M2 前置链。
 
 ## Desktop 与安装验收
 
@@ -82,7 +82,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 
 ## 数据库迁移验证
 
-`test_retry_upgrade_preserves_existing_data` 验证临时 `0001_initial` 数据库升级到 `0002_agent_retry` 后保留正文、STRICT 与外键；Agent service/repository 测试覆盖原位重试、丢失 started、历史轮次拒绝、工具/摘要清理和事务回滚。前端覆盖终态按钮、剪贴板内容与失败、重复点击、草稿保留和失败/取消后的显式重试。这些不替代真实 Provider 或安装版剪贴板验收。
+`test_retry_upgrade_preserves_existing_data` 验证临时 `0001_initial` 数据库经 `0002_agent_retry` 升级至当前 head 后保留正文、STRICT 与外键；Agent service/repository 测试覆盖原位重试、丢失 started、历史轮次拒绝、工具/摘要清理和事务回滚。前端覆盖终态按钮、剪贴板内容与失败、重复点击、草稿保留和失败/取消后的显式重试。这些不替代真实 Provider 或安装版剪贴板验收。
 
 `backend/tests/storage/` 验证真实 SQLite 文件的整批 migration/DDL/batch 回滚、版本身份、STRICT 约束、Session 生命周期与包内资源；`backend/tests/agent/test_session_boundaries.py` 验证并行会话的模型/工具边界无活动 Session。测试使用临时数据库，不运行用户旧库迁移。
 
@@ -92,3 +92,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 ## Agent HITL 验证
 
 命令策略、原子授权、真实 LangGraph 暂停/恢复与回收、SSH 失效、控制容量、HTTP 决定、SSE 关联、审核气泡与 UI 状态均有独立测试。审核等待用 Event 控制，测试自身的超时不是产品审核期限。验收记录见 [Agent HITL](../testing/agent-human-in-the-loop.md)。真实 Provider、安装版 WebView 和生产 SSH 必须独立验收。
+
+`test_context_summary_migration.py` 使用临时 `0002_agent_retry` 库验证旧摘要全部字段保留、复合主键追加、STRICT/外键、同库重启以及重建失败整批回滚；`test_context_retention.py` 覆盖轮内切分、工具结果原子性、旧 revision 延续和末轮重试保留较早摘要。预算及 graph 测试验证旧摘要不进入新摘要请求、全部摘要仍进入主模型预算和投影。

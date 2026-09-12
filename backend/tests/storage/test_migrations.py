@@ -20,7 +20,7 @@ def test_initial_revision_creates_strict_business_tables(tmp_path: Path) -> None
     path = tmp_path / "runtime.sqlite3"
     upgrade(path)
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0002_agent_retry",)]
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0003_context_summary_history",)]
         strict = {row[1]: row[5] for row in connection.execute("PRAGMA table_list")}
         assert strict["runtime_records"] == 1
         assert strict["connection_profiles"] == 1

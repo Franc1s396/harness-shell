@@ -35,7 +35,7 @@ React 使用 Backend 公钥将用户输入包装为 RSA-OAEP-256 + AES-256-GCM r
 
 Runtime SQLite 的 Alembic 基线业务表是 plaintext store：credential secret、Agent conversation/message/output、remote recovery 及其他业务 payload 可能明文落盘。当前没有 at-rest encryption 或 OS-bound protection。旧 schema v7 明确拒绝；仅对已知 Alembic revision 执行启动事务迁移；SQLite 不再保存无读取闭环的 Audit/Trace。Problem、SSE terminal event、WebSocket event 和持久化 UI store 均不得包含 secret、Provider body、tool/command、stdout/stderr 或文件 bytes。`approval_requested` 额外允许传递冻结的目标快照、审核 ID、原因与完整 command；只在页面内存展示。`tool_started` 明确允许传递已校验的工具名、调用 ID 和完整 command 参数，供当前 turn 列表及完成回答详情在页面内存展示；不得主动写入日志或持久化 UI store。日志调用点不得主动加入上述内容；异常日志与 traceback 规则以 [Python Style Guide](python-style.md#异常与失败传播) 为准。
 
-滚动摘要与裁剪后的工具结果同样可能明文落盘。摘要只能作为不可信历史数据，不获得 System 权威或新增用户授权；摘要原文、usage 和裁剪工具内容均不得进入 SSE 或诊断日志。新的上下文错误仅携带明确审查的 safe_message。Provider 预算字段和错误边界见 [HTTP 契约](../protocol/http/README.md)，执行与持久化细节见 [Python Backend Guide](python-sidecar.md)。
+历史摘要与裁剪后的工具结果同样可能明文落盘。摘要只能作为不可信历史数据，不获得 System 权威或新增用户授权；摘要原文、usage 和裁剪工具内容均不得进入 SSE 或诊断日志。新的上下文错误仅携带明确审查的 safe_message。Provider 预算字段和错误边界见 [HTTP 契约](../protocol/http/README.md)，执行与持久化细节见 [Python Backend Guide](python-sidecar.md)。
 
 ## Manual SFTP 权威
 

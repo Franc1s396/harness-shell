@@ -33,17 +33,17 @@ Chat Completions 与 Responses 接收采用类似 Open WebUI 的宽松聚合规�
 
 ## Agent 上下文工程
 
-用户显式重试复用 `user_message_id`，通过 `retry=true` 发起；每次执行仍创建新的 Run。`AgentService` 先按用户消息身份、再按会话身份加锁，处理 started 丢失时的会话定位。已有尝试必须为当前会话最后一个终态 Run，且用户正文一致；在创建新 RUNNING 的同一事务内删除旧 Run 的消息正文/索引和以该 Run 为源的摘要，保留旧 Run 元数据，后续图重新构建历史修复与摘要。尚未落库的尝试没有历史可替换，可按同一消息身份重新发送；不猜测最后一条相似文本。旧命令不撤销、旧审核授权不复用。`0002_agent_retry` 为 `agent_runs` 添加 nullable 用户消息关联和索引，既有 Run 保持空关联。
+用户显式重试复用 `user_message_id`，通过 `retry=true` 发起；每次执行仍创建新的 Run。`AgentService` 先按用户消息身份、再按会话身份加锁，处理 started 丢失时的会话定位。已有尝试必须为当前会话最后一个终态 Run，且用户正文一致；在创建新 RUNNING 的同一事务内删除旧 Run 的消息正文/索引和以该 Run 为源的摘要，保留更早 Run 的摘要及旧 Run 元数据，后续图重新构建历史修复与摘要。尚未落库的尝试没有历史可替换，可按同一消息身份重新发送；不猜测最后一条相似文本。旧命令不撤销、旧审核授权不复用。`0002_agent_retry` 为 `agent_runs` 添加 nullable 用户消息关联和索引，既有 Run 保持空关联。
 
 `RuntimeResources` 在启动时创建 `AgentContextPolicy` 和本地 tokenizer/`ContextBudget`；graph 借用同一数据库创建 `ContextSummaryRepository` 与 `ContextCompactor`。`context_models.py` 定义序号记录、摘要、预算来源和安全错误；`context.py` 负责修复与有效投影；`context_budget.py` 负责估算和预算；`context_summaries.py` 负责短事务；`context_compaction.py` 负责一次有界摘要流程。
 
-调用链固定为 `load_context → compact_context → prepare_model_context → call_model`；工具执行后仅回到 `prepare_model_context`。新 HumanMessage 入库后只检查一次压缩。按 Human 边界保留最近 3 个完整历史轮次及当前用户轮，修复 ToolMessage 归属其前一历史轮；未摘要的历史不会按固定轮数丢弃。模型投影为 canonical System Prompt、可选的带历史数据标记的摘要 HumanMessage、覆盖边界后的完整消息。
+调用链固定为 `load_context → compact_context → prepare_model_context → call_model`；工具执行后仅回到 `prepare_model_context`。新 HumanMessage 入库后只检查一次压缩。仅对未摘要覆盖的消息按完整单位计数：每个 HumanMessage、无工具 AIMessage 各一个单位；带工具调用的 AIMessage 与全部对应 ToolMessage 合为一个单位。后端 `AgentContextPolicy.context_retention_percent` 默认 40，合法范围为整数 1..99；保留最近 `ceil(单位数 * percent / 100)` 个单位，包含当前 Human，System 和摘要不进入分母。允许历史轮内切分，但禁止拆开工具关联或覆盖当前 Human；孤立/未配对工具消息显式失败。未触发摘要时保留所有未覆盖历史。模型投影为 canonical System Prompt、按 revision 顺序排列的全部历史摘要 HumanMessage、最后覆盖边界后的完整消息。每个摘要保留历史数据标记，不具备 System 权威。
 
 每个 Provider 保存 `context_window_size=128000`、`context_compaction_threshold_ratio=0.75`、`max_output_tokens=8192`，本轮沿用冻结配置。达到 `floor(window * ratio)` 触发；输入上限是 `window - max_output_tokens`，等号允许。主模型和摘要分别通过 Chat `max_completion_tokens` / Responses `max_output_tokens` 实际预留输出。轮内超预算以 `CONTEXT_BUDGET_EXCEEDED` 结束，不进行摘要。
 
-主模型响应保存规范化 usage 及 `harness_context_anchor`。从最新有效消息向前匹配 Provider/config/input 静态指纹与摘要 revision，使用 input+output+其后新增消息的映射估算，不重复计算锚点回复。没有兼容 usage 时估算 System、摘要、当前有效历史和工具定义的实际协议映射；本地 `o200k_base` 仅为估算，不声称各 Provider 精确一致。摘要自身的 usage 不进入主对话锚点。
+主模型响应保存规范化 usage 及 `harness_context_anchor`。从最新有效消息向前匹配 Provider/config/input 静态指纹与最后一条摘要 revision，使用 input+output+其后新增消息的映射估算，不重复计算锚点回复。没有兼容 usage 时估算 System、全部摘要、当前有效历史和工具定义的实际协议映射；本地 `o200k_base` 仅为估算，不声称各 Provider 精确一致。摘要自身的 usage 不进入主对话锚点。追加摘要后旧锚点失效；本策略将静态 request_mapping_version 升至 2，旧策略锚点不复用。
 
-摘要复用本轮 Provider/model/key，走独立 `summarize_once`，无工具、无 UI sink。每次实际请求整体 60 秒，最多 3 次，失败间隔 1/2 秒且可取消；不复用主模型超时重试。摘要只包含有用历史，剔除 usage/anchor/opaque replay。摘要输入先验预算、候选投影再次验预算，通过后 CAS revision 并原子替换唯一摘要；历史消息不变。第三次失败以 `CONTEXT_COMPACTION_FAILED` 终止当前轮，下一轮可重新尝试。取消、预算、数据库错误直接传播；已提交摘要在随后主调用失败时保留。
+摘要复用本轮 Provider/model/key，走独立 `summarize_once`，无工具、无 UI sink。每次实际请求整体 60 秒，最多 3 次，失败间隔 1/2 秒且可取消；不复用主模型超时重试。摘要请求只包含本次未覆盖历史的旧前缀，剔除 usage/anchor/opaque replay；旧摘要不进入请求，不改写、不合并、不再次压缩。摘要输入先验预算，全部旧摘要 + 新摘要 + 保留消息的候选投影再次验预算，通过后 CAS 最后 revision 并原子追加；历史消息和已有摘要不变。所有摘要始终计入压缩触发和实际输入预算；40% 按单位数量而非 Token 数计算，候选仍超预算直接失败，不自动减少比例或删除摘要。摘要持续累积可能导致预算耗尽，不保证无限对话。第三次失败以 `CONTEXT_COMPACTION_FAILED` 终止当前轮，下一轮可重新尝试。取消、预算、数据库错误直接传播；已提交摘要在随后主调用失败时保留。
 
 工具 envelope schema 2 的 `stdout`、`stderr` 分别仅保留首部 6000 个 Unicode code points，由 backend policy 控制。`stdout_truncation` / `stderr_truncation` 包含 original/retained/omitted 字符数和 truncated，字符串不混入裁剪提示。裁剪后的同一 envelope 用于数据库和模型；模型需继续查询后续输出。此限制发生在命令输出收集后，不是远程读取内存上限。
 
@@ -57,7 +57,7 @@ Runtime 长期只持有 Engine/Session 工厂。repository 构造接收 Session�
 
 revision 必须独立声明历史 DDL，不能导入当前 ORM metadata；修改 ORM 时同步编写并审查 revision。batch 重建显式保留 STRICT、未命名 CHECK、索引和外键，不能依赖 autogenerate 完全保留；已验证 SQLite 内联外键的 ondelete 反射可能丢失，重建时使用显式历史表定义（`copy_from`）保留删除动作。禁止 revision 内 commit、autocommit、VACUUM 或文件副作用；自检失败不得自动修复 schema。
 
-`agent_context_summaries` 每会话至多一条，保存 revision、covered_through_sequence、summary_text、source_run_id 和时间戳；读取校验真实历史/工具边界，损坏以 `CONTEXT_SUMMARY_INVALID` 失败。conversation 外键级联删除摘要；不回写或替换 `agent_messages`。
+`agent_context_summaries` 使用 `(conversation_id, revision)` 复合主键逐条追加，保存 covered_through_sequence、summary_text、source_run_id 和时间戳；读取按 revision 排序，校验递增覆盖、连续版本和真实历史/工具单位边界，损坏以 `CONTEXT_SUMMARY_INVALID` 失败。`0003_context_summary_history` 无损保留旧唯一摘要的全部字段，作为首条记录（revision 可以大于 1），后续从该版本递增；不能恢复过去已被替换的摘要。该 revision 拒绝有损 downgrade。conversation 外键级联删除摘要；不回写或替换 `agent_messages`。
 
 `runtime_records.payload` 与 credential records 是 plaintext。不要通过命名、注释或文档暗示 at-rest encryption。新增持久化内容时必须明确字段、nullability、删除、敏感性、schema self-check 和测试；没有业务读取或导出闭环的诊断数据不得新增 SQLite 表。
 

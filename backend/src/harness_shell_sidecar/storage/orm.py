@@ -217,8 +217,8 @@ class AgentContextSummaryRow(Base):
     )
     # 持久化会话标识，决定 Run、消息和摘要归属。
     conversation_id: Mapped[str] = mapped_column(Text, ForeignKey('agent_conversations.conversation_id', ondelete='CASCADE'), primary_key=True, nullable=False)
-    # 摘要乐观并发版本，用于拒绝陈旧压缩结果。
-    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 同会话内的摘要序号，和会话标识组成主键并拒绝陈旧追加。
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
     # 摘要已覆盖的最后一条历史消息序号。
     covered_through_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     # 可能包含历史敏感内容的明文摘要，不进入日志。

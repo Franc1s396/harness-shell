@@ -61,7 +61,7 @@ class AgentGraphState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     model_messages: list[AnyMessage]
     records: list[ContextMessage]  # 有序权威记录；使用整体替换语义。
-    summary: ContextSummary | None  # 仅供模型使用的滚动摘要，不作为 SSE 可见文本。
+    summaries: tuple[ContextSummary, ...]  # 全部有序历史摘要，整体替换，不作为 SSE 可见文本。
     react_iteration: int
     run_status: AgentRunStatus
     last_error_code: str | None
@@ -234,7 +234,7 @@ def build_agent_graph(
     policy = AgentContextPolicy()
     budget = dependencies.budget if dependencies.budget is not None else ContextBudget(
         load_local_encoding(tokenizer_resource_dir(), policy.tokenizer_encoding), policy)
-    compactor = ContextCompactor(dependencies.database, budget, dependencies.gateway)
+    compactor = ContextCompactor(dependencies.database, budget, dependencies.gateway, policy=policy)
 
     async def load_context(
         state: AgentGraphState,
@@ -252,18 +252,18 @@ def build_agent_graph(
         with dependencies.database.read_session() as session:
             return {"messages": messages,
                     "records": ConversationRepository(session, PlaintextRecordStore(session)).load_context_messages(state["conversation_id"]),
-                    "summary": ContextSummaryRepository(session).load(state["conversation_id"])}
+                    "summaries": ContextSummaryRepository(session).load(state["conversation_id"])}
 
     async def compact_context(
         state: AgentGraphState, runtime: Runtime[AgentGraphContext],
     ) -> dict[str, object]:
-        """本用户轮次最多执行一次滚动摘要。"""
+        """本用户轮次最多执行一次追加摘要。"""
         # 本轮仅由加载后的节点进入一次压缩流程；工具循环不经过此节点。
-        summary = await compactor.compact(config=runtime.context.api_config,
-            api_key=runtime.context.api_key, records=state["records"], summary=state["summary"],
+        summaries = await compactor.compact(config=runtime.context.api_config,
+            api_key=runtime.context.api_key, records=state["records"], summaries=state["summaries"],
             conversation_id=state["conversation_id"], source_run_id=state["agent_run_id"],
             cancelled=runtime.context.cancelled)
-        return {"summary": summary}
+        return {"summaries": summaries}
 
     def prepare_model_context(
         state: AgentGraphState,
@@ -271,11 +271,11 @@ def build_agent_graph(
     ) -> dict[str, object]:
         """检查每次请求预算，不在工具循环内执行摘要。"""
         # 1. 每次主调用前检查有效输入预算，工具循环超预算时直接失败。
-        estimate = budget.estimate(runtime.context.api_config, state["records"], state["summary"])
+        estimate = budget.estimate(runtime.context.api_config, state["records"], state["summaries"])
         budget.assert_fits(runtime.context.api_config, estimate.tokens)
         LOGGER.debug("context_budget source=%s tokens=%s run_id=%s", estimate.source, estimate.tokens, state["agent_run_id"])
         # 2. 预算允许后生成模型专用视图，保持 canonical messages 不变。
-        return {"model_messages": dependencies.context.project(state["records"], state["summary"])}
+        return {"model_messages": dependencies.context.project(state["records"], state["summaries"])}
 
     async def call_model(
         state: AgentGraphState,
@@ -294,7 +294,7 @@ def build_agent_graph(
         # 2. 保存此次请求的摘要版本和配置指纹，供后续 usage 估算判断能否复用。
         message.additional_kwargs["harness_context_anchor"] = {
             "schema_version": 1,
-            "context_revision": state["summary"].revision if state["summary"] else 0,
+            "context_revision": state["summaries"][-1].revision if state["summaries"] else 0,
             "request_identity": budget.request_identity(runtime.context.api_config),
         }
         # 3. AI 回复先入库，再用真实序号更新 graph 历史，之后才允许路由到工具执行。
