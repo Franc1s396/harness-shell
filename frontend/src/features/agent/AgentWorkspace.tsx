@@ -91,6 +91,17 @@ export function AgentWorkspace({
     return () => { document.removeEventListener("click", closeOutside); document.removeEventListener("keydown", closeEscape); };
   }, [imageMenuOpen]);
   const [providerOpen, setProviderOpen] = useState(false);
+  const providerMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!providerOpen) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !providerMenuRef.current?.contains(event.target)) {
+        setProviderOpen(false);
+      }
+    };
+    document.addEventListener("click", closeOutside, true);
+    return () => document.removeEventListener("click", closeOutside, true);
+  }, [providerOpen]);
   const [resetOpen, setResetOpen] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const lastMessageId = tab?.messages[tab.messages.length - 1]?.id ?? null;
@@ -349,7 +360,7 @@ export function AgentWorkspace({
                 <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent-soft" onClick={() => {setImageMenuOpen(false); fileInput.current?.click();}}>{t("agent.imageAdd")}</button>
               </div>}
             </div>
-            <div className="relative min-w-0">
+            <div ref={providerMenuRef} className="relative min-w-0">
               <button
                 type="button"
                 role="combobox"
