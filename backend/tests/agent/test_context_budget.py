@@ -29,20 +29,36 @@ def test_usage_anchor_does_not_recount_answer() -> None:
         additional_kwargs={"harness_context_anchor": {"schema_version": 1,
             "context_revision": 0, "request_identity": budget.request_identity(config)}})
     record = ContextMessage(3, run_id, reply)
-    assert budget.estimate(config, [record], None).tokens == 1200
-    assert budget.estimate(config, [record], None).source == "PROVIDER_USAGE"
+    assert budget.estimate(config, [record], ()).tokens == 1200
+    assert budget.estimate(config, [record], ()).source == "PROVIDER_USAGE"
     changed = config.model_copy(update={"model": "other"})
-    assert budget.estimate(changed, [record], None).source == "TOKENIZER_ESTIMATE"
+    assert budget.estimate(changed, [record], ()).source == "TOKENIZER_ESTIMATE"
     following = HumanMessage(content="next <|endoftext|> special token literal")
     records = [record, ContextMessage(4, run_id, following)]
     increment = budget.estimate_payload(model_input_payload(config, [following], include_tools=False))
-    assert budget.estimate(config, records, None).tokens == 1200 + increment
+    assert budget.estimate(config, records, ()).tokens == 1200 + increment
     now = datetime.now(timezone.utc)
     summary = ContextSummary(uuid4(), 1, 2, "old summary", run_id, now, now)
-    assert budget.estimate(config, records, summary).source == "TOKENIZER_ESTIMATE"
+    assert budget.estimate(config, records, (summary,)).source == "TOKENIZER_ESTIMATE"
 
 
 def test_projection_retains_all_unsummarized_turns() -> None:
     records = [ContextMessage(i + 1, uuid4(), HumanMessage(content=str(i))) for i in range(25)]
-    assert len(ContextService.project(records, None)) == 26
-    assert [r.sequence for r in ContextService.compactable_prefix(records)] == list(range(1, 22))
+    assert len(ContextService.project(records, ())) == 26
+    assert [r.sequence for r in ContextService.compactable_prefix(records)] == list(range(1, 16))
+
+
+def test_every_old_summary_contributes_to_input_budget() -> None:
+    budget = ContextBudget(load_local_encoding(tokenizer_resource_dir(), "o200k_base"), AgentContextPolicy())
+    config = chat_config()
+    now = datetime.now(timezone.utc)
+    conversation, run = uuid4(), uuid4()
+    summaries = (ContextSummary(conversation, 1, 2, "large summary " * 1000, run, now, now),
+                 ContextSummary(conversation, 2, 4, "new summary", run, now, now))
+    records = [ContextMessage(5, run, HumanMessage(content="current"))]
+    full = budget.estimate(config, records, summaries)
+    latest_only = budget.estimate(config, records, summaries[1:])
+    assert full.tokens > latest_only.tokens + 1000
+    limited = config.model_copy(update={"context_window_size": full.tokens + 8191})
+    with pytest.raises(ContextError, match="input token budget"):
+        budget.assert_fits(limited, full.tokens)

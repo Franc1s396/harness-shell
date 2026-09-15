@@ -17,6 +17,11 @@ from harness_shell_sidecar.web.contracts import build_openapi_document
 HTTP_ROOT = Path("docs/protocol/http")
 
 EXPECTED_OPERATIONS = {
+    ("POST", "/v1/agent/attachments"),
+    ("GET", "/v1/agent/attachments/{attachment_id}/content"),
+    ("DELETE", "/v1/agent/attachments/{attachment_id}"),
+    ("DELETE", "/v1/agent/attachment-drafts/{draft_id}"),
+    ("DELETE", "/v1/agent/conversations/{conversation_id}"),
     ("GET", "/v1/health/live"),
     ("GET", "/v1/health/ready"),
     ("GET", "/v1/runtime/state"),
@@ -80,6 +85,11 @@ EXPECTED_WEBSOCKET_TYPES = {
 }
 
 EXPECTED_LIMITS = {
+    "agent_image_bytes": 10_485_760,
+    "agent_image_pixels": 40_000_000,
+    "agent_message_images": 5,
+    "agent_image_upload_bytes": 10_551_296,
+    "agent_image_estimated_tokens": 1000,
     "json_request_bytes": 1_048_576,
     "json_response_bytes": 1_048_576,
     "websocket_text_bytes": 65_536,

@@ -102,3 +102,23 @@ UI 按本 turn 事件顺序累计工具记录，重复调用分别保留，文�
 ## Agent HITL
 
 新增 `POST /v1/agent/approvals/{approval_id}/decision` 和 `agent.turn.approval_requested`、`agent.turn.approval_resolved` 两种原 turn SSE 事件；精确字段见 OpenAPI。审核没有 expires_at、TTL 或超时决定。决定成功只确认记录，原 worker 通过 Command(resume=...) 继续；approve 消费一次后派发，reject 写工具拒绝结果并继续模型。普通容量 16，独立审核控制容量 1，共用请求 ID 与 shutdown。错误和身份边界见 [Protocol & Security](../../agents/protocol-security.md#agent-审核协议)。
+
+## Agent 图片附件
+
+所有请求与成功响应仍携带匹配的 `X-Request-ID`；新增 5 个固定 operations：
+
+| Method | Path | 输入/输出 |
+| --- | --- | --- |
+| POST | `/v1/agent/attachments` | multipart 仅 `draft_id`（UUID）与 `file`；201 返回 request_id、attachment 元数据 |
+| GET | `/v1/agent/attachments/{attachment_id}/content` | 原图 bytes，真实 image/png、image/jpeg、image/webp 或 image/gif；no-store、nosniff |
+| DELETE | `/v1/agent/attachments/{attachment_id}?draft_id=…` | 仅匹配草稿的未绑定图片，返回 deleted=true |
+| DELETE | `/v1/agent/attachment-drafts/{draft_id}` | 删除草稿全部未绑定图片，已绑定图保留；空草稿幂等 |
+| DELETE | `/v1/agent/conversations/{conversation_id}` | 原子删除会话的消息正文、摘要、Run 和图片；缺失会话幂等，RUNNING 返回 409 |
+
+图片最大 10,485,760 bytes、40,000,000 pixels，每消息最多 5 张；格式由 decoder 决定，拒绝动画。上传整包上限 `10,485,760 + 65,536` bytes，只对精确 POST 路径放宽；无 Content-Length 仍按实际累计长度限制。非图片请求/JSON 响应保持 1 MiB。图片读取独立允许 10 MiB，不经过 JSON/Base64，也不返回本地路径。
+
+元数据字段为 attachment_id、draft_id、filename、media_type、byte_size、width、height。turn 新增可选 `draft_id` 与有序 `attachment_ids`，有图必须有稳定 `user_message_id`；首次绑定必须有 draft ID。文字可为空，但文字和图片不能同时为空。显式 retry 必须保留原文字及有序图片 ID；无旧 Run 的重试仍需要原 draft ID 才能首次绑定。SSE 不携带图片，模型仍回复文字。
+
+图片大小/像素超限为 413 AGENT_IMAGE_TOO_LARGE；其他图片校验失败为 422：AGENT_IMAGE_FORMAT_UNSUPPORTED、AGENT_IMAGE_ANIMATED、AGENT_IMAGE_INVALID、AGENT_IMAGE_NAME_INVALID；不存在为 404 AGENT_ATTACHMENT_NOT_FOUND；归属冲突为 409 AGENT_ATTACHMENT_CONFLICT；存储损坏为 500 AGENT_ATTACHMENT_CORRUPT；活动会话删除为 409 AGENT_CONVERSATION_BUSY。multipart 形状错误为 422 INVALID_REQUEST_PAYLOAD，整包超限为 413 REQUEST_TOO_LARGE。
+
+本地预算每图固定 1000 token，正式 Provider usage 不修改；这不是 Provider 的真实图像计价或绝对窗口保证。历史压缩时摘要模型实际接收图片，压缩成功后只改变后续投影，原图保留到会话删除。新对话现在会删除后端历史，不再只是清空 UI。

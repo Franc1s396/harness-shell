@@ -30,6 +30,8 @@ export type ModelApiConfig = ModelApiConfigInput & {
 };
 
 export type RunAgentTurnInput = {
+  draftId?: string;
+  attachmentIds?: string[];
   userMessageId?: string;
   retry?: boolean;
   conversationId: string | null;
@@ -277,6 +279,8 @@ const toWireTurnInput = (input: RunAgentTurnInput) => ({
   ssh_session_id: input.sshSessionId,
   api_config_id: input.apiConfigId,
   user_message: input.userMessage,
+  ...(input.draftId ? { draft_id: input.draftId } : {}),
+  ...(input.attachmentIds?.length ? { attachment_ids: input.attachmentIds } : {}),
 });
 
 const fromWireConfig = (value: WireModelApiConfig): ModelApiConfig => ({

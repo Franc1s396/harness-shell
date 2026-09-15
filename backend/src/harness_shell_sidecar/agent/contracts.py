@@ -137,6 +137,20 @@ class AgentTurnInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
+    draft_id: UUID | None = Field(default=None, description="Original image upload draft identity")
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5, description="Ordered image identities")
+
+    @model_validator(mode="after")
+    def validate_images(self) -> AgentTurnInput:
+        """拒绝空轮次、重复图片引用和缺失的稳定归属。"""
+        if not self.user_message.strip() and not self.attachment_ids:
+            raise ValueError("message requires text or images")
+        if len(set(self.attachment_ids)) != len(self.attachment_ids):
+            raise ValueError("duplicate image identity")
+        if self.attachment_ids and (self.user_message_id is None or (not self.retry and self.draft_id is None)):
+            raise ValueError("image turn requires original draft and stable user identity")
+        return self
+
     user_message_id: UUID | None = Field(default=None, description="Stable user message identity across explicit retries.")
     retry: bool = Field(default=False, description="Replace the last turn belonging to this user message.")
 
@@ -148,7 +162,7 @@ class AgentTurnInput(BaseModel):
     api_config_id: UUID = Field(description="Selected non-secret model configuration.")
     user_message: Annotated[
         str,
-        StringConstraints(min_length=1, max_length=65536),
+        StringConstraints(min_length=0, max_length=65536),
         Field(description="User text for this streamed Agent turn."),
     ]
 

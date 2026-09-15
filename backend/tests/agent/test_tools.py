@@ -150,6 +150,6 @@ def test_tool_and_system_prompt_explain_ui_approval_without_extra_confirmation()
     definition = build_execute_command_tool_definition()
     assert "COMMAND_REJECTED_BY_USER" in definition.description
     assert "UI" in definition.description
-    assert "审核气泡" in DEFAULT_SYSTEM_PROMPT
-    assert "不要仅为获取执行授权" in DEFAULT_SYSTEM_PROMPT
+    assert "approval bubble in the UI" in DEFAULT_SYSTEM_PROMPT
+    assert "Do not return a final answer asking the user to confirm again solely to obtain execution authorization" in DEFAULT_SYSTEM_PROMPT
     assert set(definition.parameters["properties"]) == {"command"}

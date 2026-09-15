@@ -40,3 +40,30 @@ def test_lifespan_initializes_plaintext_resources_before_requests(
             "ready": True,
             "state": "READY",
         }
+
+
+def test_restart_purges_unbound_images_only(tmp_path: Path) -> None:
+    """使用真实 Runtime 启停，绑定图在重启后仍可读取。"""
+    from harness_shell_sidecar.storage import RuntimeDatabase
+    from harness_shell_sidecar.agent.attachments import AttachmentRepository
+    from harness_shell_sidecar.agent.conversations import ConversationRepository
+    from harness_shell_sidecar.storage import PlaintextRecordStore
+    from ..agent.test_image_validation import picture
+    from harness_shell_sidecar.agent.image_validation import validate_image
+    settings = runtime_settings(tmp_path)
+    with TestClient(create_app(settings=settings)):
+        pass
+    database = RuntimeDatabase.open(tmp_path / 'runtime.sqlite3')
+    try:
+        with database.write_session() as session:
+            conversation = ConversationRepository(session, PlaintextRecordStore(session)).create_conversation()
+            repo = AttachmentRepository(session)
+            draft = uuid4()
+            bound = repo.create(draft, validate_image('bound', picture('PNG')))
+            unbound = repo.create(draft, validate_image('unbound', picture('PNG')))
+            repo.bind(draft, conversation, uuid4(), (bound.attachment_id,))
+    finally:
+        database.close()
+    with TestClient(create_app(settings=settings)) as client:
+        for item, status in [(bound, 200), (unbound, 404)]:
+            assert client.get(f'/v1/agent/attachments/{item.attachment_id}/content', headers={'X-Request-ID': str(uuid4())}).status_code == status

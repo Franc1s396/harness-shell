@@ -178,7 +178,7 @@ def test_projection_keeps_every_unsummarized_turn() -> None:
     for turn in range(21):
         records.extend([ContextMessage(len(records) + 1, uuid4(), HumanMessage(content=str(turn))),
                         ContextMessage(len(records) + 2, uuid4(), AIMessage(content="answer"))])
-    projected = ContextService.project(records, None)
+    projected = ContextService.project(records, ())
     assert projected[0] == SYSTEM_MESSAGE
     assert len(projected) == 43
     assert projected[1].content == "0"
@@ -193,7 +193,7 @@ def test_system_message_is_first_and_appears_exactly_once() -> None:
         AIMessage(content="answer-1"),
     ]
 
-    trimmed = ContextService.project([ContextMessage(i + 1, uuid4(), message) for i, message in enumerate(messages)], None)
+    trimmed = ContextService.project([ContextMessage(i + 1, uuid4(), message) for i, message in enumerate(messages)], ())
 
     assert trimmed[0] == SYSTEM_MESSAGE
     assert sum(isinstance(message, SystemMessage) for message in trimmed) == 1
@@ -216,7 +216,7 @@ def test_system_message_sets_internal_operations_behavior_contract() -> None:
 
 
 @pytest.mark.parametrize("historical_turns", [3, 4])
-def test_compaction_boundary_keeps_three_complete_turns_and_tool_pairs(historical_turns: int) -> None:
+def test_compaction_boundary_keeps_forty_percent_and_tool_pairs(historical_turns: int) -> None:
     records: list[ContextMessage] = []
     for turn in range(historical_turns):
         run_id = uuid4()
@@ -227,6 +227,5 @@ def test_compaction_boundary_keeps_three_complete_turns_and_tool_pairs(historica
             records.append(ContextMessage(len(records) + 1, run_id, message))
     records.append(ContextMessage(len(records) + 1, uuid4(), HumanMessage(content="current")))
     prefix = ContextService.compactable_prefix(records)
-    assert len(prefix) == (0 if historical_turns == 3 else 3)
-    if prefix:
-        assert prefix[-1].message.tool_call_id == prefix[-2].message.tool_calls[0]["id"]
+    assert len(prefix) == (6 if historical_turns == 3 else 7)
+    assert prefix[2].message.tool_call_id == prefix[1].message.tool_calls[0]["id"]

@@ -1,3 +1,5 @@
+import type { AttachmentInfo } from "../../api/agent-attachments";
+import type { DraftAttachment } from "./image-attachments";
 import type {
   AgentCommandError,
   AgentTurnApprovalRequestedEvent,
@@ -38,7 +40,7 @@ export type AgentApprovalMessage = {
 
 export type AgentUiMessage =
   | AgentApprovalMessage
-  | { id: string; kind: "user"; text: string }
+  | { id: string; kind: "user"; text: string; attachments?: AttachmentInfo[]; draftId?: string }
   | { id: string; kind: "cancelled"; approvalIds?: string[] }
   | {
       id: string;
@@ -64,6 +66,9 @@ export type AgentBackgroundState =
   | "FAILED_UNREAD";
 
 export type AgentTabState = {
+  draftId?: string;
+  attachments?: DraftAttachment[];
+  attachmentBusy?: boolean;
   conversationId: string | null;
   messages: AgentUiMessage[];
   draft: string;
@@ -114,6 +119,8 @@ export const createAgentTabState = (
 });
 
 export type AgentAction =
+  | { type: "images/update"; tabId: string; draftId: string | undefined; items: DraftAttachment[] }
+  | { type: "images/busy"; tabId: string; busy: boolean }
   | { type: "run/approval-requested"; tabId: string; requestToken: string; event: AgentTurnApprovalRequestedEvent }
   | { type: "run/approval-resolved"; tabId: string; requestToken: string; event: AgentTurnApprovalResolvedEvent }
   | { type: "approval/protocol-error"; tabId: string; approvalId: string; agentRunId: string; error: AgentCommandError }
@@ -141,6 +148,8 @@ export type AgentAction =
       provider: ProviderSnapshot;
       userMessageId: string;
       userMessage: string;
+      attachments?: AttachmentInfo[];
+      draftId?: string;
       retry?: boolean;
     }
   | {
@@ -275,6 +284,10 @@ export const agentReducer = (
       return updateTab(state, action.tabId, (tab) =>
         tab.lastError === null ? tab : { ...tab, lastError: null },
       );
+    case "images/update":
+      return updateTab(state, action.tabId, tab => ({...tab, draftId: action.draftId, attachments: action.items}));
+    case "images/busy":
+      return updateTab(state, action.tabId, tab => ({...tab, attachmentBusy: action.busy}));
     case "run/start":
       return updateTab(state, action.tabId, (tab) =>
         tab.phase === "RUNNING"
@@ -287,9 +300,11 @@ export const agentReducer = (
                   id: action.userMessageId,
                   kind: "user",
                   text: action.userMessage,
+                  ...(action.attachments?.length ? {attachments: action.attachments, draftId: action.draftId} : {}),
                 },
               ],
               draft: action.retry ? tab.draft : "",
+              ...(action.retry ? {} : {attachments: [], draftId: undefined}),
               phase: "RUNNING",
               activeRun: {
                 requestToken: action.requestToken,

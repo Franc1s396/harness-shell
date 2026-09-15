@@ -486,7 +486,7 @@ def test_unsupported_history_is_rejected(kind: str) -> None:
     if kind == "function":
         message = FunctionMessage(content="x", name="old")
     elif kind == "content":
-        message = HumanMessage(content=[{"type": "text", "text": "x"}])
+        message = HumanMessage(content=[{"type": "unsupported", "text": "x"}])
     elif kind == "args":
         message.tool_calls[0]["args"] = []
     else:

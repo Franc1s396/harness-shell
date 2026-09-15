@@ -49,6 +49,28 @@ beforeEach(() => {
   });
 });
 
+it("uploads a bounded image in FormData without overriding its boundary", async () => {
+  fetchMock.mockResolvedValue(new Response(JSON.stringify({request_id: requestId}), {status: 201, headers: {"X-Request-ID": requestId, "Content-Type": "application/json"}}));
+  await client.uploadImage(requestId, new File(["image"], "image.png"), new AbortController().signal);
+  const [url, request] = fetchMock.mock.calls[0];
+  expect(url).toBe("http://127.0.0.1:8765/v1/agent/attachments");
+  expect(request.body).toBeInstanceOf(FormData);
+  expect([...request.body.keys()]).toEqual(["draft_id", "file"]);
+  expect(new Headers(request.headers).has("Content-Type")).toBe(false);
+});
+
+it.each(["text/html", "image/svg+xml"])("rejects unsafe image MIME %s", async mime => {
+  fetchMock.mockResolvedValue(streamResponse([new Uint8Array([1])], {"Content-Type": mime, "X-Content-Type-Options": "nosniff"}));
+  await expect(client.readImage(requestId, new AbortController().signal)).rejects.toThrow("AGENT_IMAGE_RESPONSE_INVALID");
+});
+
+it("limits image bytes while reading and releases the stream", async () => {
+  const response = streamResponse([new Uint8Array(10_485_761)], {"Content-Type": "image/png", "X-Content-Type-Options": "nosniff"});
+  fetchMock.mockResolvedValue(response);
+  await expect(client.readImage(requestId, new AbortController().signal)).rejects.toThrow("AGENT_IMAGE_TOO_LARGE");
+  expect(response.body!.locked).toBe(false);
+});
+
 it("distinguishes an explicit SSE abort before headers from a network failure", async () => {
   const controller = new AbortController();
   fetchMock.mockImplementation(async () => {

@@ -33,26 +33,43 @@ class ContextBudget:
     def estimate_payload(self, payload: dict[str, object]) -> int:
         """计算确定性协议输入文本的 token 数，不猜测字符比例。"""
         model_input = {key: value for key, value in payload.items() if key != "parallel_tool_calls"}
+        # 只遍历协议消息的 content，不改写工具定义/参数中的同名字段。
+        images = 0
+        for key in ('messages', 'input'):
+            if key not in model_input:
+                continue
+            clean = []
+            for message in model_input[key]:
+                value = dict(message)
+                if isinstance(value.get('content'), list):
+                    content = []
+                    for block in value['content']:
+                        if isinstance(block, dict) and block.get('type') in ('image_url', 'input_image'):
+                            images += 1
+                        else:
+                            content.append(block)
+                    value['content'] = content
+                clean.append(value)
+            model_input[key] = clean
         encoded = json.dumps(model_input, ensure_ascii=False, sort_keys=True,
                              separators=(",", ":"), allow_nan=False)
-        return len(self._encoding.encode(encoded, disallowed_special=()))
+        return len(self._encoding.encode(encoded, disallowed_special=())) + images * 1000
 
     def request_identity(self, config: ModelApiConfig) -> str:
         """为静态输入和配置生成指纹，不包含凭据或历史。"""
-        values = config.model_dump(mode="json", include={"api_config_id", "api_type", "base_url",
-            "model", "context_window_size", "context_compaction_threshold_ratio", "max_output_tokens"})
-        values.update(request_mapping_version=1, tokenizer=self._policy.tokenizer_encoding,
-                      static_input=model_input_payload(config, [SYSTEM_MESSAGE], include_tools=True))
+        values = config.model_dump(mode="json", include={"api_config_id", "api_type", "base_url", "model"})
+        values.update(request_mapping_version=3, tokenizer=self._policy.tokenizer_encoding,
+                      static_input=model_input_payload(config, [SYSTEM_MESSAGE], include_tools=True, for_budget=True))
         return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False,
                               separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def estimate(self, config: ModelApiConfig, records: Sequence[ContextMessage],
-                 summary: ContextSummary | None) -> TokenEstimate:
+                 summaries: Sequence[ContextSummary]) -> TokenEstimate:
         """使用最新兼容 usage，并仅累加其回复之后的消息。"""
         # 1. 确定本轮配置指纹和摘要版本，只在尚未被摘要覆盖的消息中寻找 usage 锚点。
         identity = self.request_identity(config)
-        revision = summary.revision if summary else 0
-        covered = summary.covered_through_sequence if summary else 0
+        revision = summaries[-1].revision if summaries else 0
+        covered = summaries[-1].covered_through_sequence if summaries else 0
         effective = [record for record in records if record.sequence > covered]
         # 2. 从新到旧查找兼容且统计有效的 AI 回复；配置或摘要版本不同的锚点不可复用。
         for index in range(len(effective) - 1, -1, -1):
@@ -71,8 +88,8 @@ class ContextBudget:
                 continue
             # 3. 锚点的输入和输出已覆盖当时上下文，仅追加其后新增消息的估算，避免重复计数。
             later = [record.message for record in effective[index + 1:]]
-            increment = self.estimate_payload(model_input_payload(config, later, include_tools=False)) if later else 0
+            increment = self.estimate_payload(model_input_payload(config, later, include_tools=False, for_budget=True)) if later else 0
             return TokenEstimate(incoming + outgoing + increment, "PROVIDER_USAGE")
         # 4. 没有可用 usage 时，本地估算完整投影：System、摘要、有效历史和工具定义。
-        payload = model_input_payload(config, ContextService.project(records, summary), include_tools=True)
+        payload = model_input_payload(config, ContextService.project(records, summaries), include_tools=True, for_budget=True)
         return TokenEstimate(self.estimate_payload(payload), "TOKENIZER_ESTIMATE")

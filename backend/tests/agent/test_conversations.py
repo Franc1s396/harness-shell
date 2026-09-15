@@ -39,10 +39,10 @@ def test_retry_removes_old_tools_and_summary_atomically(agent_storage: AgentStor
             ConversationRepository(session, PlaintextRecordStore(session)).remove_last_turn(finished, "last")
             raise RuntimeError("rollback")
     assert len(repo.load_messages(conversation)) == 5
-    assert summaries.load(conversation) is not None
+    assert summaries.load(conversation) != ()
     repo.remove_last_turn(finished, "last")
     assert [message.content for message in repo.load_messages(conversation)] == ["first", "earlier"]
-    assert summaries.load(conversation) is None
+    assert summaries.load(conversation) == ()
     assert sql(agent_storage.database, "SELECT COUNT(*) FROM runtime_records WHERE record_type='agent_message'").fetchone() == (2,)
 
 

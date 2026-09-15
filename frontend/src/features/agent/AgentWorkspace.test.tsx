@@ -792,3 +792,33 @@ describe("executed tool details", () => {
     expect(screen.queryByText(/Executed tools/)).not.toBeInTheDocument();
   });
 });
+
+
+describe("image composer", () => {
+  afterEach(cleanup);
+  it("places the image picker in the composer and removes the settings shortcut", () => {
+    renderWorkspace();
+    expect(screen.getByRole("button", {name: "Add photos"})).toBeTruthy();
+    expect(screen.queryByRole("button", {name: "Open Provider settings"})).toBeNull();
+  });
+  it("pastes images and inserts mixed text once at the selection", () => {
+    const onAddImages = vi.fn();
+    const {props} = renderWorkspace({onAddImages});
+    const input = screen.getByRole("textbox", {name: "Message"}) as HTMLTextAreaElement;
+    input.setSelectionRange(0, 7);
+    const file = new File(["image"], "paste.png", {type: "image/png"});
+    fireEvent.paste(input, {clipboardData: {items: [{kind: "file", type: "image/png", getAsFile: () => file}], getData: () => "look at"}});
+    expect(onAddImages).toHaveBeenCalledWith([file]);
+    expect(props.onDraftChange).toHaveBeenCalledExactlyOnceWith("look at the service");
+  });
+  it("closes the image menu on an outside click and Escape", () => {
+    renderWorkspace();
+    const add = screen.getByRole("button", {name: "Add photos"});
+    fireEvent.click(add);
+    expect(screen.getAllByRole("button", {name: "Add photos"})).toHaveLength(2);
+    fireEvent.click(screen.getByRole("textbox", {name: "Message"}));
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(add); fireEvent.keyDown(document, {key: "Escape"});
+    expect(add).toHaveAttribute("aria-expanded", "false");
+  });
+});

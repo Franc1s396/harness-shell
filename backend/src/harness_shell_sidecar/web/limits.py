@@ -27,15 +27,20 @@ class BodyLimitMiddleware(BaseHTTPMiddleware):
         """计算完整已接收正文，绝不截断或摘要。"""
 
         content_length = request.headers.get("content-length")
+        limit = (10_485_760 + 65_536 if request.method == "POST" and request.url.path == "/v1/agent/attachments" else MAX_JSON_BYTES)
         if content_length is not None:
             try:
-                if int(content_length) > MAX_JSON_BYTES:
+                if int(content_length) > limit:
                     return self._too_large(request)
             except ValueError:
                 pass
-        body = await request.body()
-        if len(body) > MAX_JSON_BYTES:
-            return self._too_large(request)
+        # 按实际接收字节拒绝无长度或伪长度请求；只有有界正文交给后续 parser。
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > limit:
+                return self._too_large(request)
+            body.extend(chunk)
+        request._body = bytes(body)
         return await call_next(request)
 
     @staticmethod

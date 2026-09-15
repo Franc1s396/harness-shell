@@ -1,3 +1,4 @@
+import { AgentAttachmentStrip, AgentSentImage } from "./AgentAttachmentStrip";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +13,9 @@ import { lastRetryableUser } from "./agent-state";
 import type { AgentApprovalMessage, AgentTabState } from "./agent-state";
 
 export type AgentWorkspaceProps = {
+  onAddImages?: (files: readonly File[]) => void;
+  onRemoveImage?: (id: string) => void;
+  onRetryImage?: (id: string) => void;
   width: number;
   tabTitle: string | null;
   tab: AgentTabState | null;
@@ -55,6 +59,7 @@ function ApprovalHistory({ ids, approvals }: { ids?: string[]; approvals: Map<st
 }
 
 export function AgentWorkspace({
+  onAddImages, onRemoveImage, onRetryImage,
   width,
   tabTitle,
   tab,
@@ -72,7 +77,31 @@ export function AgentWorkspace({
   onMarkRead,
 }: AgentWorkspaceProps) {
   const { t } = useTranslation();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const imageMenuRef = useRef<HTMLDivElement>(null);
+  const [imageMenuOpen, setImageMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!imageMenuOpen) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !imageMenuRef.current?.contains(event.target)) setImageMenuOpen(false);
+    };
+    const closeEscape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") setImageMenuOpen(false); };
+    document.addEventListener("click", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => { document.removeEventListener("click", closeOutside); document.removeEventListener("keydown", closeEscape); };
+  }, [imageMenuOpen]);
   const [providerOpen, setProviderOpen] = useState(false);
+  const providerMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!providerOpen) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !providerMenuRef.current?.contains(event.target)) {
+        setProviderOpen(false);
+      }
+    };
+    document.addEventListener("click", closeOutside, true);
+    return () => document.removeEventListener("click", closeOutside, true);
+  }, [providerOpen]);
   const [resetOpen, setResetOpen] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const lastMessageId = tab?.messages[tab.messages.length - 1]?.id ?? null;
@@ -138,7 +167,9 @@ export function AgentWorkspace({
   const sendDisabled =
     tab.phase !== "IDLE" ||
     selectedConfig === undefined ||
-    messageLength < 1 ||
+    (!tab.draft.trim() && !(tab.attachments?.length)) ||
+    tab.attachmentBusy === true ||
+    (tab.attachments?.some(item => item.status !== "ready") ?? false) ||
     messageLength > 65_536;
   const lastReply = [...tab.messages].reverse().find(message => message.kind !== "approval");
   const retryUser = lastRetryableUser(tab);
@@ -187,6 +218,7 @@ export function AgentWorkspace({
           if (message.kind === "user") {
             return (
               <article key={message.id} className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap break-words rounded-xl bg-raised px-3 py-2">
+                {!!message.attachments?.length && <div className="mb-2 flex flex-wrap gap-2">{message.attachments.map(image => <AgentSentImage key={image.attachment_id} image={image} />)}</div>}
                 {message.text}
               </article>
             );
@@ -296,17 +328,39 @@ export function AgentWorkspace({
             <AgentApprovalBubble message={pendingApproval} docked
               onDecision={pendingApproval.status === "PENDING" ? decision => onApprovalDecision(pendingApproval.id, decision) : undefined} />
           </section>}
+          {!!tab.attachments?.length && <AgentAttachmentStrip items={tab.attachments} onRemove={id => onRemoveImage?.(id)} onRetry={id => onRetryImage?.(id)} />}
           <textarea
             aria-label={t("agent.message")}
             placeholder={t("agent.messagePlaceholder")}
             value={tab.draft}
-            disabled={tab.phase !== "IDLE"}
+            disabled={tab.phase !== "IDLE" || tab.attachmentBusy}
             onChange={(event) => onDraftChange(event.target.value)}
             onKeyDown={onComposerKeyDown}
+            onPaste={event => {
+              const files = Array.from(event.clipboardData.items).filter(item => item.kind === "file").map(item => item.getAsFile()).filter((file): file is File => file !== null);
+              if (!files.length) return;
+              event.preventDefault();
+              const text = event.clipboardData.getData("text/plain");
+              if (text) { const input = event.currentTarget; onDraftChange(tab.draft.slice(0, input.selectionStart) + text + tab.draft.slice(input.selectionEnd)); }
+              onAddImages?.(files);
+            }}
             className="min-h-16 w-full resize-none bg-transparent px-3 pt-3 text-sm text-ink outline-none focus-visible:outline-hidden!"
           />
           <div className="relative flex items-center gap-2 px-2 pb-2">
-            <div className="relative">
+            <div ref={imageMenuRef} className="relative mr-auto shrink-0">
+              <input ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={event => {
+                const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) onAddImages?.(files);
+              }} />
+              <button type="button" aria-label={t("agent.imageAdd")} aria-expanded={imageMenuOpen}
+                disabled={tab.phase !== "IDLE" || tab.attachmentBusy} onClick={() => setImageMenuOpen(value => !value)}
+                className="grid size-8 place-items-center rounded-full text-ink-muted hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent">
+                <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5"><path d="M12 5v14M5 12h14" strokeLinecap="round" /></svg>
+              </button>
+              {imageMenuOpen && <div className="absolute bottom-full left-0 z-20 mb-2 min-w-36 rounded-xl border border-line-strong bg-raised p-1 shadow-xl">
+                <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-accent-soft" onClick={() => {setImageMenuOpen(false); fileInput.current?.click();}}>{t("agent.imageAdd")}</button>
+              </div>}
+            </div>
+            <div ref={providerMenuRef} className="relative min-w-0">
               <button
                 type="button"
                 role="combobox"
@@ -315,14 +369,14 @@ export function AgentWorkspace({
                 aria-label={t("agent.provider")}
                 disabled={tab.phase !== "IDLE" || configsLoading}
                 onClick={() => setProviderOpen((open) => !open)}
-                className="rounded-full border border-line bg-raised px-2 py-1 text-xs"
+                className="block max-w-full truncate rounded-full border border-line bg-raised px-2 py-1 text-xs"
               >
                 {selectedConfig
                   ? `${selectedConfig.display_name} · ${selectedConfig.model}`
                   : t("agent.chooseProvider")}
               </button>
               {providerOpen ? (
-                <div role="listbox" aria-label={t("agent.chooseProvider")} className="absolute bottom-full left-0 z-20 mb-2 min-w-56 rounded-md border border-line-strong bg-raised p-1 shadow-xl">
+                <div role="listbox" aria-label={t("agent.chooseProvider")} className="absolute bottom-full right-0 z-20 mb-2 w-56 max-w-[calc(100vw-6rem)] break-words rounded-md border border-line-strong bg-raised p-1 shadow-xl">
                   {enabledConfigs.map((config) => (
                     <button
                       key={config.api_config_id}
@@ -352,23 +406,10 @@ export function AgentWorkspace({
             </div>
             <button
               type="button"
-              aria-label={t("agent.openProviderSettings")}
-              onClick={openProviderSettings}
-              className="grid size-7 place-items-center rounded-md"
-            >
-              <ShellIcon name="settings" className="size-4" />
-            </button>
-            <span className="ml-auto text-[11px] text-ink-dim">
-              {tab.phase === "RUNNING"
-                ? t("agent.running")
-                : t("agent.enterToSend")}
-            </span>
-            <button
-              type="button"
               aria-label={t(tab.phase === "RUNNING" ? "agent.cancelResponse" : "agent.send")}
               disabled={tab.phase === "RUNNING" ? false : sendDisabled}
               onClick={tab.phase === "RUNNING" ? onCancelTurn : onRequestSend}
-              className="grid size-[26px] place-items-center rounded-full bg-white text-black transition hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-95 disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-dim disabled:opacity-70"
+              className="grid size-[26px] shrink-0 place-items-center rounded-full bg-white text-black transition hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-95 disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-dim disabled:opacity-70"
             >
               {tab.phase === "RUNNING" ? (
                 <svg aria-hidden viewBox="0 0 24 24" fill="currentColor" className="size-4">

@@ -59,3 +59,13 @@ npm.cmd --prefix frontend run build
 `AgentApprovalBubble` 展示冻结目标、原始命令与拒绝/通过按钮，所有字段纯文本，内容溢出局限在气泡内部。`agent-state` 将审核作为独立记录保留，text_replace、completed、取消不能覆盖审核历史；记录不在消息流中独立渲染。待审核操作固定在发送栏上方，与输入区共用圆角外框，以单条分隔线连接，与消息滚动区域分离。固定审核区仅命令内容限制高度并内部滚动，顶部说明、目标及底部按钮不随命令滚动；审核区外层不设置滚动容器。提交时立即收起，可重试错误恢复操作气泡，UNKNOWN/INVALIDATED 只显示状态与错误，不提供操作按钮。终态消息绑定本 Run 的审核 ID，最终回答、错误或取消提示下方提供默认折叠的审核记录，按发生顺序展示目标、命令和结果；历史没有操作按钮，晚到的决定仍更新原记录。等待不显示倒计时或忙碌 spinner，后台 tab/侧栏使用 AWAITING_APPROVAL；原发送按钮仍可取消。
 
 `useAgentController.decideApproval` 冻结 tab/requestToken/Run 身份，防重复点击，提交时两按钮禁用。决定成功只表示已记录；执行和继续推理由原 SSE 发布。取消、断连和旧响应不得修改新 Run；网络结果未知禁用审核并标记 UNKNOWN，确定校验/容量错误允许手动重试，没有自动重试。审核及命令不写持久化 UI store。首次发送风险弹窗和实验性 Agent 黄色警告框已删除，Provider 配置/重置对话等其他门禁保留。
+
+## Agent 图片与输入区
+
+`image-attachments.ts` 的每草稿队列拥有 File、object URL、AbortController 和串行上传尾 Promise；`useAgentController` 拥有每标签队列、发送预留、原消息图片元数据及清理任务。图片选择或粘贴后立即上传本地 Backend；仅发送 turn 时交给 Provider。只图可发送，最多 5 张，任一 uploading/failed/removing 阻止发送。粘贴混合文字按选区插入一次；不实现拖入上传，不上传普通文档。
+
+输入区左侧加号打开添加照片菜单，Provider 在发送/取消按钮左侧；移除原 Provider 设置按钮与 Enter 提示。新增卡片、遮罩、spinner、失败重试、移除和预览使用现有全局 tokens；遵守 reduced-motion。原图预览复用 Dialog（关闭、Esc、焦点恢复）。已发送卡片经 typed client 读取图片，卸载取消读取并回收 URL。
+
+`api/agent-attachments.ts` 使用专用 multipart/image Blob 方法，保留 JSON/SFTP 原限制。响应验证真实图片 MIME、request ID、no-store、nosniff 和累计 10 MiB。纯文本发送不添加图片字段；重试发送原 user ID、原有序附件 ID 与原 draft ID，当前新草稿保留。
+
+关闭标签先取消并收敛上传再清草稿，失败保留可见错误；自动 Session 移除的清理任务由控制器登记，失败在工作区显示，Backend 下次启动回收残留未绑定原图。新对话在清草稿并成功删除后端会话后才清 UI 历史；清理失败不伪装成功。草稿 File/URL 在发送后释放，已绑定原图跟随会话删除。

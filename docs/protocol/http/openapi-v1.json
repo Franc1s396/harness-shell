@@ -449,6 +449,17 @@
             "title": "Api Config Id",
             "type": "string"
           },
+          "attachment_ids": {
+            "default": [],
+            "description": "Ordered image identities",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Attachment Ids",
+            "type": "array"
+          },
           "conversation_id": {
             "anyOf": [
               {
@@ -461,6 +472,20 @@
             ],
             "default": null,
             "title": "Conversation Id"
+          },
+          "draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Original image upload draft identity",
+            "title": "Draft Id"
           },
           "retry": {
             "default": false,
@@ -475,7 +500,7 @@
           },
           "user_message": {
             "maxLength": 65536,
-            "minLength": 1,
+            "minLength": 0,
             "title": "User Message",
             "type": "string"
           },
@@ -888,6 +913,93 @@
           "username"
         ],
         "title": "ApprovalTarget",
+        "type": "object"
+      },
+      "AttachmentMetadata": {
+        "additionalProperties": false,
+        "description": "附件公开字段，不包含原图字节或存储路径。",
+        "properties": {
+          "attachment_id": {
+            "description": "Backend image identity",
+            "format": "uuid",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "byte_size": {
+            "description": "Original byte length",
+            "maximum": 10485760.0,
+            "minimum": 1.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "draft_id": {
+            "description": "Original upload draft identity",
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "filename": {
+            "description": "Display name only",
+            "maxLength": 255,
+            "title": "Filename",
+            "type": "string"
+          },
+          "height": {
+            "description": "Pixel height",
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "media_type": {
+            "description": "Decoded media type",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp",
+              "image/gif"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "width": {
+            "description": "Pixel width",
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "draft_id",
+          "filename",
+          "media_type",
+          "byte_size",
+          "width",
+          "height"
+        ],
+        "title": "AttachmentMetadata",
+        "type": "object"
+      },
+      "AttachmentResponse": {
+        "additionalProperties": false,
+        "description": "上传完成后返回稳定 ID 和校验后的元数据。",
+        "properties": {
+          "attachment": {
+            "$ref": "#/components/schemas/AttachmentMetadata",
+            "description": "Validated image metadata"
+          },
+          "request_id": {
+            "description": "Request correlation",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "attachment"
+        ],
+        "title": "AttachmentResponse",
         "type": "object"
       },
       "ConnectionCreateRequest": {
@@ -3668,6 +3780,298 @@
           }
         },
         "summary": "Submit Approval Decision"
+      }
+    },
+    "/v1/agent/attachment-drafts/{draft_id}": {
+      "delete": {
+        "description": "关闭草稿时清理未绑定内容，已发送图片不受影响。",
+        "operationId": "clear_draft_v1_agent_attachment_drafts__draft_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request correlation identifier.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Clear Draft"
+      }
+    },
+    "/v1/agent/attachments": {
+      "post": {
+        "description": "校验 multipart 后由 dispatcher 完成图片校验与原子存储。",
+        "operationId": "upload_image_v1_agent_attachments_post",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "draft_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "maxLength": 10485760,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "draft_id",
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request correlation identifier.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Upload Image"
+      }
+    },
+    "/v1/agent/attachments/{attachment_id}": {
+      "delete": {
+        "description": "仅移除匹配草稿的未发送图片。",
+        "operationId": "delete_image_v1_agent_attachments__attachment_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attachment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request correlation identifier.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Delete Image"
+      }
+    },
+    "/v1/agent/attachments/{attachment_id}/content": {
+      "get": {
+        "description": "返回原图；不经过 JSON response limit，不返回路径或文件名。",
+        "operationId": "read_image_v1_agent_attachments__attachment_id__content_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attachment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/gif": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 10485760,
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 10485760,
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 10485760,
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 10485760,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff",
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "Matches the request correlation identifier.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Read Image"
+      }
+    },
+    "/v1/agent/conversations/{conversation_id}": {
+      "delete": {
+        "description": "删除完整会话，活动 Run 由领域服务明确拒绝。",
+        "operationId": "delete_conversation_v1_agent_conversations__conversation_id__delete",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Matches the request correlation identifier.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Delete Conversation"
       }
     },
     "/v1/agent/turns": {

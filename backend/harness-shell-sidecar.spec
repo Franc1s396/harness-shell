@@ -20,6 +20,7 @@ hiddenimports = sorted(
         + collect_submodules("langchain_core")
         + collect_submodules("langgraph")
         + collect_submodules("opentelemetry")
+        + ["PIL.PngImagePlugin", "PIL.JpegImagePlugin", "PIL.WebPImagePlugin", "PIL.GifImagePlugin", "python_multipart"]
     )
 )
 datas = collect_data_files(

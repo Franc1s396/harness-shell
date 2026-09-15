@@ -9,6 +9,8 @@ description = "Python sidecar for Harness Shell"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "Pillow==12.3.0",
+  "python-multipart==0.0.32",
   "SQLAlchemy>=2.0.37,<2.1",
   "alembic>=1.14,<2",
   "asyncssh>=2.24,<2.25",

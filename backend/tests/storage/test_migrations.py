@@ -20,7 +20,7 @@ def test_initial_revision_creates_strict_business_tables(tmp_path: Path) -> None
     path = tmp_path / "runtime.sqlite3"
     upgrade(path)
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0002_agent_retry",)]
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [("0004_agent_image_attachments",)]
         strict = {row[1]: row[5] for row in connection.execute("PRAGMA table_list")}
         assert strict["runtime_records"] == 1
         assert strict["connection_profiles"] == 1
@@ -40,7 +40,8 @@ def test_legacy_database_is_rejected_without_changes(tmp_path: Path) -> None:
     assert path.read_bytes() == before
 
 
-def test_retry_upgrade_preserves_existing_data(tmp_path: Path) -> None:
+@pytest.mark.parametrize('revision', ['0001_initial', '0003_context_summary_history'])
+def test_retry_upgrade_preserves_existing_data(tmp_path: Path, revision: str) -> None:
     """从真实 0001 revision 升级，不重建或丢弃旧正文。"""
     from alembic import command
     from alembic.config import Config
@@ -53,7 +54,7 @@ def test_retry_upgrade_preserves_existing_data(tmp_path: Path) -> None:
             config = Config()
             config.set_main_option("script_location", str(migration_resource_dir()))
             config.attributes["connection"] = connection
-            command.upgrade(config, "0001_initial")
+            command.upgrade(config, revision)
             connection.exec_driver_sql("INSERT INTO runtime_records VALUES ('test','old',1,X'6162','c','u')")
     finally:
         engine.dispose()

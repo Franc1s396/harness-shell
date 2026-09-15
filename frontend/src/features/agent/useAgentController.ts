@@ -1,3 +1,5 @@
+import { attachmentApi } from "../../api/agent-attachments";
+import { ImageAttachmentQueue } from "./image-attachments";
 import {
   useCallback,
   useEffect,
@@ -63,6 +65,11 @@ export function useAgentController(
   { sessions, activeTabId }: UseAgentControllerInput,
   dependencies: AgentControllerDependencies = defaultDependencies,
 ) {
+  const imageQueues = useRef(new Map<string, ImageAttachmentQueue>());
+  const retiringQueues = useRef(new Set<ImageAttachmentQueue>());
+  const closedImageTabs = useRef(new Set<string>());
+  const imageCleanupTasks = useRef(new Map<string, Promise<void>>());
+  const [imageCleanupError, setImageCleanupError] = useState<AgentCommandError | null>(null);
   const [state, dispatch] = useReducer(agentReducer, undefined, createAgentState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -94,6 +101,9 @@ export function useAgentController(
     return () => {
       for (const controller of controllers.values()) controller.abort();
       controllers.clear();
+      for (const queue of [...imageQueues.current.values(), ...retiringQueues.current]) void queue.dispose();
+      imageQueues.current.clear();
+      retiringQueues.current.clear();
       approvalOutcomesRef.current.clear();
     };
   }, []);
@@ -155,6 +165,21 @@ export function useAgentController(
   }, []);
 
   const removeTab = useCallback((tabId: string) => {
+    const queue = imageQueues.current.get(tabId);
+    const drafts = new Set(closedImageTabs.current.has(tabId) ? [] : stateRef.current.tabs[tabId]?.messages.flatMap(message => message.kind === "user" && message.draftId ? [message.draftId] : []) ?? []);
+    imageQueues.current.delete(tabId);
+    closedImageTabs.current.add(tabId);
+    // 自动 Session 移除无法保留标签；由控制器登记并收敛清理，失败公开显示。
+    if ((queue || drafts.size) && !imageCleanupTasks.current.has(tabId)) {
+      const cleanup = (async () => {
+        try {
+          if (queue) await queue.clear();
+          for (const draft of drafts) await attachmentApi.clearDraft(draft);
+        } catch (error) { setImageCleanupError(normalizeAgentCommandError(error)); }
+        finally { if (queue) await queue.dispose(); imageCleanupTasks.current.delete(tabId); }
+      })();
+      imageCleanupTasks.current.set(tabId, cleanup);
+    }
     turnControllersRef.current.get(tabId)?.abort();
     turnControllersRef.current.delete(tabId);
     turnReservationsRef.current.delete(tabId);
@@ -162,6 +187,56 @@ export function useAgentController(
       if (outcome.tabId === tabId) approvalOutcomesRef.current.delete(id);
     }
     dispatch({ type: "tab/remove", tabId });
+  }, []);
+
+  const addImages = useCallback((tabId: string, files: readonly File[]) => {
+    const tab = stateRef.current.tabs[tabId];
+    if (!tab || tab.phase !== "IDLE" || turnReservationsRef.current.has(tabId)) return;
+    let queue = imageQueues.current.get(tabId);
+    if (!queue) {
+      closedImageTabs.current.delete(tabId);
+      queue = new ImageAttachmentQueue(crypto.randomUUID(), attachmentApi, items => {
+        if (imageQueues.current.get(tabId) === queue && !closedImageTabs.current.has(tabId))
+          dispatch({type: "images/update", tabId, draftId: queue!.draftId, items});
+      });
+      imageQueues.current.set(tabId, queue);
+    }
+    try { queue.add(files); }
+    catch (error) { dispatch({type: "error/set", tabId, error: {code: "AGENT_IMAGE_INVALID", message: error instanceof Error ? error.message : "Image upload failed"}}); }
+  }, []);
+  const retryImage = useCallback(async (tabId: string, id: string) => {
+    const queue = imageQueues.current.get(tabId);
+    if (turnReservationsRef.current.has(tabId)) return;
+    try { await queue?.retry(id); }
+    catch (error) { if (imageQueues.current.get(tabId) === queue) dispatch({type: "error/set", tabId, error: normalizeAgentCommandError(error)}); }
+  }, []);
+  const removeImage = useCallback(async (tabId: string, id: string) => {
+    const queue = imageQueues.current.get(tabId);
+    if (turnReservationsRef.current.has(tabId)) return;
+    try { await queue?.remove(id); }
+    catch (error) { if (imageQueues.current.get(tabId) === queue) dispatch({type: "error/set", tabId, error: normalizeAgentCommandError(error)}); }
+  }, []);
+  const prepareTabClose = useCallback(async (tabId: string): Promise<boolean> => {
+    if (turnReservationsRef.current.has(tabId) || stateRef.current.tabs[tabId]?.phase === "RUNNING") return false;
+    turnReservationsRef.current.add(tabId);
+    dispatch({type: "images/busy", tabId, busy: true});
+    try {
+      const queue = imageQueues.current.get(tabId);
+      if (queue) {
+        await queue.clear(); imageQueues.current.delete(tabId);
+        dispatch({type: "images/update", tabId, draftId: undefined, items: []});
+      }
+      const drafts = new Set(stateRef.current.tabs[tabId]?.messages.flatMap(message => message.kind === "user" && message.draftId ? [message.draftId] : []) ?? []);
+      for (const draft of drafts) await attachmentApi.clearDraft(draft);
+      closedImageTabs.current.add(tabId);
+      return true;
+    } catch (error) {
+      dispatch({type: "error/set", tabId, error: normalizeAgentCommandError(error)});
+      return false;
+    } finally {
+      turnReservationsRef.current.delete(tabId);
+      dispatch({type: "images/busy", tabId, busy: false});
+    }
   }, []);
 
   const changeDraft = useCallback((tabId: string, value: string) => {
@@ -255,6 +330,17 @@ export function useAgentController(
         const requestToken = dependencies.makeId();
         const userMessageId = retryUser?.id ?? dependencies.makeId();
         const userMessage = retryUser?.text ?? tab.draft;
+        const queue = imageQueues.current.get(tabId);
+        if (!retry && queue?.items.some(item => item.status !== "ready")) return;
+        // 原消息没有图片也必须保持空集合，不能借用当前未发送草稿的附件。
+        const attachments = retry ? retryUser?.attachments ?? [] : queue?.items.flatMap(item => item.attachment ? [item.attachment] : []) ?? [];
+        const draftId = retry ? retryUser?.draftId : queue?.draftId;
+        if (!retry && queue) {
+          imageQueues.current.delete(tabId);
+          retiringQueues.current.add(queue);
+          // 已发送卡片从 Backend 读取原图，及时释放草稿 File 和本地 URL。
+          void queue.dispose().then(() => retiringQueues.current.delete(queue));
+        }
         const conversationId = tab.conversationId;
         const snapshot: ProviderSnapshot = {
           apiConfigId: config.api_config_id,
@@ -279,6 +365,7 @@ export function useAgentController(
           provider: snapshot,
           userMessageId,
           userMessage,
+          attachments, draftId,
           retry,
         });
         useAgentPreferencesStore
@@ -293,6 +380,7 @@ export function useAgentController(
               apiConfigId: config.api_config_id,
               userMessage,
               userMessageId,
+              ...(attachments.length ? {draftId, attachmentIds: attachments.map(item => item.attachment_id)} : {}),
               retry,
             },
             (event) => {
@@ -387,7 +475,7 @@ export function useAgentController(
         });
         return;
       }
-      if ([...tab.draft].length < 1 || [...tab.draft].length > 65_536) {
+      if ((!tab.draft.trim() && !imageQueues.current.get(tabId)?.items.length) || [...tab.draft].length > 65_536) {
         dispatch({
           type: "error/set",
           tabId,
@@ -463,9 +551,17 @@ export function useAgentController(
     // 等待网络读取退出后再收敛 UI；不提前把本轮标记为服务端 CANCELLED。
     turnControllersRef.current.get(tabId)?.abort();
   }, []);
-  const resetConversation = useCallback((tabId: string) => {
-    dispatch({ type: "conversation/reset", tabId });
-  }, []);
+  const resetConversation = useCallback(async (tabId: string) => {
+    const tab = stateRef.current.tabs[tabId];
+    if (!tab || !await prepareTabClose(tabId)) return;
+    turnReservationsRef.current.add(tabId);
+    dispatch({type: "images/busy", tabId, busy: true});
+    try {
+      if (tab.conversationId) await attachmentApi.deleteConversation(tab.conversationId);
+      dispatch({ type: "conversation/reset", tabId });
+    } catch (error) { dispatch({type: "error/set", tabId, error: normalizeAgentCommandError(error)}); }
+    finally { closedImageTabs.current.delete(tabId); turnReservationsRef.current.delete(tabId); dispatch({type: "images/busy", tabId, busy: false}); }
+  }, [prepareTabClose]);
   const markRead = useCallback((tabId: string) => {
     dispatch({ type: "background/read", tabId });
   }, []);
@@ -578,6 +674,7 @@ export function useAgentController(
     configsLoading,
     configsError,
     providerMutationError,
+    imageCleanupError,
     backgroundByTab,
     aggregateBackground,
     activeAgentRunTabIds,
@@ -592,6 +689,7 @@ export function useAgentController(
     decideApproval,
     cancelTurn,
     resetConversation,
+    addImages, retryImage, removeImage, prepareTabClose,
     markRead,
     refreshConfigs,
     createProvider,

@@ -432,7 +432,18 @@ def _validate_history(message: AnyMessage) -> None:
     if type(message) not in (SystemMessage, HumanMessage, AIMessage, ToolMessage):
         raise _invalid("stored history contained an unsupported message type")
     if not isinstance(message.content, str):
-        raise _invalid("stored message content was not a string")
+        if not isinstance(message, HumanMessage) or not isinstance(message.content, list) or not message.content:
+            raise _invalid("stored message content was not supported")
+        for block in message.content:
+            if not isinstance(block, dict):
+                raise _invalid("user content block was invalid")
+            if block.get('type') == 'text' and set(block) == {'type', 'text'} and type(block['text']) is str:
+                continue
+            if (block.get('type') == 'image_url' and set(block) == {'type', 'image_url'}
+                    and isinstance(block['image_url'], dict) and set(block['image_url']) == {'url'}
+                    and type(block['image_url']['url']) is str):
+                continue
+            raise _invalid("user content block was unsupported")
     if isinstance(message, ToolMessage) and (
         not isinstance(message.tool_call_id, str) or not message.tool_call_id
     ):
@@ -514,7 +525,11 @@ def _serialize_one_responses_message(config: ModelApiConfig, message: AnyMessage
             return [{"role": "developer", "content": message.content}]
         return [{"role": "system", "content": message.content}]
     if isinstance(message, HumanMessage):
-        return [{"role": "user", "content": message.content}]
+        content = message.content
+        if isinstance(content, list):
+            content = [({'type': 'input_text', 'text': block['text']} if block['type'] == 'text'
+                        else {'type': 'input_image', 'image_url': block['image_url']['url']}) for block in content]
+        return [{"role": "user", "content": content}]
     raise AssertionError("validated history type was not handled")
 
 
@@ -925,8 +940,11 @@ def _normalized_usage(value: object, *, chat: bool) -> dict[str, int] | None:
 
 
 def model_input_payload(config: ModelApiConfig, messages: Sequence[AnyMessage],
-                        *, include_tools: bool) -> dict[str, object]:
+                        *, include_tools: bool, for_budget: bool = False) -> dict[str, object]:
     """让计数与请求共用精确的协议输入投影。"""
+    from .image_messages import budget_image_messages
+    if for_budget:
+        messages = budget_image_messages(messages)
     if config.api_type.value == "RESPONSES":
         payload = {"input": _serialize_responses_input(config, messages)}
         tools = _build_responses_tools()
