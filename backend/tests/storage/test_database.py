@@ -15,7 +15,7 @@ def test_plaintext_database_bootstraps_alembic_baseline(tmp_path: Path) -> None:
     try:
         assert sql(database,
             "SELECT version_num FROM alembic_version"
-        ).fetchall() == [("0003_context_summary_history",)]
+        ).fetchall() == [("0004_agent_image_attachments",)]
         tables = {
             row[0]
             for row in sql(database,

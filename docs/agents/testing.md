@@ -94,3 +94,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 命令策略、原子授权、真实 LangGraph 暂停/恢复与回收、SSH 失效、控制容量、HTTP 决定、SSE 关联、审核气泡与 UI 状态均有独立测试。审核等待用 Event 控制，测试自身的超时不是产品审核期限。验收记录见 [Agent HITL](../testing/agent-human-in-the-loop.md)。真实 Provider、安装版 WebView 和生产 SSH 必须独立验收。
 
 `test_context_summary_migration.py` 使用临时 `0002_agent_retry` 库验证旧摘要全部字段保留、复合主键追加、STRICT/外键、同库重启以及重建失败整批回滚；`test_context_retention.py` 覆盖轮内切分、工具结果原子性、旧 revision 延续和末轮重试保留较早摘要。预算及 graph 测试验证旧摘要不进入新摘要请求、全部摘要仍进入主模型预算和投影。
+
+## Agent 图片测试入口
+
+图片附件使用 `backend/tests/agent/test_image_validation.py`、`test_attachments.py`、`test_image_messages.py`、`test_image_service.py`，结合 storage migration、web attachment routes 与 autonomous lifespan 测试验证。前端新增 `api/agent-attachments.test.ts`、`features/agent/image-attachments.test.ts`，并扩展 http-client、AgentWorkspace 和 useAgentController 测试。Sidecar smoke 实际通过四种格式 HTTP 上传/读取验证打包 decoder。完整范围及真实 Provider/Desktop 尚未验收项见 [图片附件验收记录](../testing/agent-image-attachments.md)。

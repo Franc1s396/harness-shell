@@ -1,6 +1,8 @@
 """顶层 Agent 轮次生命周期与按会话串行执行。"""
 
 from __future__ import annotations
+from .attachments import AttachmentRepository
+from .image_models import AttachmentError
 
 import asyncio
 import json
@@ -56,6 +58,9 @@ _PUBLIC_RUN_FAILURE_CODES = frozenset(
         "CONTEXT_SUMMARY_INVALID",
         "AGENT_CANCELLED",
         "AGENT_RESPONSE_TOO_LARGE",
+        "AGENT_ATTACHMENT_NOT_FOUND",
+        "AGENT_ATTACHMENT_CORRUPT",
+        "AGENT_ATTACHMENT_CONFLICT",
         "MODEL_NETWORK_TIMEOUT",
         "MODEL_REQUEST_FAILED",
         "MODEL_RESPONSE_INVALID",
@@ -189,7 +194,13 @@ class AgentService:
                 if previous is not None:
                     # 前面的校验已确保 retry=true；这里再检查末轮终态和已保存的用户原文。
                     # 清理旧消息和创建新 Run 共用事务，任何失败都整体回滚。
-                    repository.remove_last_turn(previous, request.user_message)
+                    repository.remove_last_turn(previous, request.user_message, request.attachment_ids)
+                attachments = AttachmentRepository(session)
+                if previous is not None:
+                    if attachments.bound_ids(request.user_message_id) != request.attachment_ids:
+                        raise AgentServiceError("AGENT_RETRY_CONFLICT", "retry must preserve the original images")
+                elif request.attachment_ids:
+                    attachments.bind(request.draft_id, conversation_id, request.user_message_id, request.attachment_ids)
                 run = repository.start_run(
                     conversation_id,
                     request.ssh_session_id,
@@ -239,6 +250,7 @@ class AgentService:
                 api_key=api_key,
                 cancelled=cancelled,
                 user_message=request.user_message,
+                attachment_ids=request.attachment_ids,
                 text_sink=event_sink,
                 approval_registry=self._approvals,
             )
@@ -342,6 +354,19 @@ class AgentService:
             self._approvals.invalidate_run(decision.agent_run_id, "session_unavailable")
             raise ApprovalError("AGENT_APPROVAL_INACTIVE", "the bound SSH session is unavailable")
         return resolution
+
+    async def delete_conversation(self, conversation_id: UUID) -> None:
+        """不等待活动 Run 结束后悄悄删除；持锁后在事务中再次复核。"""
+        from sqlalchemy import select
+        from harness_shell_sidecar.storage.orm import AgentRunRow
+        with self._database.read_session() as session:
+            active = session.scalar(select(AgentRunRow.agent_run_id).where(
+                AgentRunRow.conversation_id == str(conversation_id), AgentRunRow.status == 'RUNNING'))
+        if active is not None:
+            raise AgentServiceError('AGENT_CONVERSATION_BUSY', 'An active conversation cannot be deleted')
+        async with self._conversation_lock(conversation_id):
+            with self._database.write_session() as session:
+                ConversationRepository(session, PlaintextRecordStore(session)).delete_conversation(conversation_id)
 
     async def _invoke_until_terminal(self, initial_state: AgentGraphState, context: AgentGraphContext) -> AgentGraphState:
         """原 SSE worker 驱动内存图直到真正结束，并确定性回收 checkpoint。"""

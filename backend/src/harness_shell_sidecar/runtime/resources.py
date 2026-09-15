@@ -154,6 +154,11 @@ class RuntimeResources:
                 credential_cipher,
                 database,
             )
+            from harness_shell_sidecar.agent.attachments import AttachmentRepository
+            from harness_shell_sidecar.agent.attachment_service import register_attachment_handlers
+            with database.write_session() as session:
+                AttachmentRepository(session).delete_all_unbound()
+            register_attachment_handlers(runtime_dispatcher, database)
         except BaseException as exc:
             # 发布前不可能存在领域会话，因此只关闭
             # 同步构建序列中已经创建的资源管理者。

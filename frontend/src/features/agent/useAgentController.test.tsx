@@ -9,6 +9,7 @@ import type {
   ModelApiConfig,
 } from "../../api/agent";
 import { AgentTurnCancelled } from "../../api/agent";
+import { attachmentApi } from "../../api/agent-attachments";
 import { useAgentPreferencesStore } from "../../stores/agent-preferences-store";
 import type { TerminalSessionModel } from "../terminal/terminal-session";
 import type { ProviderDraft } from "./provider-config-actions";
@@ -142,6 +143,40 @@ const primeTab = async (
 };
 
 describe("useAgentController", () => {
+  it("does not attach the new image draft when retrying an earlier text-only message", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:new"); URL.revokeObjectURL = vi.fn();
+    const upload = vi.spyOn(attachmentApi, "upload").mockImplementation(async draft => ({attachment_id: "new-image", draft_id: draft, filename: "image.png", media_type: "image/png", byte_size: 5, width: 1, height: 1}));
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "original text");
+    await act(() => view.result.current.requestSend("tab-1"));
+    await act(async () => view.result.current.addImages("tab-1", [new File(["image"], "image.png", {type: "image/png"})]));
+    await act(() => view.result.current.retryLastTurn("tab-1"));
+    expect(mockAgentApi.streamAgentTurn.mock.calls.slice(-1)[0]?.[0]).not.toHaveProperty("attachmentIds");
+    expect(view.result.current.activeTab?.attachments?.[0].attachment?.attachment_id).toBe("new-image");
+    view.unmount(); upload.mockRestore();
+  });
+  it("waits for upload, sends images alone and preserves image IDs across retry and a new draft", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:preview"); URL.revokeObjectURL = vi.fn();
+    const pending = deferred<any>();
+    const upload = vi.spyOn(attachmentApi, "upload").mockReturnValueOnce(pending.promise);
+    const view = renderController([connectedSession]);
+    await primeTab(view, "tab-1", "");
+    const file = new File(["image"], "image.png", {type: "image/png"});
+    act(() => view.result.current.addImages("tab-1", [file]));
+    await act(() => view.result.current.requestSend("tab-1"));
+    expect(mockAgentApi.streamAgentTurn).not.toHaveBeenCalled();
+    const info = {attachment_id: "image-id", draft_id: upload.mock.calls[0][0], filename: "image.png", media_type: "image/png" as const, byte_size: 5, width: 1, height: 1};
+    await act(async () => pending.resolve(info));
+    await act(() => view.result.current.requestSend("tab-1"));
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenLastCalledWith(expect.objectContaining({userMessage: "", attachmentIds: ["image-id"], draftId: info.draft_id}), expect.any(Function), expect.any(AbortSignal));
+    upload.mockImplementation(async draft => ({...info, attachment_id: "new-image", draft_id: draft}));
+    await act(async () => view.result.current.addImages("tab-1", [file]));
+    await act(() => view.result.current.retryLastTurn("tab-1"));
+    expect(mockAgentApi.streamAgentTurn).toHaveBeenLastCalledWith(expect.objectContaining({retry: true, attachmentIds: ["image-id"], draftId: info.draft_id}), expect.any(Function), expect.any(AbortSignal));
+    expect(view.result.current.activeTab?.attachments?.[0].attachment?.attachment_id).toBe("new-image");
+    expect(URL.revokeObjectURL).toHaveBeenCalled();
+    view.unmount(); upload.mockRestore();
+  });
   it.each(["failed", "cancelled"])("replaces a %s attempt and keeps its stable identity before started", async outcome => {
     mockAgentApi.streamAgentTurn.mockRejectedValueOnce(outcome === "cancelled" ? new AgentTurnCancelled() : new Error("network failed"));
     const view = renderController([connectedSession]);

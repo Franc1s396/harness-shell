@@ -317,7 +317,28 @@ def build_openapi_document() -> dict[str, object]:
         },
     }
 
-    # 5. 排序并移除未使用的默认校验模型，保证产物可确定性比较。
+    # 5. 图片使用独立有界 multipart 与原图响应，不能套用 JSON/小块下载限制。
+    document['paths']['/v1/agent/attachments']['post']['requestBody'] = {
+        'required': True,
+        'content': {'multipart/form-data': {'schema': {
+            'type': 'object', 'additionalProperties': False, 'required': ['draft_id', 'file'],
+            'properties': {
+                'draft_id': {'type': 'string', 'format': 'uuid'},
+                'file': {'type': 'string', 'format': 'binary', 'minLength': 1, 'maxLength': 10_485_760},
+            },
+        }}},
+    }
+    image_response = document['paths']['/v1/agent/attachments/{attachment_id}/content']['get']['responses']['200']
+    image_response['content'] = {
+        mime: {'schema': {'type': 'string', 'format': 'binary', 'maxLength': 10_485_760}}
+        for mime in ('image/png', 'image/jpeg', 'image/webp', 'image/gif')
+    }
+    image_response['headers'].update({
+        'Cache-Control': {'schema': {'type': 'string', 'const': 'no-store'}},
+        'X-Content-Type-Options': {'schema': {'type': 'string', 'const': 'nosniff'}},
+    })
+
+    # 6. 排序并移除未使用的默认校验模型，保证产物可确定性比较。
     document["paths"] = dict(sorted(document["paths"].items()))
     schemas.pop("HTTPValidationError", None)
     schemas.pop("ValidationError", None)

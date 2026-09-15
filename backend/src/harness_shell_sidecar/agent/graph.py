@@ -85,6 +85,7 @@ class AgentGraphContext:
     #: 本 Run 局部的文本与工具状态接收端，不进入图状态或持久化。
     text_sink: AgentTurnEventSink
     #: 仅借用 Run 的授权注册表，绝不进入 checkpoint。
+    attachment_ids: tuple[UUID, ...] = ()  # Stable ordered images for the current user message.
     approval_registry: ApprovalRegistry | None = None
     #: 已建立 SSH 会话的冻结显示快照。
     approval_target: ApprovalTarget | None = None
@@ -247,6 +248,7 @@ def build_agent_graph(
             state["agent_run_id"],
             state["conversation_id"],
             runtime.context.user_message,
+            runtime.context.attachment_ids,
         )
         # 2. 同时加载带序号历史和独立摘要，供后续压缩及模型投影使用。
         with dependencies.database.read_session() as session:
@@ -284,10 +286,12 @@ def build_agent_graph(
         """在任何条件工具派发前持久化完整 AIMessage。"""
 
         # 1. 用已通过预算检查的投影请求本轮主模型。
+        from .image_messages import resolve_image_messages
+        model_messages = resolve_image_messages(dependencies.database, state["conversation_id"], state["model_messages"])
         message = await dependencies.gateway.invoke(
             runtime.context.api_config,
             runtime.context.api_key,
-            state["model_messages"],
+            model_messages,
             runtime.context.cancelled,
             runtime.context.text_sink,
         )

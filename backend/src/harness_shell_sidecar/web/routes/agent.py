@@ -245,3 +245,11 @@ async def submit_approval_decision(approval_id: UUID, payload: dict[str, object]
         raise dispatch_error_problem(request_id, error) from error
     set_correlation(response, request_id)
     return model_from_result(result, ApprovalDecisionResponse)
+
+
+@router.delete("/v1/agent/conversations/{conversation_id}", response_model=DeleteResponse)
+async def delete_conversation(conversation_id: UUID, response: Response, request_id: CorrelationId, owner: Owner) -> DeleteResponse:
+    """删除完整会话，活动 Run 由领域服务明确拒绝。"""
+    result = await dispatch_application(owner, request_id, "agent.conversations.delete", {"conversation_id": str(conversation_id)})
+    set_correlation(response, request_id)
+    return DeleteResponse(request_id=request_id, deleted=result["deleted"])

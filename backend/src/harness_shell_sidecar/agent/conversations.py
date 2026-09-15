@@ -1,6 +1,7 @@
 """明文 LangChain 对话历史与 Agent Run 持久化。"""
 
 from __future__ import annotations
+from .image_messages import user_content_identity
 
 from .context_models import ContextMessage
 
@@ -61,6 +62,22 @@ class ConversationRepository:
         return self._session.scalar(select(AgentConversationRow.conversation_id).where(
             AgentConversationRow.conversation_id == str(conversation_id))) is not None
 
+    def delete_conversation(self, conversation_id: UUID) -> None:
+        """按 NO ACTION 外键顺序原子删除，图片随会话级联回收。"""
+        identity = str(conversation_id)
+        active = self._session.scalar(select(AgentRunRow.agent_run_id).where(
+            AgentRunRow.conversation_id == identity, AgentRunRow.status == 'RUNNING'))
+        if active is not None:
+            raise ConversationRepositoryError('AGENT_CONVERSATION_BUSY', 'An active conversation cannot be deleted')
+        self._session.execute(delete(AgentContextSummaryRow).where(AgentContextSummaryRow.conversation_id == identity))
+        for row in self._session.scalars(select(AgentMessageRow).where(AgentMessageRow.conversation_id == identity)):
+            if not self._record_store.delete('agent_message', row.record_id):
+                raise ConversationRepositoryError('AGENT_MESSAGE_RECORD_MISSING', 'Stored conversation content is missing')
+            self._session.delete(row)
+        self._session.flush()
+        self._session.execute(delete(AgentRunRow).where(AgentRunRow.conversation_id == identity))
+        self._session.execute(delete(AgentConversationRow).where(AgentConversationRow.conversation_id == identity))
+
     def start_run(self, conversation_id: UUID, ssh_session_id: UUID, api_config_id: UUID,
                   *, user_message_id: UUID | None = None) -> AgentRun:
         """持久化 RUNNING，引用无效时立即失败。"""
@@ -85,7 +102,7 @@ class ConversationRepository:
         ).order_by(AgentRunRow.started_at.desc(), AgentRunRow.agent_run_id.desc()).limit(1))
         return None if identity is None else self._get_run(UUID(identity))
 
-    def remove_last_turn(self, run: AgentRun, user_text: str) -> None:
+    def remove_last_turn(self, run: AgentRun, user_text: str, attachment_ids: tuple[UUID, ...] = ()) -> None:
         """在调用者会话锁和写事务内删除末轮正文；Run 元数据仍保留。"""
         # 1. 包括没有消息的失败 Run 在内，只有最后一次已结束的尝试可被替换。
         latest = self._session.scalar(select(AgentRunRow.agent_run_id).where(
@@ -96,7 +113,7 @@ class ConversationRepository:
         records = self.load_context_messages(run.conversation_id)
         users = [record.message for record in records if record.agent_run_id == run.agent_run_id
                  and isinstance(record.message, HumanMessage)]
-        if len(users) > 1 or (users and users[0].content != user_text):
+        if len(users) > 1 or (users and user_content_identity(users[0]) != (user_text, attachment_ids)):
             raise ConversationRepositoryError("AGENT_RETRY_CONFLICT", "retry must resend the original user message")
         # 2. 摘要源 Run 的 Human 边界即将删除，必须移除该摘要以便重新计算。
         self._session.execute(delete(AgentContextSummaryRow).where(
@@ -269,7 +286,10 @@ class ConversationRepository:
 def _serialize_message(message: AnyMessage) -> bytes:
     """序列化一条 LangChain 消息，不猜测 Provider 特定格式。"""
 
-    payload = {"schema_version": 1, "message": message_to_dict(message)}
+    schema_version = 2 if isinstance(message, HumanMessage) and isinstance(message.content, list) else 1
+    if schema_version == 2:
+        user_content_identity(message)
+    payload = {"schema_version": schema_version, "message": message_to_dict(message)}
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
@@ -278,9 +298,16 @@ def _deserialize_message(payload: bytes) -> AnyMessage:
 
     try:
         value = json.loads(payload.decode("utf-8"))
-        if not isinstance(value, dict) or value.get("schema_version") != 1:
+        if not isinstance(value, dict) or value.get("schema_version") not in (1, 2):
             raise ValueError("unsupported Agent message schema")
-        return messages_from_dict([value["message"]])[0]
+        message = messages_from_dict([value["message"]])[0]
+        if value['schema_version'] == 1 and isinstance(message, HumanMessage) and not isinstance(message.content, str):
+            raise ValueError('legacy message schema requires text')
+        if value["schema_version"] == 2:
+            if not isinstance(message, HumanMessage):
+                raise ValueError("image schema requires user message")
+            user_content_identity(message)
+        return message
     except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
         raise ConversationRepositoryError(
             "AGENT_MESSAGE_SCHEMA_UNSUPPORTED",

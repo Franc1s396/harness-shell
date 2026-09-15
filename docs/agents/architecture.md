@@ -68,3 +68,7 @@ Python `AgentTurnStreamSession` 在 shared dispatcher 内拥有 worker、capacit
 ## 文档同步
 
 进程所有权、调用链、API/WebSocket、持久化、安全边界、命令或验收范围变化时，同步更新本文件与对应领域文档；局部实现细节不复制成第二真源。
+
+## Agent 图片输入
+
+React 选择或粘贴图片 → typed multipart 上传 → Backend 图片校验 → SQLite 元数据与原图 BLOB → turn 绑定稳定用户消息 ID → canonical 引用 → 正式模型调用的短生命周期图片输入。模型输出仍为文字，Runtime WebSocket、Launcher 和 Tauri capability 不增加职责。预算投影不读取 BLOB；模型与摘要调用才读取所属会话原图。协议见 HTTP 契约，存储及清理见 Python Backend Guide。

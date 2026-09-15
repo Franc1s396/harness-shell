@@ -1,6 +1,8 @@
 """Agent 配置与使用秘密执行轮次的严格 dispatcher handler。"""
 
 from __future__ import annotations
+from .image_models import AttachmentError
+from .conversations import ConversationRepositoryError
 
 import asyncio
 import json
@@ -15,6 +17,7 @@ from pydantic import (
     SecretStr,
     StringConstraints,
     ValidationError,
+    model_validator,
 )
 
 from harness_shell_sidecar.credentials import (
@@ -124,18 +127,33 @@ class AgentTurnRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    draft_id: UUID | None = Field(default=None, description="Original image upload draft identity")
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=5, description="Ordered image identities")
+
+    @model_validator(mode="after")
+    def validate_images(self) -> AgentTurnRequest:
+        """拒绝空轮次、重复图片引用和缺失的稳定归属。"""
+        if not self.user_message.strip() and not self.attachment_ids:
+            raise ValueError("message requires text or images")
+        if len(set(self.attachment_ids)) != len(self.attachment_ids):
+            raise ValueError("duplicate image identity")
+        if self.attachment_ids and (self.user_message_id is None or (not self.retry and self.draft_id is None)):
+            raise ValueError("image turn requires original draft and stable user identity")
+        return self
+
     user_message_id: UUID | None = Field(default=None, description="Stable user message identity across explicit retries.")
     retry: bool = Field(default=False, description="Replace the last turn belonging to this user message.")
 
     conversation_id: UUID | None = None
     ssh_session_id: UUID
     api_config_id: UUID
-    user_message: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+    user_message: Annotated[str, StringConstraints(min_length=0, max_length=65536)]
 
     def to_input(self) -> AgentTurnInput:
         """配置检查通过后构建非秘密 Agent 输入。"""
 
         return AgentTurnInput(
+            draft_id=self.draft_id, attachment_ids=self.attachment_ids,
             user_message_id=self.user_message_id,
             retry=self.retry,
             conversation_id=self.conversation_id,
@@ -222,7 +240,7 @@ class AgentTurnApplication:
                 expected_config=config,
                 event_sink=event_sink,
             )
-        except AgentServiceError as error:
+        except (AgentServiceError, AttachmentError) as error:
             raise DispatchError(
                 error.error_code,
                 error.safe_message,
@@ -363,7 +381,22 @@ def register_agent_handlers(
             raise DispatchError(error.error_code, error.safe_message) from error
         return {"approval_id": str(result.approval_id), "status": result.status}
 
+    async def delete_conversation(context: RequestContext, raw_params: Mapping[str, object]) -> dict[str, object]:
+        """固定会话删除操作，复用 AgentService 的会话锁。"""
+        try:
+            if set(raw_params) != {"conversation_id"}:
+                raise ValueError("unexpected fields")
+            identity = UUID(str(raw_params["conversation_id"]))
+        except (ValueError, KeyError) as error:
+            raise DispatchError("INVALID_REQUEST_PAYLOAD", "Conversation identity is invalid") from error
+        try:
+            await agent_service.delete_conversation(identity)
+        except (AgentServiceError, ConversationRepositoryError) as error:
+            raise DispatchError(error.error_code, error.safe_message) from error
+        return {"deleted": True}
+
     handlers = {
+        "agent.conversations.delete": delete_conversation,
         "agent.approvals.decide": decide_approval,
         "agent.api_configs.list": list_configs,
         "agent.api_configs.create": create_config,

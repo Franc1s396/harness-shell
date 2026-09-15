@@ -51,6 +51,16 @@ def build_summary_messages(prefix: Sequence[ContextMessage]) -> list[AnyMessage]
         if isinstance(message, ToolMessage):
             value["tool_call_id"] = message.tool_call_id
         history.append(value)
+    if any(isinstance(record.message, HumanMessage) and isinstance(record.message.content, list) for record in prefix):
+        blocks = []
+        for record, value in zip([record for record in prefix if not isinstance(record.message, SystemMessage)], history, strict=True):
+            content = value["content"]
+            if isinstance(record.message, HumanMessage) and isinstance(content, list):
+                blocks.append({"type": "text", "text": json.dumps({"role": value["role"], "sequence": record.sequence})})
+                blocks.extend(content)
+            else:
+                blocks.append({"type": "text", "text": json.dumps(value, ensure_ascii=False)})
+        return [SystemMessage(content=SUMMARY_PROMPT), HumanMessage(content=blocks)]
     # 2. 只提交未覆盖的历史片段，既有摘要永久保留且不参与重新压缩。
     return [SystemMessage(content=SUMMARY_PROMPT), HumanMessage(content=json.dumps(
         {"history": history},
@@ -94,7 +104,9 @@ class ContextCompactor:
         )
         # 4. 只组织本次旧前缀，先确认独立摘要请求本身能够放入输入预算。
         source = build_summary_messages(prefix)
-        self._budget.assert_fits(config, self._budget.estimate_payload(model_input_payload(config, source, include_tools=False)))
+        self._budget.assert_fits(config, self._budget.estimate_payload(model_input_payload(config, source, include_tools=False, for_budget=True)))
+        from .image_messages import resolve_image_messages
+        source = resolve_image_messages(self._database, conversation_id, source)
         # 5. 复用本轮 Provider/model/key，最多实际请求三次；空摘要也视为失败。
         for attempt in range(3):
             if cancelled.is_set():
@@ -119,7 +131,7 @@ class ContextCompactor:
         candidate = ContextSummary(conversation_id, revision + 1,
             prefix[-1].sequence, text, source_run_id, now, now)
         tokens = self._budget.estimate_payload(model_input_payload(
-            config, ContextService.project(records, (*summaries, candidate)), include_tools=True))
+            config, ContextService.project(records, (*summaries, candidate)), include_tools=True, for_budget=True))
         self._budget.assert_fits(config, tokens)
         # 7. 提交前再次检查取消；以旧 revision 校验并原子保存，原始对话消息保持不变。
         if cancelled.is_set():

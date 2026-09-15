@@ -206,6 +206,39 @@ class AgentMessageRow(Base):
     # 首次创建的 UTC 时间，更新时保留。
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
+class AgentAttachmentRow(Base):
+    """图片身份与稳定用户消息归属，不加载 BLOB。"""
+    __tablename__ = 'agent_attachments'
+    __table_args__ = (
+        CheckConstraint('(conversation_id IS NULL AND user_message_id IS NULL AND position IS NULL) OR (conversation_id IS NOT NULL AND user_message_id IS NOT NULL AND position IS NOT NULL)'),
+        CheckConstraint('position IS NULL OR position BETWEEN 0 AND 4'),
+        CheckConstraint('byte_size BETWEEN 1 AND 10485760'),
+        CheckConstraint('width > 0 AND height > 0 AND width * height <= 40000000'),
+        CheckConstraint("media_type IN ('image/png','image/jpeg','image/webp','image/gif')"),
+        UniqueConstraint('user_message_id', 'position'),
+        {"sqlite_strict": True},
+    )
+    attachment_id: Mapped[str] = mapped_column(Text, primary_key=True, nullable=False)  # 不透明 UUID。
+    draft_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # 临时上传归属。
+    conversation_id: Mapped[str | None] = mapped_column(Text, ForeignKey('agent_conversations.conversation_id', ondelete='CASCADE'), nullable=True, index=True)  # 发送后会话归属。
+    user_message_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)  # 跨 Run 重试保持稳定。
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 消息内顺序。
+    filename: Mapped[str] = mapped_column(Text, nullable=False)  # 只用于展示。
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)  # 真实 MIME。
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)  # BLOB 长度。
+    width: Mapped[int] = mapped_column(Integer, nullable=False)  # 原像素宽。
+    height: Mapped[int] = mapped_column(Integer, nullable=False)  # 原像素高。
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)  # UTC 上传完成时间。
+
+
+class AgentAttachmentContentRow(Base):
+    """与附件元数据同事务创建的明文原图，一对一且级联删除。"""
+    __tablename__ = 'agent_attachment_contents'
+    __table_args__ = (CheckConstraint('length(data) BETWEEN 1 AND 10485760'), {"sqlite_strict": True})
+    attachment_id: Mapped[str] = mapped_column(Text, ForeignKey('agent_attachments.attachment_id', ondelete='CASCADE'), primary_key=True, nullable=False)  # 元数据主键。
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)  # 原图，不存 Base64。
+
+
 class AgentContextSummaryRow(Base):
     """映射 agent_context_summaries 持久化记录，仅由当前操作 Session 持有。"""
     __tablename__ = 'agent_context_summaries'

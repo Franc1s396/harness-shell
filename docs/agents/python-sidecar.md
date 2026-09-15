@@ -101,3 +101,15 @@ Agent graph 在工具参数校验与安全审查通过后、调用执行器前�
 审核无限等待，监听取消与原 SSH/ProxyJump 失效；冻结目标来自活动 SshSession 而非后来编辑的配置。SSH 移除立即通知失效，借用的 wait_closed 监听只取消自身。派发前检查原调用参数、Session 与取消，并消费一次授权；执行器再次检查传输可用性。Run 退出在 finally 释放审核记录，并同步删除纯内存 saver 的 thread、writes、blobs；不允许 pickle fallback，不跨重启恢复或复用授权，业务 SQLite 历史仍按原规则持久化。
 
 shared dispatcher 保留普通请求 16 容量，只有固定 `agent.approvals.decide` 使用额外 1 个 control 槽；两类共用 request ID 表、取消和 shutdown owner。
+
+## Agent 图片持久化与模型输入
+
+`image_validation.py` 通过 Pillow 识别真实 PNG/JPEG/WebP/static GIF，检查 10 MiB、4000 万像素、单帧及完整解码；拒绝动画、损坏和格式不支持，不转码、不缩放。`attachment_service.py` 的固定 dispatcher handlers 在写事务前完成同步解码；操作内部没有 await，因此同一 Runtime event loop 内上传与草稿删除不会交错写入，DB Session 不跨 decoder 或模型调用。Web multipart parser 有界且仅在内存，不产生临时 UploadFile。
+
+`0004_agent_image_attachments` 新增 STRICT 双表：`agent_attachments` 保存草稿、展示名、MIME、尺寸、字节数和可空绑定；`agent_attachment_contents` 以相同 attachment_id 保存原始 BLOB。元数据/BLOB 同事务写入，conversation→metadata→BLOB 外键级联。绑定三字段全空或全有，位置 0..4 且同 user_message_id 唯一；图片绑定稳定用户消息 ID，不依赖每次历史重写生成的 message_id 或新的 Run ID。读取校验 BLOB 存在且长度一致，归属错误明确失败。
+
+canonical 新图片用户消息使用 schema_version 2 的 text/harness_image 块；旧 schema 1 的用户内容仅文本，既有 AI Responses 内容块仍可回放。`image_messages.py` 严格验证有序引用。首次发送在创建 RUNNING 的事务中绑定，重试验证原文和原有序 ID，丢失 started 也可从稳定 user ID 找回原会话。`resolve_image_messages` 在正式模型/摘要调用前短事务读取本会话 BLOB，再在内存构建 image_url；Gateway 映射 Chat Completions image_url / Responses input_image，Base64 不落入 canonical、graph history 或 UI store。
+
+`model_input_payload(..., for_budget=True)` 仅生成无 bytes 的图片预算投影，ContextBudget 每图固定加 1000；request_mapping_version=3。真实 Provider usage 保持不变，usage 锚点已覆盖的图片不再重复加算。摘要请求包含所覆盖图片的真实输入；摘要成功仅推进历史投影，原消息与原图仍保留。Provider 拒绝图片明确返回失败，不丢图或切换模型。
+
+Runtime 迁移后、READY 前删除全部未绑定图片。草稿删除仅删除未绑定内容；会话删除在会话锁内拒绝 RUNNING，同一事务删除摘要、消息正文/索引、Run、conversation 及级联图片。Provider/SSH 记录不受影响。图片是 SQLite 明文 BLOB，逻辑删除不表示安全擦除。

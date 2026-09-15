@@ -69,6 +69,8 @@ def create_app(
     app.include_router(ssh_router)
     app.include_router(terminal_router)
     app.include_router(agent_router)
+    from .routes.agent_attachments import router as attachment_router
+    app.include_router(attachment_router)
     app.include_router(manual_sftp_router)
     app.include_router(diagnostics_router)
     # 3. 装配大小、跨域和访问日志边界，再绑定唯一 Runtime WebSocket。
@@ -81,6 +83,8 @@ def create_app(
         allow_headers=["Content-Type", "X-Request-ID", "X-Chunk-Offset"],
         expose_headers=[
             "X-Request-ID",
+            # 原图读取必须让跨域 WebView 能校验 nosniff，避免合法图片被拒绝。
+            "X-Content-Type-Options",
             "X-Chunk-Sequence",
             "X-Chunk-Offset",
             "X-Chunk-Byte-Count",

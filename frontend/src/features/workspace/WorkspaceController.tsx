@@ -786,7 +786,8 @@ export function WorkspaceController() {
     manualSftp.state.transferProgress,
   ]);
 
-  const closeSessionOptimistically = (requested: TerminalSessionModel) => {
+  const closeSessionOptimistically = async (requested: TerminalSessionModel) => {
+    if (!await agent.prepareTabClose(requested.tabId)) return;
     if (agent.hasActiveRunForTab(requested.tabId)) return;
     const current = sessionsRef.current.get(requested.tabId);
     if (!current) return;
@@ -1099,12 +1100,12 @@ export function WorkspaceController() {
             agentBackgroundByTab={agent.backgroundByTab}
             activeAgentRunTabIds={agent.activeAgentRunTabIds}
             errorNotice={
-              terminalFailure ? (
+              <>{agent.imageCleanupError && <p role="alert" className="border-b border-danger bg-panel p-3 text-sm text-danger">{agent.imageCleanupError.message}</p>}{terminalFailure ? (
                 <ErrorNotice
                   error={terminalFailure.error}
                   onDismiss={() => setWorkspaceFailure(null)}
                 />
-              ) : null
+              ) : null}</>
             }
             cleanupNotices={cleanupFailures.map((job) => (
               <CleanupFailureNotice
@@ -1246,8 +1247,11 @@ export function WorkspaceController() {
             onApprovalDecision={(approvalId, decision) => {
               if (activeTabId) void agent.decideApproval(activeTabId, approvalId, decision);
             }}
+            onAddImages={files => { if (activeTabId) agent.addImages(activeTabId, files); }}
+            onRemoveImage={id => { if (activeTabId) void agent.removeImage(activeTabId, id); }}
+            onRetryImage={id => { if (activeTabId) agent.retryImage(activeTabId, id); }}
             onResetConversation={() => {
-              if (activeTabId) agent.resetConversation(activeTabId);
+              if (activeTabId) void agent.resetConversation(activeTabId);
             }}
             onMarkRead={() => {
               if (activeTabId) agent.markRead(activeTabId);

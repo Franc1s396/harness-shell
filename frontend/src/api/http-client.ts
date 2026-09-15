@@ -103,6 +103,56 @@ export class BackendHttpClient {
     return this.#readJson<T>(response, requestId);
   }
 
+  async uploadImage<T>(draftId: string, file: File, signal: AbortSignal): Promise<T> {
+    if (file.size < 1 || file.size > 10_485_760) throw new Error("AGENT_IMAGE_TOO_LARGE");
+    const body = new FormData();
+    body.set("draft_id", draftId);
+    body.set("file", file);
+    const requestId = this.#randomUuid();
+    const response = await this.#fetch(this.#url("/v1/agent/attachments"), {
+      method: "POST", headers: { "X-Request-ID": requestId }, body, signal,
+    });
+    return this.#readJson<T>(response, requestId);
+  }
+
+  async readImage(attachmentId: string, signal: AbortSignal): Promise<Blob> {
+    const requestId = this.#randomUuid();
+    const response = await this.#fetch(this.#url(`/v1/agent/attachments/${encodeURIComponent(attachmentId)}/content`), {
+      headers: { "X-Request-ID": requestId }, signal,
+    });
+    if (!response.ok) return this.#readJson<never>(response, requestId);
+    this.#requireResponseRequestId(response, requestId);
+    const mediaType = response.headers.get("Content-Type") ?? "";
+    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mediaType) || !response.body ||
+      response.headers.get("Cache-Control") !== "no-store" || response.headers.get("X-Content-Type-Options") !== "nosniff") {
+      throw new Error("AGENT_IMAGE_RESPONSE_INVALID");
+    }
+    const reader = response.body.getReader();
+    const parts: BlobPart[] = [];
+    let count = 0;
+    let reachedEof = false;
+    let failed = false;
+    try {
+      while (true) {
+        signal.throwIfAborted();
+        const next = await reader.read();
+        if (next.done) { reachedEof = true; break; }
+        count += next.value.byteLength;
+        if (count > 10_485_760) throw new Error("AGENT_IMAGE_TOO_LARGE");
+        parts.push(new Uint8Array(next.value));
+      }
+      if (!count) throw new Error("AGENT_IMAGE_RESPONSE_INVALID");
+      return new Blob(parts, { type: mediaType });
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      try { if (!reachedEof) await reader.cancel(); }
+      catch (error) { if (!failed) throw error; }
+      finally { reader.releaseLock(); }
+    }
+  }
+
   async putBinary<T>(
     path: string,
     body: Uint8Array,

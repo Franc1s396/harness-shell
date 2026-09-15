@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+from io import BytesIO
 import json
 import os
 import queue
@@ -18,6 +19,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from websockets.sync.client import connect
+from PIL import Image
 
 from harness_shell_sidecar.runtime.desktop_control import decode_ready_payload
 
@@ -85,6 +87,35 @@ def wait_ready(port: int) -> bytes:
         except (ConnectionError, OSError):
             time.sleep(0.025)
     raise RuntimeError("desktop backend readiness timed out")
+
+
+def smoke_images(port: int) -> None:
+    """通过真实子进程验证四种 decoder、multipart、BLOB 与原图读取。"""
+    draft = str(uuid4())
+    for format_name, mime in [('PNG', 'image/png'), ('JPEG', 'image/jpeg'), ('WEBP', 'image/webp'), ('GIF', 'image/gif')]:
+        with BytesIO() as stream, Image.new('RGB', (2, 2), 'blue') as image:
+            image.save(stream, format=format_name)
+            raw = stream.getvalue()
+        boundary, request_id = 'smoke-' + uuid4().hex, str(uuid4())
+        body = (f'--{boundary}\r\nContent-Disposition: form-data; name="draft_id"\r\n\r\n{draft}\r\n'
+                f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="image"\r\n'
+                f'Content-Type: {mime}\r\n\r\n').encode() + raw + f'\r\n--{boundary}--\r\n'.encode()
+        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=HTTP_TIMEOUT_SECONDS)
+        try:
+            connection.request('POST', '/v1/agent/attachments', body, {
+                'X-Request-ID': request_id, 'Content-Type': f'multipart/form-data; boundary={boundary}'})
+            response = connection.getresponse()
+            payload = json.loads(response.read())
+            if response.status != 201 or response.getheader('X-Request-ID') != request_id:
+                raise RuntimeError(f'packaged {format_name} upload failed: {response.status}')
+            image_id = payload['attachment']['attachment_id']
+            connection.request('GET', f'/v1/agent/attachments/{image_id}/content', headers={'X-Request-ID': request_id})
+            response = connection.getresponse()
+            if response.status != 200 or response.getheader('Content-Type') != mime or response.read() != raw:
+                raise RuntimeError(f'packaged {format_name} image roundtrip failed')
+        finally:
+            connection.close()
+    request_json(port, 'DELETE', f'/v1/agent/attachment-drafts/{draft}', expected_status=200)
 
 
 def drain_pipe(pipe, capture: bytearray, lock: threading.Lock) -> None:
@@ -228,6 +259,7 @@ def run_smoke(data_dir: Path, *, expect_failure: bool = False) -> int:
             raise RuntimeError(bytes(stderr_capture).decode("utf-8", errors="replace")) from result
         ready = decode_ready_payload(result)
         observed_bodies = [wait_ready(ready.port)]
+        smoke_images(ready.port)
 
         with connect(
             f"ws://127.0.0.1:{ready.port}/v1/runtime/events",
@@ -292,7 +324,7 @@ def main() -> int:
         run_smoke(data_dir)
         path = data_dir / "runtime.sqlite3"
         with closing(sqlite3.connect(path)) as connection:
-            if connection.execute("SELECT version_num FROM alembic_version").fetchall() != [("0003_context_summary_history",)]:
+            if connection.execute("SELECT version_num FROM alembic_version").fetchall() != [("0004_agent_image_attachments",)]:
                 raise RuntimeError("packaged migration did not reach baseline")
         run_smoke(data_dir)
         with closing(sqlite3.connect(path)) as connection:

@@ -51,3 +51,11 @@ React 独占本地 picker、File handle、hash、chunk read/write 和同步 save
 `POST /v1/agent/approvals/{approval_id}/decision` 接收 conversation_id、agent_run_id、ssh_session_id、tool_call_id 和 approve/reject；不接收替换命令、目标、期限或自动授权开关。成功只返回 approval_id 与 APPROVED/REJECTED；与原 SSE 的 HTTP 响应到达顺序不作保证。同决定幂等，身份或相反决定冲突为 409，已释放为 404，已失效为 409。只有原 worker 可恢复对应 interrupt，已经消费的授权不可再次执行。
 
 同 Run 只允许一个 pending；requested/resolved 连续参与原 sequence。pending 未解决不得发送 tool_started/completed，失败或取消可以直接使气泡失效。无限审核等待不增加 SSE 帧、不增加 Run 迭代、不占数据库 Session。断流无重连或恢复接口，内存授权不落盘。系统提示词要求目标明确时提交工具调用，UI 决定执行授权；模型不通过 final text 再次索取相同授权，不得绕过用户拒绝。
+
+## Agent 图片边界
+
+图片由用户显式选择或粘贴，React 仅提交字节和有界展示名，不提交本地路径；Backend 不获得文件系统选择能力。multipart 上传和 raw image 响应使用固定独立 routes，不借用 SFTP chunk 或 Runtime WebSocket。HTTP JSON、SSE 与 UI store 不包含原图 Base64；只有正式 Provider/摘要请求临时构造图片输入。图片与历史均是不可信内容，不赋予执行授权。
+
+原图响应必须包含 `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff`。CORS 必须向两个固定 React 来源暴露 `X-Content-Type-Options` 和 `X-Request-ID`，让浏览器中的严格响应校验可以读取；仅返回响应头不足以允许跨域 JavaScript 读取。
+
+SQLite 原图 BLOB 沿用明文风险；附件归属与稳定 user_message_id 的绑定是业务一致性验证，不是新增用户认证。同用户进程的 loopback 风险不变。图片字节/文件名/Provider payload 不得主动进入日志。资源限制、错误码和删除语义以 HTTP 契约为唯一协议真源。

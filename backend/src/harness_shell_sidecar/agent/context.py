@@ -1,6 +1,7 @@
 """修复中断的工具历史并构建有界模型上下文视图。"""
 
 from __future__ import annotations
+from .image_messages import build_user_message
 
 import json
 from collections.abc import Sequence
@@ -71,6 +72,7 @@ class ContextService:
         agent_run_id: UUID,
         conversation_id: UUID,
         user_text: str,
+        attachment_ids: tuple[UUID, ...] = (),
     ) -> list[AnyMessage]:
         """先原子补齐中断调用，再持久化新的 HumanMessage。"""
 
@@ -79,7 +81,7 @@ class ContextService:
             messages = repository.load_messages(conversation_id)
             additions: list[AnyMessage] = [
                 *_interrupted_tool_messages(messages),
-                HumanMessage(content=user_text),
+                build_user_message(user_text, attachment_ids),
             ]
             repository.append_messages_atomic(
                 agent_run_id,
