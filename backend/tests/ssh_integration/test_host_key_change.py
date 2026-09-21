@@ -21,7 +21,7 @@ def compose_exec(service: str, script: str) -> None:
             "--env-file",
             str(ENV_FILE),
             "--project-name",
-            "harness-shell-m2",
+            "harness-shell-ssh-lab",
             "exec",
             "-T",
             service,

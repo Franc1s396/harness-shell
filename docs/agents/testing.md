@@ -27,18 +27,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-installer-ent
 仓库门禁：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m2.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-core.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-ssh.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-manual-sftp.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-agent.ps1
 ```
 
 ## 门禁边界
 
-- M1：本地 Windows Python/Frontend/Rust tests、packaged Backend 显式 `serve` loopback smoke、最小 Tauri capabilities 与 Frontend build。
-- M2：M1 加 OpenSSH Lab 脚本/真实 SSH integration、plaintext Alembic baseline evidence 与生成物跟踪检查。
-- Manual SFTP：M2 加浏览器本地文件/hash/256 KiB raw-chunk contract、Python remote recovery 和真实 OpenSSH SFTP/PTY isolation。
-- M3 Agent：Manual SFTP gate 加 Python `CredentialRepository` ownership、fake SDK streams 与 bound-session OpenSSH command。
+- Core：本地 Windows Python/Frontend/Rust tests、packaged Backend 显式 `serve` loopback smoke、最小 Tauri capabilities 与 Frontend build。
+- SSH：Core 加 OpenSSH Lab 脚本/真实 SSH integration、plaintext Alembic baseline evidence 与生成物跟踪检查。
+- Manual SFTP：SSH 加浏览器本地文件/hash/256 KiB raw-chunk contract、Python remote recovery 和真实 OpenSSH SFTP/PTY isolation。
+- Agent：Manual SFTP gate 加 Python `CredentialRepository` ownership、fake SDK streams 与 bound-session OpenSSH command。
 - `verify-installer-entry.ps1`：只静态证明 NSIS input/shortcut/finish target；不证明安装或进程行为。
 
 Python-only 与 SSH Lab 使用显式 `serve --port <fixed> --data-dir <isolated absolute>`。安装版 Desktop 只能从 Launcher 开始，并从 ready pipe 获得端口；测试和脚本不得扫描端口或直接把 UI/Backend 当用户入口。
@@ -67,7 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 
 `build-requirements.lock` 固定 `tiktoken==0.12.0` 及依赖，准备脚本生成 `o200k_base` ranks/metadata/固定样本，PyInstaller 纳入编码资源和原生扩展。build 脚本严格串行执行 lock、准备、check、PyInstaller 和实际 exe smoke。Runtime 初始化构造并测试 encoding 后才发布 READY；smoke 子进程使用临时空缓存、关闭端口代理及 loopback NO_PROXY。这证明当前产物不借用用户缓存或外网，不能替代真实断网机器和安装版验收。生成资源留在忽略的 build 目录，不提交。
 
-上下文回归覆盖：Provider round-trip 和表单预算、工具首部及 DB/model 一致、usage/revision、完整消息单位边界和 40% 向上取整、连续追加摘要、摘要取消/3 次尝试/输入与候选超预算、UI 文本隔离、旧库拒绝和 tokenizer 缺失/损坏。`verify-m3-agent.ps1` 包含全部 Agent/storage 测试和 Manual SFTP/M2 前置链。
+上下文回归覆盖：Provider round-trip 和表单预算、工具首部及 DB/model 一致、usage/revision、完整消息单位边界和 40% 向上取整、连续追加摘要、摘要取消/3 次尝试/输入与候选超预算、UI 文本隔离、旧库拒绝和 tokenizer 缺失/损坏。`verify-agent.ps1` 包含全部 Agent/storage 测试和 Manual SFTP/SSH 前置链。
 
 ## Desktop 与安装验收
 

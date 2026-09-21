@@ -1,4 +1,4 @@
-"""M2 连接配置与 Host Key 的 SQLite 仓库。"""
+"""连接配置与 Host Key 的 SQLite 仓库。"""
 
 from __future__ import annotations
 

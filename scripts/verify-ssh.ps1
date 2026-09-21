@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 if (-not $IsWindows -and $env:OS -ne 'Windows_NT') {
-    throw 'M2 verification requires Windows'
+    throw 'SSH verification requires Windows'
 }
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
@@ -14,9 +14,9 @@ if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
     throw 'The locked backend virtual environment is missing'
 }
 
-Write-Output '[1/5] M1 regression gate'
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'verify-m1.ps1')
-if ($LASTEXITCODE -ne 0) { throw 'M1 regression gate failed' }
+Write-Output '[1/5] Core regression gate'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'verify-core.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Core regression gate failed' }
 
 Write-Output '[2/5] Locked Python dependency check'
 & $pythonExe -m pip check
@@ -71,4 +71,4 @@ if ($forbiddenTracked.Count -ne 0) {
     throw "Generated or secret files are tracked: $($forbiddenTracked -join ', ')"
 }
 
-Write-Output 'M2 automated gate passed: local Windows checkout and containerized OpenSSH lab against plaintext Alembic baseline only.'
+Write-Output 'SSH automated gate passed: local Windows checkout and containerized OpenSSH lab against plaintext Alembic baseline only.'

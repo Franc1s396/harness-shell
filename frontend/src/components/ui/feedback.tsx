@@ -45,17 +45,3 @@ export function EmptyState({
     </div>
   );
 }
-
-export function MilestonePlaceholder({
-  label,
-  milestone,
-}: {
-  label: string;
-  milestone: string;
-}) {
-  return (
-    <span className="sr-only">
-      {label}: {milestone}
-    </span>
-  );
-}

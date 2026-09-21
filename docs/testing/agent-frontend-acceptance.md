@@ -1,8 +1,10 @@
-# M3 Experimental React Shell Agent Frontend Acceptance（历史快照）
+# Experimental React Shell Agent Frontend Acceptance（历史快照）
+
+> 文中的门禁名称、命令与测试配置名称已按能力统一命名；历史结果和验收边界保持原记录含义，示例文案不再作为逐字日志引用。
 
 > 下文记录旧 Rust 业务边界下的历史观察，不能代表当前 Launcher、React direct Backend 或安装版 Desktop 已验收。当前要求见 `http-backend-migration-acceptance.md`。
 
-本记录只覆盖 2026-08-31 当前 checkout 的 React Agent 前端实现与实际执行证据。Frontend、M3 自动门禁、Tauri Desktop、真实 Provider、生产 SSH、部署和迁移是相互独立的证据层；任一层通过都不能推导其他层通过。
+本记录只覆盖 2026-08-31 当前 checkout 的 React Agent 前端实现与实际执行证据。Frontend、Agent 自动门禁、Tauri Desktop、真实 Provider、生产 SSH、部署和迁移是相互独立的证据层；任一层通过都不能推导其他层通过。
 
 ## 环境
 
@@ -29,12 +31,12 @@
 - TypeScript: PASS
 - Vite: PASS，`138` modules transformed
 
-## M3 local automated gate
+## Agent local automated gate
 
-- Command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1`
+- Command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-agent.ps1`
 - First sandboxed attempt: NOT A CODE RESULT；Docker config/named-pipe access was denied by the sandbox before the gate could start.
 - Re-run outside the sandbox with the same command: PASS，exit code `0`
-- Final marker: `M3 Agent automated gate passed: local Windows checkout, fake ChatModels, packaged Sidecar, and containerized OpenSSH lab only.`
+- Final marker: `Agent automated gate passed: local Windows checkout, fake ChatModels, packaged Sidecar, and containerized OpenSSH lab only.`
 - Focused Agent/runtime/schema Python phase: `136 passed`
 - Bound-session OpenSSH Agent integration: `4 passed`
 - Nested regression evidence: Manual SFTP automated gate PASS；Frontend `51` files / `278` tests PASS；production frontend build PASS.
@@ -90,6 +92,6 @@
 ## Result
 
 - React Agent frontend implementation: PASS for full automated suite and production build.
-- M3 local automated gate: PASS for its exact fake/packaged/container scope.
+- Agent local automated gate: PASS for its exact fake/packaged/container scope.
 - Tauri Desktop Agent acceptance: PARTIAL PASS only for the observations above.
 - Real Provider, production SSH, deployment and migration acceptance: NOT RUN.

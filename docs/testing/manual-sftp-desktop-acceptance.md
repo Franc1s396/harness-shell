@@ -6,7 +6,7 @@
 
 本清单只记录当前 Windows checkout 的 Tauri Desktop 人工观察。自动门禁、containerized OpenSSH Lab、桌面人工验收和 production host/deployment/migration 验收是不同证据层级，不能相互替代。
 
-用户手动 SFTP 只允许人类在 SFTP Activity 中显式操作。Agent、M3 Workflow 和 WebView raw Protocol 均无 SFTP/exec 路由；当前也不存在独立 approval UI。失败后不得自动联网、恢复或重放 mutation。
+用户手动 SFTP 只允许人类在 SFTP Activity 中显式操作。Agent Workflow 和 WebView raw Protocol 均无 SFTP/exec 路由；当前也不存在独立 approval UI。失败后不得自动联网、恢复或重放 mutation。
 
 ## 环境与构建身份
 

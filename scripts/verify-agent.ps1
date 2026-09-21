@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 if (-not $IsWindows -and $env:OS -ne 'Windows_NT') {
-    throw 'M3 Agent verification requires Windows'
+    throw 'Agent verification requires Windows'
 }
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
@@ -17,7 +17,7 @@ Write-Output '[1/4] Manual SFTP regression gate'
 if ($LASTEXITCODE -ne 0) { throw 'Manual SFTP regression gate failed' }
 
 Write-Output '[2/4] Focused Agent, runtime, and schema tests'
-$agentTemp = Join-Path $env:TEMP "harness-shell-m3-agent-$PID"
+$agentTemp = Join-Path $env:TEMP "harness-shell-agent-$PID"
 & $pythonExe -m pytest --basetemp $agentTemp -p no:cacheprovider `
     (Join-Path $backendRoot 'tests\agent') `
     (Join-Path $backendRoot 'tests\web\test_agent_routes.py') `
@@ -44,7 +44,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'OpenSSH lab startup failed' }
     $labStarted = $true
     $env:HARNESS_RUN_SSH_INTEGRATION = '1'
-    $integrationTemp = Join-Path $env:TEMP "harness-shell-m3-agent-integration-$PID"
+    $integrationTemp = Join-Path $env:TEMP "harness-shell-agent-integration-$PID"
     & $pythonExe -m pytest --basetemp $integrationTemp -p no:cacheprovider `
         (Join-Path $backendRoot 'tests\ssh_integration\test_agent_command.py') -q
     if ($LASTEXITCODE -ne 0) { throw 'OpenSSH Agent integration failed' }
@@ -55,4 +55,4 @@ try {
     }
 }
 
-Write-Output 'M3 Agent automated gate passed: Python CredentialRepository, fake ChatModels, and containerized OpenSSH lab only.'
+Write-Output 'Agent automated gate passed: Python CredentialRepository, fake ChatModels, and containerized OpenSSH lab only.'

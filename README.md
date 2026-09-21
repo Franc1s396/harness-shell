@@ -6,6 +6,8 @@
 
 Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用，将 SSH 终端、文件传输和 AI 辅助操作整合在同一工作区。
 
+![Harness Shell SSH 终端与 AI Agent 工作区](demo.png)
+
 **功能特性**
 
 - SSH 连接管理、Host Key 确认、直连与单层 ProxyJump。
@@ -55,6 +57,8 @@ npm.cmd --prefix frontend run tauri:dev -- -- -- --backend-url http://127.0.0.1:
 开发数据保存在 `.runtime/dev`，数据库可能明文保存凭据与会话内容，请勿上传或提交。
 
 ## 贡献指南
+
+欢迎提交问题反馈、文档改进和代码贡献，具体流程见 [贡献指南](CONTRIBUTING.md)。
 
 - 修改前阅读 [AGENTS.md](AGENTS.md) 及对应领域指南。
 - 保持改动聚焦，行为变更补充测试，契约变化同步相关文档。

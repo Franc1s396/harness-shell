@@ -65,8 +65,8 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_m2_requires_complete_alembic_baseline_and_ssh_runtime_rows(tmp_path: Path) -> None:
-    """M2 的通用记录可以为空，因为 SSH 测试注入凭据。"""
+def test_ssh_requires_complete_alembic_baseline_and_ssh_runtime_rows(tmp_path: Path) -> None:
+    """SSH 验证中的通用记录可以为空，因为测试会注入凭据。"""
 
     create_database(tmp_path)
     result = run_checker(tmp_path)

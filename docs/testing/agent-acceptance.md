@@ -1,6 +1,8 @@
-# M3 Experimental ReAct Shell Agent Acceptance（历史快照）
+# Experimental ReAct Shell Agent Acceptance（历史快照）
 
-> 下文是切换到 Python CredentialRepository 与 schema v6 之前的证据，仅用于历史追踪，不能代表当前架构通过。当前 M3 门禁范围以 `docs/agents/testing.md` 为准。
+> 文中的门禁名称、命令与测试配置名称已按能力统一命名；历史结果和验收边界保持原记录含义，示例文案不再作为逐字日志引用。
+
+> 下文是切换到 Python CredentialRepository 与 schema v6 之前的证据，仅用于历史追踪，不能代表当前架构通过。当前 Agent 门禁范围以 `docs/agents/testing.md` 为准。
 
 本记录区分自动门禁、真实 Provider、Tauri Desktop 和生产环境证据。任何一层 PASS 都不能推导其他层已经验收。
 
@@ -8,9 +10,9 @@
 
 - Tester: Codex local execution（用户已授权实施与验证）
 - Checkout: `E:\codeSoftware\code\harness-shell`，保留当前未提交工作区
-- Command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-m3-agent.ps1`
+- Command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-agent.ps1`
 - Result: PASS，exit code `0`
-- Final marker: `M3 Agent automated gate passed: local Windows checkout, fake ChatModels, packaged Sidecar, and containerized OpenSSH lab only.`
+- Final marker: `Agent automated gate passed: local Windows checkout, fake ChatModels, packaged Sidecar, and containerized OpenSSH lab only.`
 - Focused Agent/runtime/schema tests: PASS，`111 passed`
 - Rust all-target contracts: PASS；包含 Agent command/Protocol、49-command capability、Vault API Key kind、schema v4 ready 和 packaged Sidecar contracts
 - Packaged Sidecar: PASS；Python `3.12.13` 与锁定依赖完成 PyInstaller build，并复制到 Tauri sidecar binary 位置
@@ -39,7 +41,7 @@
 
 ## Result
 
-- M3 experimental Agent automated gate: PASS for the exact local/fake/packaged/container scope above.
+- Experimental Agent automated gate: PASS for the exact local/fake/packaged/container scope above.
 - Real Provider acceptance: NOT RUN.
 - Tauri Desktop Agent acceptance: NOT RUN.
 - Production/deployment/migration acceptance: NOT RUN.

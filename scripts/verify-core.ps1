@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 if (-not $IsWindows -and $env:OS -ne 'Windows_NT') {
-    throw 'M1 verification requires Windows'
+    throw 'Core verification requires Windows'
 }
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
@@ -23,15 +23,15 @@ if ($null -eq (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
 }
 $pythonVersion = & $pythonExe -c 'import platform; print(platform.python_version())'
 if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne '3.12.14') {
-    throw "M1 requires Python 3.12.14, found $pythonVersion"
+    throw "Core requires Python 3.12.14, found $pythonVersion"
 }
 $rustHost = & (Join-Path $cargoBin 'rustc.exe') -vV | Where-Object { $_ -match '^host:' }
 if ($LASTEXITCODE -ne 0 -or $rustHost -ne 'host: x86_64-pc-windows-msvc') {
-    throw "M1 requires the x86_64-pc-windows-msvc rustc host, found $rustHost"
+    throw "Core requires the x86_64-pc-windows-msvc rustc host, found $rustHost"
 }
 
 Write-Output '[1/6] Python tests'
-$pytestTemp = Join-Path $env:TEMP "harness-shell-m1-pytest-$PID"
+$pytestTemp = Join-Path $env:TEMP "harness-shell-core-pytest-$PID"
 & $pythonExe -m pytest --basetemp $pytestTemp -p no:cacheprovider $backendRoot
 if ($LASTEXITCODE -ne 0) { throw 'Python tests failed' }
 
@@ -50,7 +50,7 @@ $portListener = [System.Net.Sockets.TcpListener]::new(
 $portListener.Start()
 $smokePort = ([System.Net.IPEndPoint]$portListener.LocalEndpoint).Port
 $portListener.Stop()
-$smokeData = Join-Path $workspaceRoot ".runtime\verify-m1-$PID"
+$smokeData = Join-Path $workspaceRoot ".runtime\verify-core-$PID"
 New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
 $smokeStdout = Join-Path $smokeData 'packaged-serve.stdout.log'
 $smokeStderr = Join-Path $smokeData 'packaged-serve.stderr.log'
@@ -127,4 +127,4 @@ if ($libSource -match 'commands::(?:agent|approval|connections|credentials|diagn
     throw 'A removed Rust business command module remains registered'
 }
 
-Write-Output 'M1 automated gate passed: local Windows tests, packaged Backend serve smoke, minimal Tauri shell, and frontend build only.'
+Write-Output 'Core automated gate passed: local Windows tests, packaged Backend serve smoke, minimal Tauri shell, and frontend build only.'

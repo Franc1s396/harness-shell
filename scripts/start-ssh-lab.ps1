@@ -44,20 +44,20 @@ function New-RuntimeSecret([string]$Prefix) {
     return "$Prefix-$hex"
 }
 
-$jumpPassword = New-RuntimeSecret 'm2-jump'
-$targetPassword = New-RuntimeSecret 'm2-target'
-$keyPassphrase = New-RuntimeSecret 'm2-key'
+$jumpPassword = New-RuntimeSecret 'ssh-lab-jump'
+$targetPassword = New-RuntimeSecret 'ssh-lab-target'
+$keyPassphrase = New-RuntimeSecret 'ssh-lab-key'
 $plainKey = Join-Path $runtimeRoot 'client_unencrypted_ed25519'
 $encryptedKey = Join-Path $runtimeRoot 'client_encrypted_ed25519'
 
-& ssh-keygen.exe -q -t ed25519 -N '""' -C 'harness-m2-unencrypted' -f $plainKey
+& ssh-keygen.exe -q -t ed25519 -N '""' -C 'harness-ssh-lab-unencrypted' -f $plainKey
 if ($LASTEXITCODE -ne 0) { throw 'Unencrypted client key generation failed' }
-& ssh-keygen.exe -q -t ed25519 -N $keyPassphrase -C 'harness-m2-encrypted' -f $encryptedKey
+& ssh-keygen.exe -q -t ed25519 -N $keyPassphrase -C 'harness-ssh-lab-encrypted' -f $encryptedKey
 if ($LASTEXITCODE -ne 0) { throw 'Encrypted client key generation failed' }
 
 foreach ($nodeRoot in @($jumpRoot.FullName, $targetRoot.FullName)) {
     $hostKey = Join-Path $nodeRoot 'host_ed25519_key'
-    & ssh-keygen.exe -q -t ed25519 -N '""' -C 'harness-m2-host' -f $hostKey
+    & ssh-keygen.exe -q -t ed25519 -N '""' -C 'harness-ssh-lab-host' -f $hostKey
     if ($LASTEXITCODE -ne 0) { throw "Host key generation failed for $nodeRoot" }
     $authorizedKeys = @(
         [IO.File]::ReadAllText("$plainKey.pub").Trim(),
@@ -115,9 +115,9 @@ $secrets = [ordered]@{
 
 Push-Location $labRoot
 try {
-    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-m2 down --remove-orphans
+    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab down --remove-orphans
     if ($LASTEXITCODE -ne 0) { throw 'Existing SSH lab cleanup failed' }
-    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-m2 up --build --force-recreate --detach
+    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab up --build --force-recreate --detach
     if ($LASTEXITCODE -ne 0) { throw 'SSH lab startup failed' }
 
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
@@ -128,7 +128,7 @@ try {
             -Deadline $deadline `
             -QueryContainerId {
                 param([string]$QueryService)
-                $queryOutput = @(& docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-m2 ps -q $QueryService)
+                $queryOutput = @(& docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab ps -q $QueryService)
                 if ($LASTEXITCODE -ne 0) {
                     throw "Unable to inspect SSH lab container: $QueryService"
                 }
@@ -164,7 +164,7 @@ try {
         $client.Dispose()
     }
 } catch {
-    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-m2 down --remove-orphans | Out-Null
+    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab down --remove-orphans | Out-Null
     throw
 } finally {
     Pop-Location

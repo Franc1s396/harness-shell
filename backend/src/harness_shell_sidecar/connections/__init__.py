@@ -1,4 +1,4 @@
-"""M2 连接的公共契约。"""
+"""连接的公共契约。"""
 
 from .models import (
     ConnectionProfile,

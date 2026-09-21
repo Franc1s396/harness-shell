@@ -11,7 +11,7 @@
 | Tauri shell tests | PASS | 覆盖 production bootstrap 与单窗口最小 capability |
 | Launcher tests | PASS | 9 tests passed；覆盖 ready/control pipe、Job、child ordering、bounded cleanup 的本地自动化行为 |
 | Installer static check | PASS | bundle inputs 与 Start Menu/Desktop/finish action 均只指向 Launcher |
-| M1/M2/Manual SFTP/M3 gates | NOT RUN | schema v6 清理后未重跑完整 gate；2026-09-02 旧 schema 证据不能替代本轮验收 |
+| Core/SSH/Manual SFTP/Agent gates | NOT RUN | schema v6 清理后未重跑完整 gate；2026-09-02 旧 schema 证据不能替代本轮验收 |
 | NSIS build | NOT RUN | schema v6 与打包依赖清理后未重新生成安装包 |
 | Disposable-user Desktop matrix | NOT RUN | 安装、可见入口、真实进程顺序、picker、退出清理 |
 | Real Provider / production SSH / deployment / old-data migration | NOT RUN | 必须独立验收；当前旧库策略为明确拒绝而非迁移 |

@@ -58,7 +58,7 @@ describe("workspace UI store", () => {
     expect(persisted).not.toHaveProperty("layoutRevision");
   });
 
-  it("migrates v1 sidebar preferences and supplies M2 Agent defaults", () => {
+  it("migrates v1 sidebar preferences and supplies Agent defaults", () => {
     expect(
       migrateWorkspaceState(
         {

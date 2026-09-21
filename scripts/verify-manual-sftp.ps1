@@ -15,9 +15,9 @@ if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
     throw 'The locked backend virtual environment is missing'
 }
 
-Write-Output '[1/5] M2 regression gate'
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'verify-m2.ps1')
-if ($LASTEXITCODE -ne 0) { throw 'M2 regression gate failed' }
+Write-Output '[1/5] SSH regression gate'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'verify-ssh.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'SSH regression gate failed' }
 
 Write-Output '[2/5] Focused Manual SFTP contracts'
 $focusedTemp = Join-Path $env:TEMP "harness-shell-manual-sftp-unit-$PID"

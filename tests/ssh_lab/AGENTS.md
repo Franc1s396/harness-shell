@@ -12,7 +12,7 @@
 - 保持双节点隔离拓扑：`jump` 同时连接 host-facing `ssh_ingress` 和 internal `ssh_lab`；`target` 只能连接 internal `ssh_lab`。
 - 只允许 `jump` 的 SSH 端口绑定到 `127.0.0.1:2222`；不得把 `target` 直接暴露到 host 来让 ProxyJump 测试“通过”。
 - password、private key、passphrase、Host Key manifest 和 evidence 只生成在 `tests/ssh_lab/.runtime/`，不得提交或输出真实秘密。
-- Secret marker 扫描、runtime database evidence 检查和 cleanup 都是 M2 gate 的组成部分；不得跳过失败阶段后报告总门禁成功。
+- Secret marker 扫描、runtime database evidence 检查和 cleanup 都是 SSH gate 的组成部分；不得跳过失败阶段后报告总门禁成功。
 - 启停脚本必须显式检查 Docker/Compose、容器端口、真实 TCP 可达性和资源清理，不能只依据 Compose config 或 health 声称可用。
 - PowerShell 调用 `ssh-keygen.exe` 时保留经过测试的空 passphrase 参数语义，不恢复会在 Windows PowerShell 5.1 丢失空参数的写法。
 - Linux 容器运行的 `*.sh` 必须保持 LF 行尾；根 `.gitattributes` 固定 checkout 规则，字节级契约测试阻止 CRLF shebang 进入 SSH Lab。

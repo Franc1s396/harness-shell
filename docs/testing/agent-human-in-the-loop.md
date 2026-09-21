@@ -15,12 +15,12 @@
 | `npm.cmd --prefix frontend run build` | TypeScript 与 Vite 构建退出 0；存在超过 500 kB 的 chunk 提示 |
 | `python backend/scripts/export_http_contract.py --write` / `--check` | 退出 0；48 个真实 HTTP operations，增加决定请求和两个 SSE event |
 | 真实 ASGI 原 SSE + 独立决定 HTTP | 通过/拒绝两种序列通过，原 Run/sequence 保持一致；HTTP 成功只表示已记录 |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-m3-agent.ps1` | 第二次完整退出 0；含 M1/M2/Manual SFTP、Backend 打包冒烟、Tauri、fake Provider 与 OpenSSH Lab |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-agent.ps1` | 第二次完整退出 0；含 Core/SSH/Manual SFTP、Backend 打包冒烟、Tauri、fake Provider 与 OpenSSH Lab |
 | OpenSSH `test_agent_command.py` | 6 passed；包括两个 HITL marker case：等待/拒绝时 marker 不存在，通过后内容恰为一个 x；容器和网络已清理 |
 | 审核/资源/取消补充用例 | 覆盖一次消费、幂等决定、错身份、多调用、后续重新审核、拒绝结果进入下一模型请求、取消、目标/跳板断连、局部 waiter 取消不关闭共享 SSH、SSE 发布失败、清理异常保留首个取消、普通 16 槽满载仍可使用 1 个控制槽 |
 | UI 补充用例 | 气泡纯文本，无图片执行；提交禁用、审批消息保留、无 spinner、旧未知审批不影响新 Run、原按钮取消、重复点击只发一次、SSE 先于 HTTP、矛盾结果显式报错、未知字段/错关联/非法顺序拒绝 |
 
-第一次 M3 停在 npm ci，日志为 registry 下载 EACCES 并最终 `Exit handler never called`。已在现有 package-lock 下重新安装成功，未升级依赖或改变锁文件；第二次全门禁通过。门禁后增加了少量时序与清理防护，最终代码以完整 Python/Frontend 回归和新测试验证；先前打包产物不代表最后改动的安装验收。
+第一次 Agent 停在 npm ci，日志为 registry 下载 EACCES 并最终 `Exit handler never called`。已在现有 package-lock 下重新安装成功，未升级依赖或改变锁文件；第二次全门禁通过。门禁后增加了少量时序与清理防护，最终代码以完整 Python/Frontend 回归和新测试验证；先前打包产物不代表最后改动的安装验收。
 
 ## Checkpoint 资源观察
 
@@ -44,4 +44,4 @@
 
 已更新根 `AGENTS.md`、Backend `AGENTS.md`、SSH Lab `AGENTS.md`、`docs/agents/{architecture,frontend,python-sidecar,protocol-security,testing}.md` 和 HTTP 契约说明。规格/计划记录实现落点与验证边界。最终 `git diff --check`、导出器 `--check` 均退出 0。
 
-最终 `backend\.venv\Scripts\python.exe -m pytest backend -q --tb=short --show-capture=no`：721 passed、15 skipped、退出 0。15 个 SSH integration 在普通测试模式跳过，其中 Agent 的 6 项已由完整 M3 独立启用并通过。追加的路由/fixture 聚焦测试 20 passed；最终前端构建退出 0。
+最终 `backend\.venv\Scripts\python.exe -m pytest backend -q --tb=short --show-capture=no`：721 passed、15 skipped、退出 0。15 个 SSH integration 在普通测试模式跳过，其中 Agent 的 6 项已由完整 Agent 独立启用并通过。追加的路由/fixture 聚焦测试 20 passed；最终前端构建退出 0。

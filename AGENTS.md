@@ -16,7 +16,7 @@ Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前桌�
 
 Python FastAPI application 在 ASGI lifespan 内从显式 `RuntimeSettings` 自主打开资源，提供 typed HTTP、single-owner Runtime WebSocket、共享 `RuntimeResources`/dispatcher owner 和 Problem Details。Manual SFTP chunk 使用严格 `application/octet-stream`；PTY input、SSH/PTY/SFTP event 与 heartbeat 使用 Runtime WebSocket。生产启动顺序固定为 Launcher 创建 Job/控制管道 → Backend `desktop --port 0` 绑定动态端口并写 ready frame → Launcher 启动 UI 并传入 `--backend-url`。UI 退出后 Launcher 请求 Backend 有界优雅退出，超时则终止 Job；不 reconnect、不 respawn、不扫描端口。
 
-当前 M2 已实现连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多标签人工 PTY 和仅用户显式操作的手动 SFTP。Runtime 数据库为同步 SQLAlchemy 2.0 ORM 管理的 plaintext SQLite STRICT，启动时通过 Alembic 从全新库建立版本基线并升级已知 revision；旧 schema v7 不接管，所有凭据、conversation/run/message、remote recovery 与业务记录均有明文落盘风险。未形成读取或导出闭环的 SQLite Audit/Trace 已删除，诊断只写 Python 日志目录。连接或 Provider 的加密凭据只随其所属业务 mutation 提交，由 Python handler 在同一 SQLite 事务内写入凭据与业务记录；不存在独立凭据 mutation HTTP 接口。连接配置仍用 JS-safe 单调 `version` 拒绝凭据解析后的陈旧目标或跳板配置。Agent 支持用户选择/粘贴图片，原图存 SQLite BLOB；模型仍回复文字，具体输入和清理责任见领域文档。实验性 M3 ReAct Shell Agent 由 Python `CredentialRepository` 解析模型 API Key；每个 turn 冻结所选 Provider 与 connected SSH Session，只允许严格 `execute_command` 工具；明确只读自动执行，其余由对话栏审核气泡决定，后端使用每 Run 内存 interrupt/checkpointer。`POST /v1/agent/turns` 以独立 SSE response 实时发送 AI 可见文本及完整更新（包括工具前说明），React 通过 `fetch()`/`ReadableStream` 消费；它不使用或扩展 Runtime WebSocket。React 拥有连接私钥和 Manual SFTP 的本地选择；私钥只读取为短生命周期文本并随连接 mutation 加密发送，不传本地路径。Manual SFTP 的 handle、SHA-256 与 256 KiB chunk iteration 也由 React 拥有，Python 只拥有远端临时文件、commit 与 recovery。真实 Provider、完整安装版 Desktop matrix、生产 SSH、部署和用户真实旧数据迁移仍未验收；自动测试、构建和容器 SSH Lab 不得表述为生产验收。
+当前已实现连接管理、显式 Host Key 信任、直连与单层 ProxyJump、多标签人工 PTY 和仅用户显式操作的手动 SFTP。Runtime 数据库为同步 SQLAlchemy 2.0 ORM 管理的 plaintext SQLite STRICT，启动时通过 Alembic 从全新库建立版本基线并升级已知 revision；旧 schema v7 不接管，所有凭据、conversation/run/message、remote recovery 与业务记录均有明文落盘风险。未形成读取或导出闭环的 SQLite Audit/Trace 已删除，诊断只写 Python 日志目录。连接或 Provider 的加密凭据只随其所属业务 mutation 提交，由 Python handler 在同一 SQLite 事务内写入凭据与业务记录；不存在独立凭据 mutation HTTP 接口。连接配置仍用 JS-safe 单调 `version` 拒绝凭据解析后的陈旧目标或跳板配置。Agent 支持用户选择/粘贴图片，原图存 SQLite BLOB；模型仍回复文字，具体输入和清理责任见领域文档。实验性 ReAct Shell Agent 由 Python `CredentialRepository` 解析模型 API Key；每个 turn 冻结所选 Provider 与 connected SSH Session，只允许严格 `execute_command` 工具；明确只读自动执行，其余由对话栏审核气泡决定，后端使用每 Run 内存 interrupt/checkpointer。`POST /v1/agent/turns` 以独立 SSE response 实时发送 AI 可见文本及完整更新（包括工具前说明），React 通过 `fetch()`/`ReadableStream` 消费；它不使用或扩展 Runtime WebSocket。React 拥有连接私钥和 Manual SFTP 的本地选择；私钥只读取为短生命周期文本并随连接 mutation 加密发送，不传本地路径。Manual SFTP 的 handle、SHA-256 与 256 KiB chunk iteration 也由 React 拥有，Python 只拥有远端临时文件、commit 与 recovery。真实 Provider、完整安装版 Desktop matrix、生产 SSH、部署和用户真实旧数据迁移仍未验收；自动测试、构建和容器 SSH Lab 不得表述为生产验收。
 
 详细架构与能力边界见 [Architecture Guide](docs/agents/architecture.md)。
 
@@ -44,7 +44,7 @@ Python FastAPI application 在 ASGI lifespan 内从显式 `RuntimeSettings` 自�
 | Python Sidecar、SSH、PTY、存储、Telemetry、远程 I/O | [Python Sidecar Guide](docs/agents/python-sidecar.md) 和 [Python Style Guide](docs/agents/python-style.md) |
 | 任意 Python 源码、测试或脚本修改 | [Python Style Guide](docs/agents/python-style.md) |
 | typed HTTP/WebSocket、事件、跨进程错误、凭据或安全边界 | [Architecture Guide](docs/agents/architecture.md) 和 [Protocol & Security Guide](docs/agents/protocol-security.md) |
-| 单元测试、集成测试、Sidecar 打包、SSH Lab、M1/M2 验收 | [Testing Guide](docs/agents/testing.md) |
+| 单元测试、集成测试、Sidecar 打包、SSH Lab、基础设施与 SSH 验收 | [Testing Guide](docs/agents/testing.md) |
 | 跨层功能 | 上述所有涉及层的领域文档 |
 
 进入以下高风险目录时，还必须读取局部规则：
@@ -65,7 +65,7 @@ Python FastAPI application 在 ASGI lifespan 内从显式 `RuntimeSettings` 自�
 │   ├── src/harness_shell_sidecar/    # FastAPI runtime、SSH、PTY、存储与遥测
 │   ├── tests/                        # Python 单元、集成与 SSH 测试
 │   └── scripts/                      # Sidecar 打包脚本
-├── scripts/                          # 仓库级 M1/M2 验证与 SSH Lab 生命周期脚本
+├── scripts/                          # 仓库级基础设施与 SSH 验证与 SSH Lab 生命周期脚本
 ├── tests/ssh_lab/                    # 隔离的双节点 OpenSSH 容器实验室
 ├── docs/protocol/http/               # HTTP/WebSocket v1 契约与 fixture
 ├── docs/testing/                     # 自动门禁和人工验收记录
@@ -103,20 +103,20 @@ python -m venv .venv
 
 ```powershell
 cd ..
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m2.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-core.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-ssh.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-manual-sftp.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m3-agent.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-agent.ps1
 ```
 
-`verify-m2.ps1` 额外要求 Docker Desktop、Docker Compose v2 和 Windows OpenSSH `ssh-keygen.exe`。更细的命令和适用范围见对应领域文档；数据库迁移由 Backend 启动自动执行；仓库当前没有统一 lint、format 或部署命令，不得虚构。
+`verify-ssh.ps1` 额外要求 Docker Desktop、Docker Compose v2 和 Windows OpenSSH `ssh-keygen.exe`。更细的命令和适用范围见对应领域文档；数据库迁移由 Backend 启动自动执行；仓库当前没有统一 lint、format 或部署命令，不得虚构。
 
 ## 工作与验证流程
 
 1. 开始前读取根规则、任务路由命中的领域文档和最近的局部规则。
 2. 只读确认源码真源、工作区状态和当前能力边界。
 3. 获得实现授权后，仅修改任务范围内文件，并保留无关工作。
-4. 先运行最小相关验证，再按风险扩大到子系统或 M1/M2 门禁。
+4. 先运行最小相关验证，再按风险扩大到子系统或 基础设施与 SSH 门禁。
 5. 明确区分单元测试、构建、打包、容器实验室、桌面验收和生产验收。
 6. 结束前执行 AGENTS 文档影响检查和 `git diff --check`；未获授权不得执行 Git 写操作。
 

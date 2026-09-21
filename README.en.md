@@ -6,6 +6,8 @@
 
 Harness Shell is a local AI SSH Agent desktop application for Windows, bringing SSH terminals, file transfers, and AI-assisted operations into one workspace.
 
+![Harness Shell SSH terminal and AI Agent workspace](demo.png)
+
 **Features**
 
 - SSH connection management, host key confirmation, direct connections, and single-hop ProxyJump.
@@ -55,6 +57,8 @@ Add an SSH connection, then verify and trust its host key. To use the AI Agent, 
 Development data is stored in `.runtime/dev`. The database may contain plaintext credentials and conversation content; do not upload or commit it.
 
 ## Contributing
+
+Bug reports, documentation improvements, and code contributions are welcome. See the [contribution guide](CONTRIBUTING.en.md) for the workflow.
 
 - Read [AGENTS.md](AGENTS.md) and the relevant domain guides before making changes.
 - Keep changes focused, add tests for behavior changes, and update relevant documentation when contracts change.

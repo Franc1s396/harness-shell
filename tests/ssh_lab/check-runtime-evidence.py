@@ -16,7 +16,7 @@ REQUIRED_SCHEMA_TABLES = (
     "agent_messages",
     "agent_context_summaries",
 )
-M2_REQUIRED_ROWS = ("connection_profiles", "host_keys")
+SSH_REQUIRED_ROWS = ("connection_profiles", "host_keys")
 
 
 def main() -> None:
@@ -36,7 +36,7 @@ def main() -> None:
 
     schema_present: set[str] = set()
     versions: set[str] = set()
-    row_counts = {table: 0 for table in M2_REQUIRED_ROWS}
+    row_counts = {table: 0 for table in SSH_REQUIRED_ROWS}
     manual_sftp_operations = 0
     database_paths = sorted(
         path
@@ -71,7 +71,7 @@ def main() -> None:
                 actual = connection.execute("SELECT version_num FROM alembic_version").fetchall()
                 if actual != [("0001_initial",)]:
                     raise SystemExit("required Alembic revision 0001_initial is missing")
-            for table in M2_REQUIRED_ROWS:
+            for table in SSH_REQUIRED_ROWS:
                 if table in present:
                     row_counts[table] += connection.execute(
                         f"SELECT COUNT(*) FROM {table}"

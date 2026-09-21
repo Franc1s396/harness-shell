@@ -2,7 +2,6 @@ import { useId, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Tooltip } from "../../components/ui/controls";
-import { MilestonePlaceholder } from "../../components/ui/feedback";
 import { useWorkspaceUiStore, type WorkspaceActivity } from "../../stores/workspace-ui-store";
 import { ShellIcon, type ShellIconName } from "./icons";
 
@@ -12,15 +11,14 @@ type Activity = {
   unavailableKey?: string;
   icon: ShellIconName;
   enabled: boolean;
-  milestone: "M2" | "M3+";
   activity?: WorkspaceActivity;
 };
 
 export const activities: readonly Activity[] = [
-  { id: "connections", labelKey: "nav.connections", icon: "connections", enabled: true, milestone: "M2", activity: "connections" },
-  { id: "files", labelKey: "nav.files", unavailableKey: "activity.filesUnavailable", icon: "files", enabled: false, milestone: "M3+" },
-  { id: "sftp", labelKey: "nav.sftp", icon: "sftp", enabled: true, milestone: "M2", activity: "sftp" },
-  { id: "settings", labelKey: "activity.settings", icon: "settings", enabled: true, milestone: "M2", activity: "settings" },
+  { id: "connections", labelKey: "nav.connections", icon: "connections", enabled: true, activity: "connections" },
+  { id: "files", labelKey: "nav.files", unavailableKey: "activity.filesUnavailable", icon: "files", enabled: false },
+  { id: "sftp", labelKey: "nav.sftp", icon: "sftp", enabled: true, activity: "sftp" },
+  { id: "settings", labelKey: "activity.settings", icon: "settings", enabled: true, activity: "settings" },
 ];
 
 type ActivityBarProps = {
@@ -58,7 +56,7 @@ export function ActivityBar({
         const button = (
           <button
             type="button"
-            aria-label={`${label} (${activity.milestone})`}
+            aria-label={label}
             aria-current={selected ? "page" : undefined}
             aria-describedby={!activity.enabled ? descriptionId : undefined}
             disabled={!activity.enabled}
@@ -71,13 +69,11 @@ export function ActivityBar({
 
         if (activity.enabled) return <span key={activity.id}>{button}</span>;
 
-        const milestoneText = t(activity.unavailableKey!);
+        const unavailableText = t(activity.unavailableKey!);
         return (
-          <Tooltip key={activity.id} text={milestoneText} placement="right">
+          <Tooltip key={activity.id} text={unavailableText} placement="right">
             {button}
-            <span id={descriptionId}>
-              <MilestonePlaceholder label={label} milestone={activity.milestone} />
-            </span>
+            <span id={descriptionId} className="sr-only">{unavailableText}</span>
           </Tooltip>
         );
       })}

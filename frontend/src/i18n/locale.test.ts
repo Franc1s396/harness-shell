@@ -10,17 +10,17 @@ describe("locale resolution", () => {
     en: {
       "topbar.localEnvironment": "Local",
       "activity.settings": "Settings",
-      "activity.filesUnavailable": "Files are planned for M3",
+      "activity.filesUnavailable": "Files are not available yet",
     },
     "zh-CN": {
       "topbar.localEnvironment": "本地",
       "activity.settings": "设置",
-      "activity.filesUnavailable": "文件功能计划在 M3 提供",
+      "activity.filesUnavailable": "文件功能暂未提供",
     },
     "zh-TW": {
       "topbar.localEnvironment": "本機",
       "activity.settings": "設定",
-      "activity.filesUnavailable": "檔案功能預計於 M3 提供",
+      "activity.filesUnavailable": "檔案功能暫未提供",
     },
   } as const;
 

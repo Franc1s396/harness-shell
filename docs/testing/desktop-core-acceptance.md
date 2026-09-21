@@ -1,4 +1,6 @@
-# M1 桌面基础设施验收（历史快照）
+# 桌面基础设施验收（历史快照）
+
+> 文中的门禁名称、命令与测试配置名称已按能力统一命名；历史结果和验收边界保持原记录含义，示例文案不再作为逐字日志引用。
 
 > 本文件记录旧桌面架构的历史验收，不是当前 Launcher + React direct Backend 架构的有效验收。当前入口与证据边界见 `http-backend-migration-acceptance.md` 和 `docs/agents/testing.md`。
 
@@ -7,7 +9,7 @@
 在同一 checkout、Windows 主机和同一终端中运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-m1.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-core.ps1
 ```
 
 保存完整命令输出，并确认六个阶段均退出 `0`。证据必须包含测试数量、smoke test 成功后打印的 Sidecar target-triple 产物路径、双页 Web 构建产物和 `tauri info` 的 Rust/MSVC/WebView2 信息。输出不得包含 Vault 明文、运行时数据密钥或 Audit HMAC 密钥。
@@ -29,4 +31,4 @@ npm.cmd run tauri:dev --prefix frontend
 
 ## 证据边界
 
-M1 只验收本地桌面 Core、私有 stdio 协议、加密本地存储、审计/Trace、Capability 边界和 Sidecar 生命周期。它不证明 SSH/SFTP、AI Provider、远程主机、部署、迁移或真实生产环境可用。若自动化阶段通过但手工桌面检查未完成，不得宣称 M1 桌面验收完成。
+本记录只验收本地桌面 Core、私有 stdio 协议、加密本地存储、审计/Trace、Capability 边界和 Sidecar 生命周期。它不证明 SSH/SFTP、AI Provider、远程主机、部署、迁移或真实生产环境可用。若自动化阶段通过但手工桌面检查未完成，不得宣称桌面基础设施验收完成。

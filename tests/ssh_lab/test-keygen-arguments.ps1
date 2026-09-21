@@ -15,7 +15,7 @@ if ([IO.Path]::GetDirectoryName($testRoot).TrimEnd('\') -ne $tempBase) {
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     $keyPath = Join-Path $testRoot 'client_ed25519'
-    & ssh-keygen.exe -q -t ed25519 -N '""' -C 'harness-m2-keygen-test' -f $keyPath
+    & ssh-keygen.exe -q -t ed25519 -N '""' -C 'harness-ssh-lab-keygen-test' -f $keyPath
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
         throw 'Windows PowerShell did not preserve the empty ssh-keygen passphrase argument'
     }
