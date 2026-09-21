@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm.cmd --prefix frontend ci
+
+      - name: Run tests
+        run: npm.cmd --prefix frontend run test
+
+      - name: Type check and build
+        run: npm.cmd --prefix frontend run build
+
+  backend:
+    name: Backend
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.14"
+          architecture: x64
+
+      - name: Create virtual environment
+        run: python -m venv backend/.venv
+
+      - name: Install dependencies
+        run: |
+          backend\.venv\Scripts\python.exe -m pip install `
+            -c backend/build-requirements.lock `
+            -e "./backend[dev]"
+
+      - name: Prepare tokenizer
+        run: |
+          backend\.venv\Scripts\python.exe `
+            backend/scripts/prepare_tokenizer.py `
+            --output-dir backend/build/tokenizer
+
+      - name: Check HTTP contracts
+        run: |
+          backend\.venv\Scripts\python.exe `
+            backend/scripts/export_http_contract.py --check
+
+      - name: Run tests
+        run: backend\.venv\Scripts\python.exe -m pytest backend -q
