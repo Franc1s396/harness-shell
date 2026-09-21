@@ -12,6 +12,8 @@ Python 支持范围由 `backend/pyproject.toml` 声明为 `>=3.12,<3.13`；Core 
 
 该 CI 不包含 Rust、Sidecar/安装包构建或 Desktop/真实 Provider 验收；未启用 `HARNESS_RUN_SSH_INTEGRATION`，SSH Lab 测试按现有规则跳过。CI 通过不能替代下述完整回归及人工验收。
 
+HTTP/OpenAPI 与 Runtime WebSocket 契约产物通过 `export_http_contract.py --check` 逐字节比较；`.gitattributes` 将 `docs/protocol/http/openapi-v1.json` 和 `runtime-websocket-v1.schema.json` 固定为 LF，防止 Windows checkout 的换行转换造成伪差异。不得在 CI 检查前重新生成产物或放宽字节比较来掩盖契约漂移。
+
 - Python tests：`backend/tests/`
 - Frontend tests：与 `frontend/src/` 模块相邻的 `*.test.ts(x)`
 - Tauri shell tests：`frontend/src-tauri/tests/`

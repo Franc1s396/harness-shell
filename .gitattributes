@@ -1,1 +1,4 @@
 tests/ssh_lab/*.sh text eol=lf
+# Contract exports are compared byte-for-byte and must retain LF on Windows.
+docs/protocol/http/openapi-v1.json text eol=lf
+docs/protocol/http/runtime-websocket-v1.schema.json text eol=lf
