@@ -6,6 +6,10 @@
 
 ## 真源与命令
 
+GitHub Actions 入口为 `.github/workflows/ci.yml`，在 `main`/`develop` push、目标为这两个分支的 PR 或手动触发时运行 Windows 前端与后端检查。Backend 通过固定版本的 uv 安装 managed CPython 3.12.14 Windows x64，并使用 `--seed` 创建带 pip 的 `backend/.venv`；GitHub `setup-python` 的版本清单不提供该版本的 Windows 构建。创建后显式校验 Python 版本与位数，再安装依赖、准备 tokenizer、检查 HTTP 契约并运行 pytest。
+
+该 CI 不包含 Rust、Sidecar/安装包构建或 Desktop/真实 Provider 验收；未启用 `HARNESS_RUN_SSH_INTEGRATION`，SSH Lab 测试按现有规则跳过。CI 通过不能替代下述完整回归及人工验收。
+
 - Python tests：`backend/tests/`
 - Frontend tests：与 `frontend/src/` 模块相邻的 `*.test.ts(x)`
 - Tauri shell tests：`frontend/src-tauri/tests/`
