@@ -22,9 +22,10 @@ if ($null -eq (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     throw 'npm.cmd was not found on PATH'
 }
 $pythonVersion = & $pythonExe -c 'import platform; print(platform.python_version())'
-if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne '3.12.14') {
-    throw "Core requires Python 3.12.14, found $pythonVersion"
+if ($LASTEXITCODE -ne 0 -or $pythonVersion -notmatch '^3\.12\.\d+$') {
+    throw "Core requires Python 3.12.x, found $pythonVersion"
 }
+Write-Output "Core verification Python: $pythonVersion"
 $rustHost = & (Join-Path $cargoBin 'rustc.exe') -vV | Where-Object { $_ -match '^host:' }
 if ($LASTEXITCODE -ne 0 -or $rustHost -ne 'host: x86_64-pc-windows-msvc') {
     throw "Core requires the x86_64-pc-windows-msvc rustc host, found $rustHost"

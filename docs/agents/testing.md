@@ -6,7 +6,9 @@
 
 ## 真源与命令
 
-GitHub Actions 入口为 `.github/workflows/ci.yml`，在 `main`/`develop` push、目标为这两个分支的 PR 或手动触发时运行 Windows 前端与后端检查。Backend 通过固定版本的 uv 安装 managed CPython 3.12.14 Windows x64，并使用 `--seed` 创建带 pip 的 `backend/.venv`；GitHub `setup-python` 的版本清单不提供该版本的 Windows 构建。创建后显式校验 Python 版本与位数，再安装依赖、准备 tokenizer、检查 HTTP 契约并运行 pytest。
+GitHub Actions 入口为 `.github/workflows/ci.yml`，在 `main`/`develop` push、目标为这两个分支的 PR 或手动触发时运行 Windows 前端与后端检查。Backend 通过固定版本的 uv 安装其可用的最新 managed CPython 3.12.x 稳定版 Windows x64，并使用 `--seed` 创建带 pip 的 `backend/.venv`；uv 提供该系列安全更新的 Windows 构建。创建后显式校验 Python 主次版本、稳定版标记与位数，并输出实际版本，再安装依赖、准备 tokenizer、检查 HTTP 契约并运行 pytest。
+
+Python 支持范围由 `backend/pyproject.toml` 声明为 `>=3.12,<3.13`；Core 门禁和 Sidecar 打包接受 3.12.x 稳定补丁版本并记录实际版本，拒绝 3.11、3.13 及预发布版本。CI 只验证本轮选中的补丁版本，不代表逐个验证过全部 3.12 补丁版本。
 
 该 CI 不包含 Rust、Sidecar/安装包构建或 Desktop/真实 Provider 验收；未启用 `HARNESS_RUN_SSH_INTEGRATION`，SSH Lab 测试按现有规则跳过。CI 通过不能替代下述完整回归及人工验收。
 

@@ -20,7 +20,7 @@ Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用，将 SSH �
 
 ## 本地调试 Quick Start
 
-准备 Windows 10/11 x64、Python 3.12、Node.js 22.12+、Rust stable（MSVC）、Visual Studio C++ Build Tools 和 WebView2 Runtime。以下命令使用 PowerShell。
+准备 Windows 10/11 x64、Python 3.12.x、Node.js 22.12+、Rust stable（MSVC）、Visual Studio C++ Build Tools 和 WebView2 Runtime。Python 仅支持 3.12 系列，建议使用最新稳定补丁版本。以下命令使用 PowerShell。
 
 ### 1. 获取源码并安装依赖
 

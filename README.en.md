@@ -20,7 +20,7 @@ Harness Shell is a local AI SSH Agent desktop application for Windows, bringing 
 
 ## Local Development Quick Start
 
-Install Windows 10/11 x64, Python 3.12, Node.js 22.12+, Rust stable (MSVC), Visual Studio C++ Build Tools, and WebView2 Runtime. The commands below use PowerShell.
+Install Windows 10/11 x64, Python 3.12.x, Node.js 22.12+, Rust stable (MSVC), Visual Studio C++ Build Tools, and WebView2 Runtime. Only the Python 3.12 series is supported; the latest stable patch release is recommended. The commands below use PowerShell.
 
 ### 1. Clone the Repository and Install Dependencies
 

@@ -25,4 +25,4 @@ Runtime SQLite 使用同步 SQLAlchemy 2.0 ORM 与短 Session。启动时 Alembi
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_sidecar.ps1
 ```
 
-打包固定 Python 3.12.14 与 `x86_64-pc-windows-msvc`，依赖来自 `build-requirements.lock`。生成的 `build/`、`dist/` 与复制到 Tauri binaries 的 `.exe` 不得提交。测试和 packaged loopback smoke 不等于 Desktop、真实 Provider、生产 SSH 或部署验收。
+打包支持 Python 3.12.x 稳定版本与 `x86_64-pc-windows-msvc`，不固定补丁版本；构建日志记录实际 Python 版本，依赖来自 `build-requirements.lock`。生成的 `build/`、`dist/` 与复制到 Tauri binaries 的 `.exe` 不得提交。测试和 packaged loopback smoke 不等于 Desktop、真实 Provider、生产 SSH 或部署验收。

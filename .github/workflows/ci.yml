@@ -54,7 +54,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # setup-python does not provide Python 3.12.14 Windows binaries.
+      # uv provides Windows builds for Python 3.12 security releases.
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
@@ -62,17 +62,17 @@ jobs:
           enable-cache: false
 
       - name: Install Python
-        run: uv python install cpython-3.12.14-windows-x86_64-none
+        run: uv python install cpython-3.12-windows-x86_64-none
 
       - name: Create virtual environment
         run: |
           uv venv --managed-python `
-            --python cpython-3.12.14-windows-x86_64-none `
+            --python cpython-3.12-windows-x86_64-none `
             --seed backend/.venv
 
       - name: Verify Python version
         run: |
-          backend\.venv\Scripts\python.exe -c "import sys, struct; print(sys.version); assert sys.version_info[:3] == (3, 12, 14); assert struct.calcsize('P') == 8"
+          backend\.venv\Scripts\python.exe -c "import sys, struct; print(sys.version); assert sys.version_info[:2] == (3, 12); assert sys.version_info.releaselevel == 'final'; assert struct.calcsize('P') == 8"
 
       - name: Install dependencies
         run: |
