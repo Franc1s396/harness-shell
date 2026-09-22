@@ -6,16 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.connections import (
+from harness_ssh_sidecar.connections import (
     ConnectionProfileInput,
     ConnectionRepository,
 )
-from harness_shell_sidecar.credentials import (
+from harness_ssh_sidecar.credentials import (
     CredentialRepository,
     CredentialService,
     CredentialServiceError,
 )
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_ssh_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 def test_service_resolves_direct_and_jump_then_zeroizes(

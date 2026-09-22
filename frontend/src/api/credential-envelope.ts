@@ -40,7 +40,7 @@ export const createCredentialEnvelope = async (
     );
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const aad = new TextEncoder().encode(
-      `harness-shell-credential-v1\0${publicKey.key_id}`,
+      `harness-ssh-credential-v1\0${publicKey.key_id}`,
     );
     const ciphertext = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: aad },

@@ -10,9 +10,9 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.connections import ConnectionProfileInput, ConnectionRepository
-from harness_shell_sidecar.ssh.runtime import SshRuntime
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_ssh_sidecar.connections import ConnectionProfileInput, ConnectionRepository
+from harness_ssh_sidecar.ssh.runtime import SshRuntime
+from harness_ssh_sidecar.storage import RuntimeDatabase
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
 
 
 @pytest.mark.parametrize("capacity", [1, 16])

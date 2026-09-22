@@ -13,12 +13,12 @@ from uuid import UUID
 import asyncssh
 import pytest
 
-from harness_shell_sidecar.manual_sftp.channels import SftpChannelFactory
-from harness_shell_sidecar.manual_sftp import channels as channels_module
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.listings import ListingManager
-from harness_shell_sidecar.manual_sftp.service import ManualSftpService
-from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
+from harness_ssh_sidecar.manual_sftp.channels import SftpChannelFactory
+from harness_ssh_sidecar.manual_sftp import channels as channels_module
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp.listings import ListingManager
+from harness_ssh_sidecar.manual_sftp.service import ManualSftpService
+from harness_ssh_sidecar.ssh.sessions import SshSessionRegistry
 
 
 SESSION_CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000111")
@@ -242,10 +242,10 @@ def test_listing_detects_entry_limit_and_unsupported_filename(
 ) -> None:
     async def scenario() -> None:
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.listings.MAX_DIRECTORY_ENTRIES", 2
+            "harness_ssh_sidecar.manual_sftp.listings.MAX_DIRECTORY_ENTRIES", 2
         )
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.listings.LISTING_BATCH_SIZE", 2
+            "harness_ssh_sidecar.manual_sftp.listings.LISTING_BATCH_SIZE", 2
         )
         limit_client = FakeSftpClient(
             [
@@ -281,10 +281,10 @@ def test_listing_limit_lookahead_ignores_dot_entries(
 
     async def scenario() -> None:
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.listings.MAX_DIRECTORY_ENTRIES", 2
+            "harness_ssh_sidecar.manual_sftp.listings.MAX_DIRECTORY_ENTRIES", 2
         )
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.listings.LISTING_BATCH_SIZE", 2
+            "harness_ssh_sidecar.manual_sftp.listings.LISTING_BATCH_SIZE", 2
         )
         client = FakeSftpClient(
             [
@@ -496,7 +496,7 @@ def test_hash_uses_a_fresh_60_second_window_for_each_read(
         service = ManualSftpService(sessions, database=object(), event_listener=_event)
         probe = TimeoutProbe()
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.service.asyncio.timeout", probe
+            "harness_ssh_sidecar.manual_sftp.service.asyncio.timeout", probe
         )
 
         result = await service.sha256(owner.ssh_session_id, "/home/demo/data.txt")
@@ -520,7 +520,7 @@ def test_metadata_timeout_closes_the_sftp_channel(
 
     async def scenario() -> None:
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.service.METADATA_TIMEOUT_SECONDS",
+            "harness_ssh_sidecar.manual_sftp.service.METADATA_TIMEOUT_SECONDS",
             0.001,
         )
         client = BlockingClient()

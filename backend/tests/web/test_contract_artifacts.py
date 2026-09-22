@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from harness_shell_sidecar.agent.streaming import (
+from harness_ssh_sidecar.agent.streaming import (
     AgentTurnCompletedEvent,
     AgentTurnStartedEvent,
     AgentTurnTextDeltaEvent,
 )
-from harness_shell_sidecar.web.contracts import build_openapi_document
+from harness_ssh_sidecar.web.contracts import build_openapi_document
 
 
 HTTP_ROOT = Path("docs/protocol/http")
@@ -177,7 +177,7 @@ def test_credential_encryption_fixture_freezes_browser_wire_parameters() -> None
             "key_length_bits": 256,
             "iv_length_bytes": 12,
         },
-        "aad_utf8_template": "harness-shell-credential-v1\0{key_id}",
+        "aad_utf8_template": "harness-ssh-credential-v1\0{key_id}",
         "base64": "canonical-rfc4648",
     }
 
@@ -241,7 +241,7 @@ def test_agent_sse_fixtures_freeze_valid_and_invalid_sequences() -> None:
     assert stream["wire_utf8"].endswith("\n\n")
 
     from pydantic import TypeAdapter
-    from harness_shell_sidecar.agent.streaming import AgentTurnStreamEvent
+    from harness_ssh_sidecar.agent.streaming import AgentTurnStreamEvent
     replacement = next(case for case in valid["cases"] if case["name"] == "agent-turn-text-replace")
     events = [TypeAdapter(AgentTurnStreamEvent).validate_json(frame.split("data: ")[1])
               for frame in replacement["wire_utf8"].strip().split("\n\n")]
@@ -338,9 +338,9 @@ def test_http_artifacts_do_not_reintroduce_the_old_transport() -> None:
 def test_approval_fixtures_validate_against_live_models() -> None:
     """跨语言请求、决定与事件保持同一严格模型，无审核期限字段。"""
     from pydantic import TypeAdapter
-    from harness_shell_sidecar.agent.approval_models import ApprovalDecision
-    from harness_shell_sidecar.agent.streaming import AgentTurnStreamEvent
-    from harness_shell_sidecar.web.routes.agent import ApprovalDecisionResponse
+    from harness_ssh_sidecar.agent.approval_models import ApprovalDecision
+    from harness_ssh_sidecar.agent.streaming import AgentTurnStreamEvent
+    from harness_ssh_sidecar.web.routes.agent import ApprovalDecisionResponse
     fixtures = load_json(HTTP_ROOT / "fixtures/agent/valid-http-v1.json")
     for case in fixtures["cases"]:
         if case["name"].startswith("agent-approval-"):

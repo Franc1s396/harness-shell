@@ -18,18 +18,18 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages.tool import ToolCall
 from pydantic import SecretStr
 
-from harness_shell_sidecar.agent.context import ContextService
-from harness_shell_sidecar.agent.contracts import (
+from harness_ssh_sidecar.agent.context import ContextService
+from harness_ssh_sidecar.agent.contracts import (
     AgentRunStatus,
     AgentTurnInput,
     CommandExecutionResult,
     CommandToolEnvelope,
 )
-from harness_shell_sidecar.agent.graph import AgentGraphDependencies, build_agent_graph
-from harness_shell_sidecar.agent.model_gateway import ModelGateway
-from harness_shell_sidecar.agent.service import AgentService
-from harness_shell_sidecar.agent.tools import CommandSafetyReviewer
-from harness_shell_sidecar.telemetry import ConsoleLogFormatter
+from harness_ssh_sidecar.agent.graph import AgentGraphDependencies, build_agent_graph
+from harness_ssh_sidecar.agent.model_gateway import ModelGateway
+from harness_ssh_sidecar.agent.service import AgentService
+from harness_ssh_sidecar.agent.tools import CommandSafetyReviewer
+from harness_ssh_sidecar.telemetry import ConsoleLogFormatter
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
@@ -64,7 +64,7 @@ class RecordingExecutor:
         self.calls.append((ssh_session_id, command))
         if self.failure is not None:
             raise self.failure
-        from harness_shell_sidecar.agent.executor import _envelope_from_bytes
+        from harness_ssh_sidecar.agent.executor import _envelope_from_bytes
         output = self.stdout if self.stdout is not None else "/home/test\n" if command == "pwd" else "ok\n"
         return _envelope_from_bytes(command=command, stdout=output.encode(), stderr=b"",
             exit_code=0, exit_signal=None, timed_out=False, duration_ms=1)
@@ -162,7 +162,7 @@ def test_model_only_turn_logs_exact_node_pairs_and_route(
     async def scenario() -> None:
         model = FakeModelSequence([AIMessage(content="done")])
         service, turn = _service(agent_storage, model, RecordingExecutor())
-        caplog.set_level(logging.DEBUG, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.DEBUG, logger="harness_ssh_sidecar.agent.graph")
 
         await _run_turn(agent_storage, service, turn)
 
@@ -226,7 +226,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
         executor = RecordingExecutor(stdout=tool_output_marker)
         service, turn = _service(agent_storage, model, executor)
         turn = turn.model_copy(update={"user_message": user_marker})
-        caplog.set_level(logging.DEBUG, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.DEBUG, logger="harness_ssh_sidecar.agent.graph")
 
         await _run_turn(
             agent_storage,
@@ -238,7 +238,7 @@ def test_graph_logs_no_message_command_output_or_provider_key(
         graph_records = [
             record
             for record in caplog.records
-            if record.name == "harness_shell_sidecar.agent.graph"
+            if record.name == "harness_ssh_sidecar.agent.graph"
         ]
         assert graph_records
         encoded = "\n".join(
@@ -274,7 +274,7 @@ def test_execute_tool_failure_logs_traceback_and_preserves_result(
         )
         executor = RecordingExecutor(failure=RuntimeError(marker))
         service, turn = _service(agent_storage, model, executor)
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.INFO, logger="harness_ssh_sidecar.agent.graph")
 
         result = await _run_turn(agent_storage, service, turn)
 
@@ -529,7 +529,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
         )
         executor = RecordingExecutor()
         service, turn = _service(agent_storage, model, executor)
-        caplog.set_level(logging.DEBUG, logger="harness_shell_sidecar.agent.graph")
+        caplog.set_level(logging.DEBUG, logger="harness_ssh_sidecar.agent.graph")
 
         result = await _run_turn(agent_storage, service, turn)
 
@@ -543,7 +543,7 @@ def test_129th_tool_call_is_paired_but_never_executed(
         graph_records = [
             record
             for record in caplog.records
-            if record.name == "harness_shell_sidecar.agent.graph"
+            if record.name == "harness_ssh_sidecar.agent.graph"
         ]
         observed_nodes = {
             record.harness_fields["node"]
@@ -644,8 +644,8 @@ def test_full_turn_never_persists_or_logs_provider_key_sentinel(
 @pytest.mark.parametrize("main_fails", [False, True])
 @pytest.mark.parametrize("tool_loop", [False, True])
 def test_compaction_streams_only_main_answer_and_preserves_history(agent_storage: AgentStorage, main_fails: bool, tool_loop: bool) -> None:
-    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
-    from harness_shell_sidecar.agent.contracts import AgentRunStatus
+    from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_ssh_sidecar.agent.contracts import AgentRunStatus
     from uuid import uuid4
     async def scenario() -> None:
         outcomes = [AIMessage(content="HISTORY SUMMARY ONLY")]
@@ -700,7 +700,7 @@ def test_tool_prefix_is_identical_in_database_and_model(agent_storage: AgentStor
 def test_two_turns_append_summaries_and_replay_both_to_main_model(agent_storage: AgentStorage) -> None:
     from uuid import uuid4
     from langchain_core.messages import HumanMessage
-    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
 
     async def scenario() -> None:
         """经真实 graph 和网关记录摘要请求与主模型请求，保证消息序列端到端一致。"""
@@ -737,10 +737,10 @@ def test_two_turns_append_summaries_and_replay_both_to_main_model(agent_storage:
 
 def test_tool_loop_budget_overflow_never_calls_summary_or_next_model(agent_storage: AgentStorage) -> None:
     from collections.abc import Sequence
-    from harness_shell_sidecar.agent.context_budget import ContextBudget
-    from harness_shell_sidecar.agent.context_models import AgentContextPolicy, ContextMessage, ContextSummary, TokenEstimate
-    from harness_shell_sidecar.agent.contracts import ModelApiConfig
-    from harness_shell_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
+    from harness_ssh_sidecar.agent.context_budget import ContextBudget
+    from harness_ssh_sidecar.agent.context_models import AgentContextPolicy, ContextMessage, ContextSummary, TokenEstimate
+    from harness_ssh_sidecar.agent.contracts import ModelApiConfig
+    from harness_ssh_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
 
     class ToolOverflowBudget(ContextBudget):
         """模拟大型工具结果，不制造巨大测试载荷。"""

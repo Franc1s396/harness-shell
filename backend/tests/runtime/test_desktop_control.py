@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from harness_shell_sidecar.runtime.desktop_control import (
+from harness_ssh_sidecar.runtime.desktop_control import (
     READY_FRAME_MAX_JSON_BYTES,
     decode_ready_payload,
     encode_ready_frame,

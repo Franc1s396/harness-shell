@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 from websockets.sync.client import connect
 from PIL import Image
 
-from harness_shell_sidecar.runtime.desktop_control import decode_ready_payload
+from harness_ssh_sidecar.runtime.desktop_control import decode_ready_payload
 
 
 READY_TIMEOUT_SECONDS = 10
@@ -172,7 +172,7 @@ def child_command(extraction_dir: Path) -> tuple[list[str], dict[str, str]]:
         environment["PYTHONPATH"] = (
             source if not existing else os.pathsep.join((source, existing))
         )
-        command = [sys.executable, "-m", "harness_shell_sidecar"]
+        command = [sys.executable, "-m", "harness_ssh_sidecar"]
     command.extend(
         [
             "desktop",
@@ -319,7 +319,7 @@ def main() -> int:
     """验证首次启动、同库重启，以及旧库和未知 revision 的启动拒绝。"""
     if sys.platform != "win32":
         raise RuntimeError("desktop Sidecar smoke requires Windows HANDLEs")
-    with tempfile.TemporaryDirectory(prefix="harness-shell-smoke-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="harness-ssh-smoke-") as temp_dir:
         data_dir = Path(temp_dir).resolve()
         run_smoke(data_dir)
         path = data_dir / "runtime.sqlite3"

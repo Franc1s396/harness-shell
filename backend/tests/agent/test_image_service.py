@@ -7,10 +7,10 @@ from uuid import uuid4
 import pytest
 from langchain_core.messages import AIMessage
 
-from harness_shell_sidecar.agent.attachments import AttachmentRepository
-from harness_shell_sidecar.agent.image_validation import validate_image
-from harness_shell_sidecar.agent.service import AgentServiceError
-from harness_shell_sidecar.agent.contracts import ApiType
+from harness_ssh_sidecar.agent.attachments import AttachmentRepository
+from harness_ssh_sidecar.agent.image_validation import validate_image
+from harness_ssh_sidecar.agent.service import AgentServiceError
+from harness_ssh_sidecar.agent.contracts import ApiType
 from .conftest import valid_api_config_input
 from .fakes import FakeModelSequence, RecordingTurnSink, make_turn_input
 from .test_graph import RecordingExecutor
@@ -68,11 +68,11 @@ def test_image_retry_followup_and_delete(agent_storage, lost_started, api_type):
 def test_summary_sdk_sees_images_and_keeps_blob(agent_storage):
     """摘要使用真实 SDK mapper，覆盖后主模型投影不再重复注入旧图。"""
     from pydantic import SecretStr
-    from harness_shell_sidecar.agent.context import ContextService
-    from harness_shell_sidecar.agent.context_compaction import ContextCompactor
+    from harness_ssh_sidecar.agent.context import ContextService
+    from harness_ssh_sidecar.agent.context_compaction import ContextCompactor
     from .test_context_compaction import ControlledBudget
     from .fakes import instant_sleep, RecordingSequenceClientBuilder
-    from harness_shell_sidecar.agent.model_gateway import ModelGateway
+    from harness_ssh_sidecar.agent.model_gateway import ModelGateway
 
     async def scenario():
         """使用真实 Run/消息/BLOB，只替代远程结果与触发阈值。"""
@@ -106,8 +106,8 @@ def test_summary_sdk_sees_images_and_keeps_blob(agent_storage):
 
 def test_delete_rejects_active_run_and_rolls_back_partial_cleanup(agent_storage, monkeypatch):
     """活动轮次不可删除；消息删除中途失败必须保留整个会话。"""
-    from harness_shell_sidecar.storage import PlaintextRecordStore
-    from harness_shell_sidecar.agent.contracts import AgentRunStatus
+    from harness_ssh_sidecar.storage import PlaintextRecordStore
+    from harness_ssh_sidecar.agent.contracts import AgentRunStatus
     from langchain_core.messages import HumanMessage
     repo = agent_storage.conversations
     config = agent_storage.api_configs.create(valid_api_config_input())

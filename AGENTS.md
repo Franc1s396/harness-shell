@@ -1,4 +1,4 @@
-# Harness Shell Repository Guide
+# harness-ssh Repository Guide
 
 ## 适用范围与阅读顺序
 
@@ -12,7 +12,7 @@
 
 ## 业务简述与当前边界
 
-Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前桌面架构为 Launcher、React/TypeScript WebView、最小 Tauri 2 UI shell 和 Python Backend。Launcher 独占 packaged Backend/UI child、Windows Job、动态 loopback port 协商、Backend stderr 文件落盘与退出顺序；Tauri 只暴露 Backend bootstrap，主窗口仅保留关闭和销毁权限。React 通过 typed HTTP 与一个 Runtime WebSocket 直连 `127.0.0.1` Backend。旧 Rust 业务代理、进程 supervisor、凭据 owner、SFTP 本地文件 owner、stdin/stdout transport、generic Router、compatibility adapter、approval 占位链路和 fallback 已删除。
+harness-ssh 是面向 Windows 的本地 AI SSH Agent 桌面应用。当前桌面架构为 Launcher、React/TypeScript WebView、最小 Tauri 2 UI shell 和 Python Backend。Launcher 独占 packaged Backend/UI child、Windows Job、动态 loopback port 协商、Backend stderr 文件落盘与退出顺序；Tauri 只暴露 Backend bootstrap，主窗口仅保留关闭和销毁权限。React 通过 typed HTTP 与一个 Runtime WebSocket 直连 `127.0.0.1` Backend。旧 Rust 业务代理、进程 supervisor、凭据 owner、SFTP 本地文件 owner、stdin/stdout transport、generic Router、compatibility adapter、approval 占位链路和 fallback 已删除。
 
 Python FastAPI application 在 ASGI lifespan 内从显式 `RuntimeSettings` 自主打开资源，提供 typed HTTP、single-owner Runtime WebSocket、共享 `RuntimeResources`/dispatcher owner 和 Problem Details。Manual SFTP chunk 使用严格 `application/octet-stream`；PTY input、SSH/PTY/SFTP event 与 heartbeat 使用 Runtime WebSocket。生产启动顺序固定为 Launcher 创建 Job/控制管道 → Backend `desktop --port 0` 绑定动态端口并写 ready frame → Launcher 启动 UI 并传入 `--backend-url`。UI 退出后 Launcher 请求 Backend 有界优雅退出，超时则终止 Job；不 reconnect、不 respawn、不扫描端口。
 
@@ -50,7 +50,7 @@ Python FastAPI application 在 ASGI lifespan 内从显式 `RuntimeSettings` 自�
 进入以下高风险目录时，还必须读取局部规则：
 
 - `frontend/src-tauri/` → `frontend/src-tauri/AGENTS.md`
-- `backend/src/harness_shell_sidecar/` → `backend/src/harness_shell_sidecar/AGENTS.md`
+- `backend/src/harness_ssh_sidecar/` → `backend/src/harness_ssh_sidecar/AGENTS.md`
 - `tests/ssh_lab/` → `tests/ssh_lab/AGENTS.md`
 
 ## 项目结构
@@ -62,7 +62,7 @@ Python FastAPI application 在 ASGI lifespan 内从显式 `RuntimeSettings` 自�
 │   └── src-tauri/                    # 最小 Tauri UI shell 与 bootstrap command
 ├── launcher/                         # Desktop child、Job、ready/control pipe 生命周期
 ├── backend/                          # Python Sidecar 工程
-│   ├── src/harness_shell_sidecar/    # FastAPI runtime、SSH、PTY、存储与遥测
+│   ├── src/harness_ssh_sidecar/    # FastAPI runtime、SSH、PTY、存储与遥测
 │   ├── tests/                        # Python 单元、集成与 SSH 测试
 │   └── scripts/                      # Sidecar 打包脚本
 ├── scripts/                          # 仓库级基础设施与 SSH 验证与 SSH Lab 生命周期脚本
@@ -96,7 +96,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe scripts/prepare_tokenizer.py --output-dir build/tokenizer
 .\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765 --data-dir ..\.runtime\dev
+.\.venv\Scripts\python.exe -m harness_ssh_sidecar serve --port 8765 --data-dir ..\.runtime\dev
 ```
 
 从 `backend/` 返回仓库根运行自动门禁：

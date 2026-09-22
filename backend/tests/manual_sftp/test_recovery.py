@@ -9,16 +9,16 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp import recovery as recovery_module
-from harness_shell_sidecar.manual_sftp.models import (
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp import recovery as recovery_module
+from harness_ssh_sidecar.manual_sftp.models import (
     OperationTerminalProjection,
     TransferSnapshot,
 )
-from harness_shell_sidecar.manual_sftp.operation_store import RemoteOperationRecord
-from harness_shell_sidecar.manual_sftp.recovery import RecoveryManager
-from harness_shell_sidecar.manual_sftp.channels import SftpChannelFactory
-from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
+from harness_ssh_sidecar.manual_sftp.operation_store import RemoteOperationRecord
+from harness_ssh_sidecar.manual_sftp.recovery import RecoveryManager
+from harness_ssh_sidecar.manual_sftp.channels import SftpChannelFactory
+from harness_ssh_sidecar.ssh.sessions import SshSessionRegistry
 
 
 CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000501")

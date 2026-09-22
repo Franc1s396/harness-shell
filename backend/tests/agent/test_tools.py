@@ -6,12 +6,12 @@ import pytest
 from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 
-from harness_shell_sidecar.agent.contracts import (
+from harness_ssh_sidecar.agent.contracts import (
     CommandExecutionResult,
     CommandToolEnvelope,
     ExecuteCommandArguments,
 )
-from harness_shell_sidecar.agent.tools import (
+from harness_ssh_sidecar.agent.tools import (
     CommandRejected,
     CommandSafetyReviewer,
     build_execute_command_tool_definition,
@@ -129,7 +129,7 @@ def test_execute_command_tool_definition_is_provider_neutral_and_strict() -> Non
 
 
 def test_clip_output_preserves_unicode_prefix_and_metadata() -> None:
-    from harness_shell_sidecar.agent.tools import clip_output
+    from harness_ssh_sidecar.agent.tools import clip_output
     prefix, meta = clip_output("中🙂" * 3001, 6000)
     assert prefix == "中🙂" * 3000
     assert meta.model_dump() == {"truncated": True, "original_chars": 6002,
@@ -138,7 +138,7 @@ def test_clip_output_preserves_unicode_prefix_and_metadata() -> None:
 
 @pytest.mark.parametrize("length", [0, 5999, 6000, 6001])
 def test_clip_output_boundary(length: int) -> None:
-    from harness_shell_sidecar.agent.tools import clip_output
+    from harness_ssh_sidecar.agent.tools import clip_output
     text, meta = clip_output("x" * length, 6000)
     assert len(text) == min(length, 6000)
     assert meta.truncated == (length > 6000)
@@ -146,7 +146,7 @@ def test_clip_output_boundary(length: int) -> None:
 
 
 def test_tool_and_system_prompt_explain_ui_approval_without_extra_confirmation() -> None:
-    from harness_shell_sidecar.agent.context import DEFAULT_SYSTEM_PROMPT
+    from harness_ssh_sidecar.agent.context import DEFAULT_SYSTEM_PROMPT
     definition = build_execute_command_tool_definition()
     assert "COMMAND_REJECTED_BY_USER" in definition.description
     assert "UI" in definition.description

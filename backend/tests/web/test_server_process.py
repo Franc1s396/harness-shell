@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from websockets.exceptions import ConnectionClosedError
 from websockets.sync.client import connect
 
-from harness_shell_sidecar.web.server import build_config
+from harness_ssh_sidecar.web.server import build_config
 
 from .conftest import reserve_then_release_loopback_port
 

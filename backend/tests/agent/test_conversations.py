@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harness_shell_sidecar.storage import PlaintextRecordStore
+from harness_ssh_sidecar.storage import PlaintextRecordStore
 
 from ..storage_support import RepositoryClient, sql
 
@@ -10,9 +10,9 @@ from uuid import UUID, uuid4
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
-from harness_shell_sidecar.agent.conversations import ConversationRepositoryError
-from harness_shell_sidecar.storage import PlaintextRecord
+from harness_ssh_sidecar.agent.contracts import AgentRun, AgentRunStatus
+from harness_ssh_sidecar.agent.conversations import ConversationRepositoryError
+from harness_ssh_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 
@@ -20,7 +20,7 @@ from .conftest import AgentStorage, valid_api_config_input
 @pytest.mark.parametrize("status", [AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELLED, AgentRunStatus.LIMIT_REACHED])
 def test_retry_removes_old_tools_and_summary_atomically(agent_storage: AgentStorage, status: AgentRunStatus) -> None:
     """任何终态均删除本轮工具和正文，并使引用其边界的摘要失效。"""
-    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
     repo = agent_storage.conversations
     conversation, old = _started_run(agent_storage)
     repo.append_messages_atomic(old.agent_run_id, conversation, [HumanMessage(content="first"), AIMessage(content="earlier")])
@@ -35,7 +35,7 @@ def test_retry_removes_old_tools_and_summary_atomically(agent_storage: AgentStor
     finished = repo.finish_run(current.agent_run_id, status, None)
     with pytest.raises(RuntimeError, match="rollback"):
         with agent_storage.database.write_session() as session:
-            from harness_shell_sidecar.agent.conversations import ConversationRepository
+            from harness_ssh_sidecar.agent.conversations import ConversationRepository
             ConversationRepository(session, PlaintextRecordStore(session)).remove_last_turn(finished, "last")
             raise RuntimeError("rollback")
     assert len(repo.load_messages(conversation)) == 5

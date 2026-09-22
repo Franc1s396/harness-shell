@@ -3,14 +3,14 @@ mod logging;
 
 use commands::{get_backend_bootstrap, BackendBootstrap, BackendBootstrapState};
 
-const STARTUP_TITLE: &str = "Harness Shell startup error";
+const STARTUP_TITLE: &str = "harness-ssh startup error";
 const BOOTSTRAP_INVALID_MESSAGE: &str =
-    "BACKEND_BOOTSTRAP_INVALID: The Backend address supplied to Harness Shell is invalid.";
+    "BACKEND_BOOTSTRAP_INVALID: The Backend address supplied to harness-ssh is invalid.";
 #[cfg(not(debug_assertions))]
 const BOOTSTRAP_MISSING_MESSAGE: &str =
-    "BACKEND_BOOTSTRAP_MISSING: Harness Shell must be started by its desktop Launcher.";
+    "BACKEND_BOOTSTRAP_MISSING: harness-ssh must be started by its desktop Launcher.";
 const SHELL_START_FAILED_MESSAGE: &str =
-    "DESKTOP_SHELL_START_FAILED: The Harness Shell window could not be started.";
+    "DESKTOP_SHELL_START_FAILED: The harness-ssh window could not be started.";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,7 +33,7 @@ fn run_application() -> Result<(), &'static str> {
         .manage(BackendBootstrapState::new(bootstrap))
         .invoke_handler(tauri::generate_handler![get_backend_bootstrap])
         .setup(|_| {
-            log::info!(target: "harness_shell::core", "application startup initialized");
+            log::info!(target: "harness_ssh::core", "application startup initialized");
             Ok(())
         })
         .build(tauri::generate_context!())

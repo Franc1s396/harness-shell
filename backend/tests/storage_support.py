@@ -6,7 +6,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import Any
 
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_ssh_sidecar.storage import RuntimeDatabase
 
 
 class RepositoryClient:

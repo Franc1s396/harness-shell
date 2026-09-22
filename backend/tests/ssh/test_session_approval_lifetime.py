@@ -3,7 +3,7 @@
 import asyncio
 from uuid import uuid4
 
-from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
+from harness_ssh_sidecar.ssh.sessions import SshSessionRegistry
 
 
 class Connection:

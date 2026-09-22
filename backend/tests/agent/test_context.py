@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harness_shell_sidecar.storage import PlaintextRecordStore
+from harness_ssh_sidecar.storage import PlaintextRecordStore
 
 from ..storage_support import RepositoryClient, sql
 
@@ -15,13 +15,13 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from harness_shell_sidecar.agent.context import ContextService, SYSTEM_MESSAGE
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
-from harness_shell_sidecar.storage import PlaintextRecord
+from harness_ssh_sidecar.agent.context import ContextService, SYSTEM_MESSAGE
+from harness_ssh_sidecar.agent.contracts import AgentRun, AgentRunStatus
+from harness_ssh_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import make_tool_call
-from harness_shell_sidecar.agent.context_models import ContextMessage
+from harness_ssh_sidecar.agent.context_models import ContextMessage
 
 
 def _new_run_after_history(

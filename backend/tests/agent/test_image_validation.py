@@ -4,8 +4,8 @@ import io
 import pytest
 from PIL import Image
 
-from harness_shell_sidecar.agent.image_models import AttachmentError
-from harness_shell_sidecar.agent.image_validation import validate_image
+from harness_ssh_sidecar.agent.image_models import AttachmentError
+from harness_ssh_sidecar.agent.image_validation import validate_image
 
 
 def picture(format: str, *, animated: bool = False) -> bytes:

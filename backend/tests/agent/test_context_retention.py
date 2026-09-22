@@ -6,10 +6,10 @@ from uuid import uuid4
 import pytest
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 
-from harness_shell_sidecar.agent.context import ContextService
-from harness_shell_sidecar.agent.context_models import AgentContextPolicy, ContextError, ContextMessage, ContextSummary
-from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
-from harness_shell_sidecar.agent.contracts import AgentRunStatus
+from harness_ssh_sidecar.agent.context import ContextService
+from harness_ssh_sidecar.agent.context_models import AgentContextPolicy, ContextError, ContextMessage, ContextSummary
+from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
+from harness_ssh_sidecar.agent.contracts import AgentRunStatus
 from ..storage_support import RepositoryClient, sql
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import make_tool_call

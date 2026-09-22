@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
+from harness_ssh_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
 
 
 def test_open_plaintext_bootstraps_alembic_baseline(tmp_path: Path) -> None:
@@ -44,7 +44,7 @@ def test_open_plaintext_rejects_old_schema_without_modifying_it(
                                     " DEFAULT 128000"])
 def test_context_schema_drift_is_rejected_before_writes(tmp_path: Path, removed: str) -> None:
     from contextlib import closing
-    from harness_shell_sidecar.storage.migration_runner import upgrade_database
+    from harness_ssh_sidecar.storage.migration_runner import upgrade_database
 
     source = tmp_path / "source.sqlite3"
     upgrade_database(source)

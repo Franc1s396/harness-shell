@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from harness_shell_sidecar.agent.executor import AgentCancelled, SshCommandExecutor
+from harness_ssh_sidecar.agent.executor import AgentCancelled, SshCommandExecutor
 
 
 @pytest.mark.parametrize("connector_fixture", ["connect_direct", "connect_proxy"])
@@ -70,7 +70,7 @@ def test_agent_real_openssh_timeout_closes_bound_channel(
         _profile, status = await connect_direct()
         assert status.session_id is not None
         monkeypatch.setattr(
-            "harness_shell_sidecar.agent.executor.COMMAND_TIMEOUT_SECONDS",
+            "harness_ssh_sidecar.agent.executor.COMMAND_TIMEOUT_SECONDS",
             1,
         )
         executor = SshCommandExecutor(runtime_context.runtime.sessions)
@@ -147,7 +147,7 @@ def test_hitl_gates_real_openssh_mutation(connect_direct, runtime_context, agent
     from tests.agent.fakes import FakeModelSequence, RecordingTurnSink, make_tool_call
     from tests.agent.test_graph import _service, _run_turn
     from tests.agent.test_approvals import decision_for
-    from harness_shell_sidecar.agent.contracts import AgentRunStatus
+    from harness_ssh_sidecar.agent.contracts import AgentRunStatus
 
     async def scenario() -> None:
         _profile, status = await connect_direct()

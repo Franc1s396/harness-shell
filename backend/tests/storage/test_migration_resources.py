@@ -3,8 +3,8 @@
 from pathlib import Path
 import shutil
 import pytest
-from harness_shell_sidecar.storage import StorageSelfCheckFailed
-from harness_shell_sidecar.storage import migration_runner as runner
+from harness_ssh_sidecar.storage import StorageSelfCheckFailed
+from harness_ssh_sidecar.storage import migration_runner as runner
 
 
 def test_resource_manifest_and_unrelated_cwd(tmp_path: Path, monkeypatch) -> None:

@@ -12,8 +12,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from harness_shell_sidecar.__main__ import build_parser
-from harness_shell_sidecar.runtime.desktop_control import decode_ready_payload
+from harness_ssh_sidecar.__main__ import build_parser
+from harness_ssh_sidecar.runtime.desktop_control import decode_ready_payload
 
 
 def test_desktop_requires_zero_port_and_absolute_data_dir(
@@ -95,7 +95,7 @@ def test_desktop_publishes_dynamic_port_and_control_byte_stops_cleanly(
         [
             sys.executable,
             "-m",
-            "harness_shell_sidecar",
+            "harness_ssh_sidecar",
             "desktop",
             "--port",
             "0",

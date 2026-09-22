@@ -15,20 +15,20 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import SecretStr
 
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepository, ApiConfigRepositoryError
-from harness_shell_sidecar.agent.contracts import (
+from harness_ssh_sidecar.agent.api_configs import ApiConfigRepository, ApiConfigRepositoryError
+from harness_ssh_sidecar.agent.contracts import (
     AgentRunStatus,
     AgentTurnInput,
     AgentTurnResult,
 )
-from harness_shell_sidecar.agent.handlers import register_agent_handlers
-from harness_shell_sidecar.agent.service import AgentServiceError
-from harness_shell_sidecar.credentials import (
+from harness_ssh_sidecar.agent.handlers import register_agent_handlers
+from harness_ssh_sidecar.agent.service import AgentServiceError
+from harness_ssh_sidecar.credentials import (
     CredentialRepository,
     RuntimeCredentialCipher,
 )
-from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
-from harness_shell_sidecar.storage import PlaintextRecord
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.storage import PlaintextRecord
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import RecordingTurnSink
@@ -216,7 +216,7 @@ def encrypted_api_key(
     public_key = cipher.public_key()
     aes_key = bytes(range(32))
     iv = bytes(range(12))
-    aad = f"harness-shell-credential-v1\0{public_key.key_id}".encode()
+    aad = f"harness-ssh-credential-v1\0{public_key.key_id}".encode()
     ciphertext = AESGCM(aes_key).encrypt(iv, secret.encode(), aad)
     rsa_public_key = serialization.load_der_public_key(
         base64.b64decode(public_key.public_key_spki_b64, validate=True)

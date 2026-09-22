@@ -7,10 +7,10 @@ from uuid import uuid4
 import pytest
 from ..storage_support import RepositoryClient
 
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepository
-from harness_shell_sidecar.agent.contracts import ApiType, ModelApiConfigInput
-from harness_shell_sidecar.agent.conversations import ConversationRepository
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_ssh_sidecar.agent.api_configs import ApiConfigRepository
+from harness_ssh_sidecar.agent.contracts import ApiType, ModelApiConfigInput
+from harness_ssh_sidecar.agent.conversations import ConversationRepository
+from harness_ssh_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 @dataclass(frozen=True, slots=True)

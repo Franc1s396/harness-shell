@@ -5,8 +5,8 @@
 Python Backend 有两个显式入口，均只监听 `127.0.0.1`：
 
 ```powershell
-python -m harness_shell_sidecar serve --port 8765 --data-dir E:\absolute\dev-data
-harness-shell-sidecar.exe desktop --port 0 --data-dir E:\absolute\data --control-read-handle <n> --ready-write-handle <n>
+python -m harness_ssh_sidecar serve --port 8765 --data-dir E:\absolute\dev-data
+harness-ssh-sidecar.exe desktop --port 0 --data-dir E:\absolute\data --control-read-handle <n> --ready-write-handle <n>
 ```
 
 `serve` 只用于源码、Python-only 和 SSH Lab；port 必须为 1..65535。`desktop` 只由 Launcher 使用，要求 port 0、绝对 data directory 与两个 inherited Windows handles。不得增加 host override、默认 data dir、自动端口 fallback 或第二 transport。

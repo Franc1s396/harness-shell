@@ -4,10 +4,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, select, func
 
-from harness_shell_sidecar.agent.attachments import AttachmentRepository
-from harness_shell_sidecar.agent.image_models import AttachmentError
-from harness_shell_sidecar.agent.image_validation import validate_image
-from harness_shell_sidecar.storage.orm import AgentAttachmentRow, AgentAttachmentContentRow, AgentConversationRow
+from harness_ssh_sidecar.agent.attachments import AttachmentRepository
+from harness_ssh_sidecar.agent.image_models import AttachmentError
+from harness_ssh_sidecar.agent.image_validation import validate_image
+from harness_ssh_sidecar.storage.orm import AgentAttachmentRow, AgentAttachmentContentRow, AgentConversationRow
 from .test_image_validation import picture
 
 

@@ -7,7 +7,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from harness_shell_sidecar.manual_sftp.models import RecoverySummary, RemoteEntry
+from harness_ssh_sidecar.manual_sftp.models import RecoverySummary, RemoteEntry
 
 
 def test_remote_entry_rejects_unknown_fields_and_unsafe_size() -> None:

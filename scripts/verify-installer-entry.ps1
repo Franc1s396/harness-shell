@@ -11,15 +11,15 @@ if (-not (Test-Path -LiteralPath $installerTemplatePath -PathType Leaf)) {
 $config = Get-Content -Encoding UTF8 -LiteralPath $tauriConfigPath | ConvertFrom-Json
 $template = Get-Content -Encoding UTF8 -Raw -LiteralPath $installerTemplatePath
 
-if ($config.mainBinaryName -ne 'harness-shell-ui') {
-    throw 'Tauri mainBinaryName must be harness-shell-ui'
+if ($config.mainBinaryName -ne 'harness-ssh-ui') {
+    throw 'Tauri mainBinaryName must be harness-ssh-ui'
 }
 $targets = @($config.bundle.targets)
 if ($targets.Count -ne 1 -or $targets[0] -ne 'nsis') {
     throw 'Tauri bundle target must be exactly nsis'
 }
 $externalBinaries = @($config.bundle.externalBin)
-foreach ($expected in @('binaries/harness-shell-sidecar', 'binaries/harness-shell-launcher')) {
+foreach ($expected in @('binaries/harness-ssh-sidecar', 'binaries/harness-ssh-launcher')) {
     if ($externalBinaries -notcontains $expected) {
         throw "Tauri bundle inputs are missing $expected"
     }
@@ -31,19 +31,19 @@ if ($config.bundle.windows.nsis.template -ne './windows/installer.nsi') {
 $startMenuDeclarations = @(
     [regex]::Matches(
         $template,
-        '(?m)^\s*CreateShortcut\s+"\$SMPROGRAMS\\Harness Shell\.lnk"\s+"\$INSTDIR\\harness-shell-launcher\.exe"\s*$'
+        '(?m)^\s*CreateShortcut\s+"\$SMPROGRAMS\\harness-ssh\.lnk"\s+"\$INSTDIR\\harness-ssh-launcher\.exe"\s*$'
     )
 )
 if ($startMenuDeclarations.Count -ne 1) {
     throw "Expected exactly one Launcher Start Menu shortcut declaration, found $($startMenuDeclarations.Count)"
 }
-if ($template -match '(?im)^\s*CreateShortcut\s+.*harness-shell-(?:ui|sidecar)\.exe') {
+if ($template -match '(?im)^\s*CreateShortcut\s+.*harness-ssh-(?:ui|sidecar)\.exe') {
     throw 'UI or Backend must not own an installer shortcut'
 }
 $finishLaunches = @(
     [regex]::Matches(
         $template,
-        '(?m)^\s*nsis_tauri_utils::RunAsUser\s+"\$INSTDIR\\harness-shell-launcher\.exe"'
+        '(?m)^\s*nsis_tauri_utils::RunAsUser\s+"\$INSTDIR\\harness-ssh-launcher\.exe"'
     )
 )
 if ($finishLaunches.Count -ne 2) {

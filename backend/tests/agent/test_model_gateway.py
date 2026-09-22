@@ -13,19 +13,19 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import SecretStr, ValidationError
 
-from harness_shell_sidecar.agent.contracts import (
+from harness_ssh_sidecar.agent.contracts import (
     ApiType,
     ExecuteCommandArguments,
     ModelApiConfig,
 )
-from harness_shell_sidecar.agent.executor import AgentCancelled
-from harness_shell_sidecar.agent.model_gateway import (
+from harness_ssh_sidecar.agent.executor import AgentCancelled
+from harness_ssh_sidecar.agent.model_gateway import (
     MODEL_REQUEST_TIMEOUT_SECONDS,
     MODEL_RETRY_DELAYS_SECONDS,
     ModelGateway,
     ModelGatewayError,
 )
-from harness_shell_sidecar.telemetry import ConsoleLogFormatter
+from harness_ssh_sidecar.telemetry import ConsoleLogFormatter
 
 from .fakes import (
     CancellationAwareModel,
@@ -165,7 +165,7 @@ def test_network_timeout_retries_five_times_then_fails(
         gateway = ModelGateway(client_builder=builder, sleep=record_sleep)
         caplog.set_level(
             logging.INFO,
-            logger="harness_shell_sidecar.agent.model_gateway",
+            logger="harness_ssh_sidecar.agent.model_gateway",
         )
 
         with pytest.raises(ModelGatewayError) as error:
@@ -250,7 +250,7 @@ def test_provider_failure_logs_safe_metadata_without_response_body(
         )
         caplog.set_level(
             logging.INFO,
-            logger="harness_shell_sidecar.agent.model_gateway",
+            logger="harness_ssh_sidecar.agent.model_gateway",
         )
 
         with pytest.raises(ModelGatewayError) as raised:
@@ -453,7 +453,7 @@ def test_outer_task_cancellation_stops_retry_sleep() -> None:
 
 def test_chat_messages_preserve_roles_tool_id_and_arguments() -> None:
     from langchain_core.messages import SystemMessage, ToolMessage
-    from harness_shell_sidecar.agent.model_gateway import _serialize_chat_messages
+    from harness_ssh_sidecar.agent.model_gateway import _serialize_chat_messages
     from .fakes import make_tool_call
     messages = [SystemMessage(content="rules", additional_kwargs={"__openai_role__": "developer"}), HumanMessage(content="inspect"), AIMessage(content="", tool_calls=[make_tool_call("call-7", "pwd")]), ToolMessage(content='{"ok":true}', tool_call_id="call-7")]
     assert _serialize_chat_messages(messages) == [
@@ -465,7 +465,7 @@ def test_chat_messages_preserve_roles_tool_id_and_arguments() -> None:
 
 
 def test_responses_replay_json_roundtrip_and_cross_config() -> None:
-    from harness_shell_sidecar.agent.model_gateway import _serialize_responses_input
+    from harness_ssh_sidecar.agent.model_gateway import _serialize_responses_input
     from .fakes import make_tool_call
     config = responses_config()
     item = {"type": "function_call", "id": "fc-7", "call_id": "call-7", "name": "execute_command", "arguments": '{"command":"pwd"}', "status": "completed"}
@@ -480,7 +480,7 @@ def test_responses_replay_json_roundtrip_and_cross_config() -> None:
 @pytest.mark.parametrize("kind", ["function", "content", "args", "tool_id"])
 def test_unsupported_history_is_rejected(kind: str) -> None:
     from langchain_core.messages import FunctionMessage, ToolMessage
-    from harness_shell_sidecar.agent.model_gateway import _serialize_chat_messages, _serialize_responses_input
+    from harness_ssh_sidecar.agent.model_gateway import _serialize_chat_messages, _serialize_responses_input
     from .fakes import make_tool_call
     message = AIMessage(content="", tool_calls=[make_tool_call("call-7", "pwd")])
     if kind == "function":
@@ -523,7 +523,7 @@ def test_fake_openai_client_records_resource_and_close_lifecycle() -> None:
 
 @pytest.mark.parametrize("tool", [False, True])
 def test_chat_stream_emits_and_aggregates_exact_text_or_tool(tool: bool) -> None:
-    from harness_shell_sidecar.agent.model_gateway import _parse_chat_completions_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_chat_completions_stream, _InvocationState
     from .fakes import FakeAsyncStream, chat_chunk, make_tool_call
     async def scenario() -> None:
         sink = RecordingTextSink()
@@ -541,7 +541,7 @@ def test_chat_stream_emits_and_aggregates_exact_text_or_tool(tool: bool) -> None
 
 @pytest.mark.parametrize("kind", ["choice", "multiple", "negative", "conflict", "bad_json", "list", "mixed", "reverse", "duplicate", "eof", "length", "content_filter", "function_call"])
 def test_chat_stream_provider_variations(kind: str) -> None:
-    from harness_shell_sidecar.agent.model_gateway import _parse_chat_completions_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_chat_completions_stream, _InvocationState
     from .fakes import FakeAsyncStream, chat_chunk
     async def scenario() -> None:
         call = {"index": 0, "id": "call-1", "type": "function", "function": {"name": "execute_command", "arguments": '{"command":"pwd"}'}}
@@ -575,7 +575,7 @@ def test_chat_stream_provider_variations(kind: str) -> None:
 
 @pytest.mark.parametrize("tool", [False, True])
 def test_responses_stream_captures_ordered_replay(tool: bool) -> None:
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState, _serialize_responses_input
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState, _serialize_responses_input
     from .fakes import FakeAsyncStream, responses_events, response_event, make_tool_call
     async def scenario() -> None:
         config = responses_config()
@@ -605,7 +605,7 @@ def test_responses_accepts_sparse_provider_events(omit: str) -> None:
     """可选传输元数据不得阻止完整工具调用和回放。"""
     from openai._models import construct_type
     from openai.types.responses import ResponseStreamEvent
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState, _serialize_responses_input
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState, _serialize_responses_input
     from .fakes import FakeAsyncStream, response_body
 
     async def scenario() -> None:
@@ -644,7 +644,7 @@ def test_responses_accepts_sparse_provider_events(omit: str) -> None:
 @pytest.mark.parametrize("numbering", ["missing", "repeated", "reset", "string"])
 def test_responses_uses_arrival_order_without_sequence_metadata(numbering: str) -> None:
     """Provider 序号元数据不得导致其他方面完整的 SSE 流被拒绝。"""
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
     from .fakes import FakeAsyncStream, responses_events
 
     async def scenario() -> None:
@@ -668,7 +668,7 @@ def test_responses_uses_arrival_order_without_sequence_metadata(numbering: str) 
 
 @pytest.mark.parametrize("kind", ["unknown", "index", "text_done", "item", "duplicate", "eof", "output", "arguments", "mixed", "failed", "incomplete", "error"])
 def test_responses_stream_provider_variations(kind: str) -> None:
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
     from .fakes import FakeAsyncStream, responses_events, response_event, make_tool_call
     async def scenario() -> None:
         events = responses_events(AIMessage(content="x"))
@@ -809,7 +809,7 @@ def test_official_standalone_client_close_failure_is_visible() -> None:
 
 def test_responses_lifecycle_split_text_and_arguments() -> None:
     from .fakes import FakeAsyncStream, response_event, response_body
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
     async def scenario() -> None:
         output = dict(type="message", id="msg-0", role="assistant", status="completed", content=[dict(type="output_text", text=" hello\nworld ", annotations=[], logprobs=[])])
         events = []
@@ -835,7 +835,7 @@ def test_responses_lifecycle_split_text_and_arguments() -> None:
 @pytest.mark.parametrize("kind", ["raw_event", "missing_delta", "negative_content", "incomplete_item", "duplicate_call", "orphan_delta"])
 def test_responses_uses_complete_output_despite_sparse_deltas(kind: str) -> None:
     from .fakes import FakeAsyncStream, responses_events, response_event, make_tool_call
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
     async def scenario() -> None:
         events = responses_events(AIMessage(content="x"))
         if kind == "raw_event": events[0] = {"type": "unknown"}
@@ -851,7 +851,7 @@ def test_responses_uses_complete_output_despite_sparse_deltas(kind: str) -> None
 
 @pytest.mark.parametrize("field,value", [("schema_version", True), ("call_id", ""), ("name", ""), ("arguments", "[]"), ("arguments", "{")])
 def test_replay_rejects_semantically_invalid_fields_across_configs(field: str, value: object) -> None:
-    from harness_shell_sidecar.agent.model_gateway import _serialize_responses_input
+    from harness_ssh_sidecar.agent.model_gateway import _serialize_responses_input
     from .fakes import make_tool_call
     config = responses_config()
     item = dict(type="function_call", id="fc-1", call_id="call-1", name="execute_command", arguments='{"command":"pwd"}', status="completed")
@@ -884,7 +884,7 @@ def test_sink_failure_identity_is_preserved_for_any_exception() -> None:
 def test_malformed_sdk_fields_do_not_warn_with_provider_content(responses: bool) -> None:
     import warnings
     from .fakes import FakeAsyncStream, responses_events
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _parse_chat_completions_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _parse_chat_completions_stream, _InvocationState
     async def scenario() -> None:
         if responses:
             event = responses_events(AIMessage(content="x"))[0]
@@ -906,7 +906,7 @@ def test_malformed_sdk_fields_do_not_warn_with_provider_content(responses: bool)
 
 def test_responses_split_tool_arguments_and_message_phase_replay() -> None:
     from .fakes import FakeAsyncStream, responses_events, response_event, make_tool_call
-    from harness_shell_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
+    from harness_ssh_sidecar.agent.model_gateway import _parse_responses_stream, _InvocationState
     async def scenario() -> None:
         events = responses_events(AIMessage(content="", tool_calls=[make_tool_call("call-1", "pwd")]))
         events[0].delta = '{"command":"pw'
@@ -984,7 +984,7 @@ def test_summary_rejects_truncated_answer() -> None:
 
 @pytest.mark.parametrize("api_type", list(ApiType))
 def test_summary_total_deadline_closes_one_request(api_type: ApiType, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("harness_shell_sidecar.agent.model_gateway.MODEL_REQUEST_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("harness_ssh_sidecar.agent.model_gateway.MODEL_REQUEST_TIMEOUT_SECONDS", 0.01)
     async def scenario() -> None:
         """永不结束的流必须遵守整体摘要截止时间。"""
         blocker = asyncio.Event()

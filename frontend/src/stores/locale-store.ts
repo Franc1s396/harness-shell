@@ -8,7 +8,7 @@ import {
   type SupportedLocale,
 } from "../i18n/locale";
 
-const STORAGE_KEY = "harness-shell.locale";
+const STORAGE_KEY = "harness-ssh.locale";
 
 const isLanguageMode = (value: unknown): value is LanguageMode =>
   value === "system" ||

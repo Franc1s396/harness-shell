@@ -14,8 +14,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi.testclient import TestClient
 
-from harness_shell_sidecar.runtime.settings import RuntimeSettings
-from harness_shell_sidecar.web import create_app
+from harness_ssh_sidecar.runtime.settings import RuntimeSettings
+from harness_ssh_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:
@@ -50,7 +50,7 @@ def encrypted_secret(client: TestClient, secret: str) -> dict[str, object]:
     ).json()
     aes_key = bytes(range(32))
     iv = bytes(range(12))
-    aad = f"harness-shell-credential-v1\0{public_key['key_id']}".encode()
+    aad = f"harness-ssh-credential-v1\0{public_key['key_id']}".encode()
     ciphertext = AESGCM(aes_key).encrypt(iv, secret.encode(), aad)
     rsa_public_key = serialization.load_der_public_key(
         base64.b64decode(public_key["public_key_spki_b64"], validate=True)

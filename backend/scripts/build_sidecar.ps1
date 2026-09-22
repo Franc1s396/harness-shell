@@ -3,9 +3,9 @@ $ErrorActionPreference = 'Stop'
 $backendRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $backendRoot
 $pythonExe = Join-Path $backendRoot '.venv\Scripts\python.exe'
-$specPath = Join-Path $backendRoot 'harness-shell-sidecar.spec'
+$specPath = Join-Path $backendRoot 'harness-ssh-sidecar.spec'
 $buildLock = Join-Path $backendRoot 'build-requirements.lock'
-$distExe = Join-Path $backendRoot 'dist\harness-shell-sidecar.exe'
+$distExe = Join-Path $backendRoot 'dist\harness-ssh-sidecar.exe'
 $binariesDir = Join-Path $workspaceRoot 'frontend\src-tauri\binaries'
 $smokeScript = Join-Path $PSScriptRoot 'smoke_sidecar.py'
 $env:PYTHONHASHSEED = '0'
@@ -78,7 +78,7 @@ if (-not (Test-Path -LiteralPath $distExe -PathType Leaf)) {
     throw "PyInstaller output is missing: $distExe"
 }
 New-Item -ItemType Directory -Force -Path $binariesDir | Out-Null
-$targetExe = Join-Path $binariesDir "harness-shell-sidecar-$targetTriple.exe"
+$targetExe = Join-Path $binariesDir "harness-ssh-sidecar-$targetTriple.exe"
 Copy-Item -LiteralPath $distExe -Destination $targetExe -Force
 
 & $pythonExe $smokeScript $targetExe

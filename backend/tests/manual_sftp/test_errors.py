@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncssh
 import pytest
 
-from harness_shell_sidecar.manual_sftp.errors import map_typed_sftp_status
+from harness_ssh_sidecar.manual_sftp.errors import map_typed_sftp_status
 
 
 @pytest.mark.parametrize(

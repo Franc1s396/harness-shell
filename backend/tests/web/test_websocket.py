@@ -184,7 +184,7 @@ def test_explicit_heartbeat_timeout_closes_with_4408(
     client,
     tmp_path: Path,
 ) -> None:
-    from harness_shell_sidecar.web.websocket import RuntimeWebSocketGateway
+    from harness_ssh_sidecar.web.websocket import RuntimeWebSocketGateway
 
     owner = runtime_owner(client)
     owner.websocket_gateway = RuntimeWebSocketGateway(
@@ -225,7 +225,7 @@ def test_runtime_owner_converts_domain_event_before_websocket_delivery(
 
 
 def test_gateway_outbound_queue_applies_backpressure_at_exact_capacity() -> None:
-    from harness_shell_sidecar.web.websocket import RuntimeWebSocketGateway
+    from harness_ssh_sidecar.web.websocket import RuntimeWebSocketGateway
 
     async def scenario() -> None:
         gateway = RuntimeWebSocketGateway()
@@ -259,7 +259,7 @@ def test_gateway_outbound_queue_applies_backpressure_at_exact_capacity() -> None
 
 
 def test_domain_event_converter_preserves_current_safe_payload_shapes() -> None:
-    from harness_shell_sidecar.web.websocket import convert_domain_event
+    from harness_ssh_sidecar.web.websocket import convert_domain_event
 
     pty_session_id = uuid4()
     output = convert_domain_event(

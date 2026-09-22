@@ -3,11 +3,11 @@
 from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
-from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
-from harness_shell_sidecar.credentials import CredentialRepository
-from harness_shell_sidecar.connections import ConnectionRepository, ConnectionRepositoryError
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepository, ApiConfigRepositoryError
-from harness_shell_sidecar.agent.conversations import ConversationRepository
+from harness_ssh_sidecar.storage import RuntimeDatabase, PlaintextRecordStore
+from harness_ssh_sidecar.credentials import CredentialRepository
+from harness_ssh_sidecar.connections import ConnectionRepository, ConnectionRepositoryError
+from harness_ssh_sidecar.agent.api_configs import ApiConfigRepository, ApiConfigRepositoryError
+from harness_ssh_sidecar.agent.conversations import ConversationRepository
 from ..agent.conftest import valid_api_config_input
 from .test_repository import profile_input, candidate
 

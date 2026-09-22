@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness_shell_sidecar.agent.command_policy import classify_command
+from harness_ssh_sidecar.agent.command_policy import classify_command
 
 
 @pytest.mark.parametrize("command", [

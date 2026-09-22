@@ -19,8 +19,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from harness_shell_sidecar.web import create_app
-from harness_shell_sidecar.runtime.settings import RuntimeSettings
+from harness_ssh_sidecar.web import create_app
+from harness_ssh_sidecar.runtime.settings import RuntimeSettings
 
 
 _ANSI_SGR_SEQUENCE = re.compile(r"\x1b\[[0-9;]*m")
@@ -200,7 +200,7 @@ def sidecar_process() -> Iterator[Callable[..., ProcessProbe]]:
             source if not existing else os.pathsep.join((source, existing))
         )
         process = subprocess.Popen(
-            [sys.executable, "-m", "harness_shell_sidecar", *args],
+            [sys.executable, "-m", "harness_ssh_sidecar", *args],
             cwd=Path(__file__).parents[2],
             env=environment,
             stdin=subprocess.DEVNULL,

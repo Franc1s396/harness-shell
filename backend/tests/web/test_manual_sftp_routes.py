@@ -7,9 +7,9 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.requests import Request
 
-from harness_shell_sidecar.manual_sftp.models import DownloadChunk, UploadChunkAck
-from harness_shell_sidecar.web.errors import HttpProblem
-from harness_shell_sidecar.web.routes.manual_sftp import read_exact_binary_body
+from harness_ssh_sidecar.manual_sftp.models import DownloadChunk, UploadChunkAck
+from harness_ssh_sidecar.web.errors import HttpProblem
+from harness_ssh_sidecar.web.routes.manual_sftp import read_exact_binary_body
 
 def request_headers(**overrides: str) -> dict[str, str]:
     """为 HTTP 应用操作创建严格请求头。"""

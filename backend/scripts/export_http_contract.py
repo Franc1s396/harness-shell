@@ -13,7 +13,7 @@ BACKEND_SOURCE = REPOSITORY_ROOT / "backend" / "src"
 if str(BACKEND_SOURCE) not in sys.path:
     sys.path.insert(0, str(BACKEND_SOURCE))
 
-from harness_shell_sidecar.web.contracts import (  # noqa: E402
+from harness_ssh_sidecar.web.contracts import (  # noqa: E402
     build_openapi_document,
     build_websocket_schema,
     canonical_json_bytes,

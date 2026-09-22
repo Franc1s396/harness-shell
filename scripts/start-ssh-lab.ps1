@@ -115,9 +115,9 @@ $secrets = [ordered]@{
 
 Push-Location $labRoot
 try {
-    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab down --remove-orphans
+    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-ssh-ssh-lab down --remove-orphans
     if ($LASTEXITCODE -ne 0) { throw 'Existing SSH lab cleanup failed' }
-    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab up --build --force-recreate --detach
+    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-ssh-ssh-lab up --build --force-recreate --detach
     if ($LASTEXITCODE -ne 0) { throw 'SSH lab startup failed' }
 
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
@@ -128,7 +128,7 @@ try {
             -Deadline $deadline `
             -QueryContainerId {
                 param([string]$QueryService)
-                $queryOutput = @(& docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab ps -q $QueryService)
+                $queryOutput = @(& docker-compose.exe --env-file .runtime\lab.env --project-name harness-ssh-ssh-lab ps -q $QueryService)
                 if ($LASTEXITCODE -ne 0) {
                     throw "Unable to inspect SSH lab container: $QueryService"
                 }
@@ -164,7 +164,7 @@ try {
         $client.Dispose()
     }
 } catch {
-    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-shell-ssh-lab down --remove-orphans | Out-Null
+    & docker-compose.exe --env-file .runtime\lab.env --project-name harness-ssh-ssh-lab down --remove-orphans | Out-Null
     throw
 } finally {
     Pop-Location

@@ -3,7 +3,7 @@
 
 use std::os::windows::ffi::OsStrExt;
 
-use harness_shell_launcher::{config::LauncherConfig, error::LauncherError, run};
+use harness_ssh_launcher::{config::LauncherConfig, error::LauncherError, run};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, MB_ICONERROR, MB_OK,
 };
@@ -20,7 +20,7 @@ fn main() {
 }
 
 fn show_error(message: &str) {
-    let title = wide("Harness Shell startup error");
+    let title = wide("harness-ssh startup error");
     let message = wide(message);
     // 只有有界 LauncherError 显示文本能进入原生对话框。
     unsafe {

@@ -11,14 +11,14 @@ Rust 分为两个独立 crate：
 
 ## Launcher
 
-Launcher 从自己的绝对路径解析同目录 `harness-shell-ui.exe` 与 `harness-shell-sidecar.exe`，并使用 `%LOCALAPPDATA%\com.harnessshell.app`。它必须：
+Launcher 从自己的绝对路径解析同目录 `harness-ssh-ui.exe` 与 `harness-ssh-sidecar.exe`，并使用 `%LOCALAPPDATA%\com.harness-ssh.app`。Tauri identifier 同为 `com.harness-ssh.app`；项目更名后使用新数据目录，不自动发现、复制或迁移旧应用目录。它必须：
 
 1. 创建 Windows Job 与不可继承的 parent pipe ends。
 2. suspended spawn Backend，仅继承 control-read/ready-write handles，然后加入 Job 并 resume。
 3. 读取长度有界、strict JSON 的 ready frame，拒绝未知字段、重复字段、port 0、超时和提前退出。
 4. 用 ready frame 的 port 启动 UI；禁止端口扫描。
 5. UI 退出后发一个 graceful byte并有界等待；失败或超时终止 Job。
-6. 通过唯一 inherited stderr pipe 持续排空 Backend 日志，写入 `logs\harness-shell-backend.log`，单文件上限 10 MiB 并保留 4 个归档；日志写入线程必须在 child/Job 收敛后 join。
+6. 通过唯一 inherited stderr pipe 持续排空 Backend 日志，写入 `logs\harness-ssh-backend.log`，单文件上限 10 MiB 并保留 4 个归档；日志写入线程必须在 child/Job 收敛后 join。
 7. 不 reconnect、不 respawn、不把 child stderr 或 secret 放入用户错误框、Tauri 或 WebView。
 
 复杂 handle、Job、spawn 和 failure-path 代码必须注释资源所有权与清理顺序。
@@ -31,12 +31,12 @@ Launcher 从自己的绝对路径解析同目录 `harness-shell-ui.exe` 与 `har
 
 custom permissions 只能是 `bootstrap.toml`。main capability 只有 bootstrap 和必要的固定 window close/destroy 权限；不存在独立 approval capability。Release UI 未经 Launcher bootstrap 必须显示稳定 native startup error 后退出。
 
-Tauri 自身的 `harness-shell.log` 与 Launcher 写入的 Backend 日志相互独立，均使用设备本地时区；两个进程不得并发写入同一日志文件。
+Tauri 自身的 `harness-ssh.log` 与 Launcher 写入的 Backend 日志相互独立，均使用设备本地时区；两个进程不得并发写入同一日志文件。
 
 ## 打包
 
 - target 固定 `x86_64-pc-windows-msvc`。
-- Tauri `mainBinaryName` 固定 `harness-shell-ui`，bundle target 只为 NSIS。
+- Tauri `mainBinaryName` 固定 `harness-ssh-ui`，bundle target 只为 NSIS。
 - external binaries 包含 target-triple Backend 与 Launcher companion。
 - Launcher 通过 `launcher/build.rs` 独立编译 Windows 图标资源，与 Tauri UI 共用 `frontend/src-tauri/icons/icon.ico`；图标变更触发重新构建，资源编译失败必须终止打包。
 - custom NSIS template 必须与 lockfile 中 Tauri CLI 版本一致；Start Menu、Desktop shortcut、finish action 和 silent `/R` 都只启动 Launcher。

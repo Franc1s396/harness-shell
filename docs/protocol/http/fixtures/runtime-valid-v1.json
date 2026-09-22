@@ -6,7 +6,7 @@
         "request_id": "5d24cf74-879a-4ca4-83d2-3ddf590a40fa",
         "body": {
           "schema_version": 1,
-          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\Harness Shell\\runtime.db",
+          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\harness-ssh\\runtime.db",
           "runtime_key_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         }
       },

@@ -17,7 +17,7 @@ export type ConnectionDialogState =
   | { kind: "create" }
   | { kind: "edit"; connectionId: string };
 
-const STORAGE_KEY = "harness-shell.workspace-ui";
+const STORAGE_KEY = "harness-ssh.workspace-ui";
 
 const clampToBounds = (width: number, bounds: WidthBounds) =>
   Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));

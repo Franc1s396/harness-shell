@@ -4,8 +4,8 @@ import asyncio
 import base64
 from uuid import uuid4
 
-from harness_shell_sidecar.manual_sftp.service import ManualSftpService
-from harness_shell_sidecar.terminal.manager import PtyManager
+from harness_ssh_sidecar.manual_sftp.service import ManualSftpService
+from harness_ssh_sidecar.terminal.manager import PtyManager
 
 from .test_manual_sftp import _download, _ignore_event, _upload, _write_event_evidence
 

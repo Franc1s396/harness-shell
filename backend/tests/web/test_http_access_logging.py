@@ -6,8 +6,8 @@ from uuid import uuid4
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
-from harness_shell_sidecar.telemetry import configure_stderr_logging
-from harness_shell_sidecar.web.errors import register_exception_handlers
+from harness_ssh_sidecar.telemetry import configure_stderr_logging
+from harness_ssh_sidecar.web.errors import register_exception_handlers
 
 
 def test_unexpected_http_exception_logs_traceback_without_exposing_it() -> None:
@@ -41,7 +41,7 @@ def _access_record(stderr: io.StringIO) -> list[str]:
     matches = [
         line
         for line in stderr.getvalue().splitlines()
-        if "harness_shell_sidecar.web.access" in line
+        if "harness_ssh_sidecar.web.access" in line
     ]
     assert len(matches) == 1
     return matches[0].split(" | ", maxsplit=5)
@@ -151,4 +151,4 @@ def test_runtime_state_request_is_excluded_from_http_access_logging(
     )
 
     assert response.status_code == 200
-    assert "harness_shell_sidecar.web.access" not in stderr.getvalue()
+    assert "harness_ssh_sidecar.web.access" not in stderr.getvalue()

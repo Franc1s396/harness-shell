@@ -4,27 +4,27 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.agent.executor import AgentCancelled
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepositoryError
-from harness_shell_sidecar.agent.conversations import ConversationRepositoryError
-from harness_shell_sidecar.agent.model_gateway import ModelGatewayError
-from harness_shell_sidecar.agent.service import AgentServiceError
-from harness_shell_sidecar.agent.tools import CommandRejected
-from harness_shell_sidecar.connections.repository import ConnectionRepositoryError
-from harness_shell_sidecar.credentials.cipher import CredentialCipherError
-from harness_shell_sidecar.credentials.repository import CredentialRepositoryError
-from harness_shell_sidecar.credentials.service import CredentialServiceError
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.runtime.dispatcher import DispatchError
-from harness_shell_sidecar.runtime.models import RuntimeInitializationFailure
-from harness_shell_sidecar.terminal.manager import PtyManagerError
-from harness_shell_sidecar.runtime.request_context import (
+from harness_ssh_sidecar.agent.executor import AgentCancelled
+from harness_ssh_sidecar.agent.api_configs import ApiConfigRepositoryError
+from harness_ssh_sidecar.agent.conversations import ConversationRepositoryError
+from harness_ssh_sidecar.agent.model_gateway import ModelGatewayError
+from harness_ssh_sidecar.agent.service import AgentServiceError
+from harness_ssh_sidecar.agent.tools import CommandRejected
+from harness_ssh_sidecar.connections.repository import ConnectionRepositoryError
+from harness_ssh_sidecar.credentials.cipher import CredentialCipherError
+from harness_ssh_sidecar.credentials.repository import CredentialRepositoryError
+from harness_ssh_sidecar.credentials.service import CredentialServiceError
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError
+from harness_ssh_sidecar.runtime.models import RuntimeInitializationFailure
+from harness_ssh_sidecar.terminal.manager import PtyManagerError
+from harness_ssh_sidecar.runtime.request_context import (
     RequestCancelledError,
     RequestContext,
 )
-from harness_shell_sidecar.ssh.errors import SshRuntimeError
-from harness_shell_sidecar.web.errors import HttpProblem, build_problem
-from harness_shell_sidecar.web.lifespan import RuntimeOwnerError
+from harness_ssh_sidecar.ssh.errors import SshRuntimeError
+from harness_ssh_sidecar.web.errors import HttpProblem, build_problem
+from harness_ssh_sidecar.web.lifespan import RuntimeOwnerError
 
 
 @pytest.mark.parametrize(

@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
-from harness_shell_sidecar.runtime.request_context import RequestContext
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.runtime.request_context import RequestContext
 
 
 def test_dispatcher_passes_only_request_context_and_params() -> None:

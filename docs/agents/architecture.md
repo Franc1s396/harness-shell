@@ -6,24 +6,24 @@
 
 ## 当前进程模型
 
-Harness Shell 的生产桌面路径只有一条：
+harness-ssh 的生产桌面路径只有一条：
 
 ```text
 NSIS shortcut / finish action
-  -> harness-shell-launcher.exe
-  -> harness-shell-sidecar.exe desktop --port 0 --data-dir <absolute> --control-read-handle ... --ready-write-handle ...
+  -> harness-ssh-launcher.exe
+  -> harness-ssh-sidecar.exe desktop --port 0 --data-dir <absolute> --control-read-handle ... --ready-write-handle ...
   -> Backend binds 127.0.0.1:<dynamic>, migrates and validates SQLite, initializes Runtime
   -> Backend starts control reader and writes one bounded ready frame
-  -> harness-shell-ui.exe --backend-url http://127.0.0.1:<dynamic>
+  -> harness-ssh-ui.exe --backend-url http://127.0.0.1:<dynamic>
   -> React direct typed HTTP (including Agent turn SSE) + one Runtime WebSocket
 ```
 
-Launcher 独占两个 child、Windows Job、ready/control pipe、Backend stderr capture、启动顺序和退出清理。Backend 的纯文本 stderr 由 Launcher 写入 `%LOCALAPPDATA%\com.harnessshell.app\logs\harness-shell-backend.log`，单文件上限 10 MiB 并保留 4 个归档；不得转发给 Tauri 或 WebView。它不扫描端口、不 reconnect、不 respawn。Backend 提前退出时 UI 不被重新绑定；UI 退出时 Launcher 发送一次 graceful byte，3 秒后仍存活则终止 Job。
+Launcher 独占两个 child、Windows Job、ready/control pipe、Backend stderr capture、启动顺序和退出清理。Backend 的纯文本 stderr 由 Launcher 写入 `%LOCALAPPDATA%\com.harness-ssh.app\logs\harness-ssh-backend.log`，单文件上限 10 MiB 并保留 4 个归档；不得转发给 Tauri 或 WebView。它不扫描端口、不 reconnect、不 respawn。Backend 提前退出时 UI 不被重新绑定；UI 退出时 Launcher 发送一次 graceful byte，3 秒后仍存活则终止 Job。
 
 开发模式显式拆分为 Backend 与 UI：
 
 ```powershell
-backend\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765 --data-dir E:\absolute\dev-data
+backend\.venv\Scripts\python.exe -m harness_ssh_sidecar serve --port 8765 --data-dir E:\absolute\dev-data
 npm.cmd --prefix frontend run tauri:dev -- -- --backend-url http://127.0.0.1:8765
 ```
 

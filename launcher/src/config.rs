@@ -9,7 +9,7 @@ pub struct LauncherConfig {
     pub ui_exe: PathBuf,
     /// 位于 Launcher 旁的打包 Python Backend 可执行文件。
     pub backend_exe: PathBuf,
-    /// 仅传给 Backend 的 `%LOCALAPPDATA%\com.harnessshell.app` 目录。
+    /// 仅传给 Backend 的 `%LOCALAPPDATA%\com.harness-ssh.app` 目录。
     pub data_dir: PathBuf,
 }
 
@@ -24,9 +24,9 @@ impl LauncherConfig {
             .filter(|path| path.is_absolute())
             .ok_or(LauncherError::ConfigInvalid)?;
         Ok(Self {
-            ui_exe: install_dir.join("harness-shell-ui.exe"),
-            backend_exe: install_dir.join("harness-shell-sidecar.exe"),
-            data_dir: local_app_data.join("com.harnessshell.app"),
+            ui_exe: install_dir.join("harness-ssh-ui.exe"),
+            backend_exe: install_dir.join("harness-ssh-sidecar.exe"),
+            data_dir: local_app_data.join("com.harness-ssh.app"),
         })
     }
 

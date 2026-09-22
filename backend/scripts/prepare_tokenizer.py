@@ -39,7 +39,7 @@ def main() -> None:
         (args.output_dir / "o200k_base.json").write_text(
             json.dumps(metadata, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     # 4. 两种模式都使用生产离线 loader 验证结果，确保资源可以实际加载。
-    from harness_shell_sidecar.agent.tokenizer import load_local_encoding
+    from harness_ssh_sidecar.agent.tokenizer import load_local_encoding
     load_local_encoding(args.output_dir, "o200k_base")
 
 

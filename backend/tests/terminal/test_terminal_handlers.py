@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.runtime import DispatchError, RequestDispatcher
-from harness_shell_sidecar.terminal.handlers import register_terminal_handlers
+from harness_ssh_sidecar.runtime import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.terminal.handlers import register_terminal_handlers
 
 
 class FakeManager:

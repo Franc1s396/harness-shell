@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepository
+from harness_ssh_sidecar.agent.api_configs import ApiConfigRepository
 
 from ..storage_support import RepositoryClient, sql
 
@@ -20,12 +20,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi.testclient import TestClient
 from starlette.types import Message, Scope
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus
-from harness_shell_sidecar.agent.handlers import AgentTurnRequest
-from harness_shell_sidecar.runtime.request_context import RequestContext
-from harness_shell_sidecar.agent.streaming import AgentTurnEventSink
-from harness_shell_sidecar.runtime.settings import RuntimeSettings
-from harness_shell_sidecar.web import create_app
+from harness_ssh_sidecar.agent.contracts import AgentRun, AgentRunStatus
+from harness_ssh_sidecar.agent.handlers import AgentTurnRequest
+from harness_ssh_sidecar.runtime.request_context import RequestContext
+from harness_ssh_sidecar.agent.streaming import AgentTurnEventSink
+from harness_ssh_sidecar.runtime.settings import RuntimeSettings
+from harness_ssh_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:
@@ -145,7 +145,7 @@ def encrypted_secret(client: TestClient, secret: str) -> dict[str, object]:
     ).json()
     aes_key = bytes(range(32))
     iv = bytes(range(12))
-    aad = f"harness-shell-credential-v1\0{public_key['key_id']}".encode()
+    aad = f"harness-ssh-credential-v1\0{public_key['key_id']}".encode()
     ciphertext = AESGCM(aes_key).encrypt(iv, secret.encode(), aad)
     rsa_public_key = serialization.load_der_public_key(
         base64.b64decode(public_key["public_key_spki_b64"], validate=True)

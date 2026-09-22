@@ -17,7 +17,7 @@ Write-Output '[1/4] Manual SFTP regression gate'
 if ($LASTEXITCODE -ne 0) { throw 'Manual SFTP regression gate failed' }
 
 Write-Output '[2/4] Focused Agent, runtime, and schema tests'
-$agentTemp = Join-Path $env:TEMP "harness-shell-agent-$PID"
+$agentTemp = Join-Path $env:TEMP "harness-ssh-agent-$PID"
 & $pythonExe -m pytest --basetemp $agentTemp -p no:cacheprovider `
     (Join-Path $backendRoot 'tests\agent') `
     (Join-Path $backendRoot 'tests\web\test_agent_routes.py') `
@@ -26,8 +26,8 @@ $agentTemp = Join-Path $env:TEMP "harness-shell-agent-$PID"
 if ($LASTEXITCODE -ne 0) { throw 'Focused Agent Python tests failed' }
 
 Write-Output '[3/4] Python CredentialRepository ownership'
-$handlers = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_shell_sidecar\agent\handlers.py') -Encoding UTF8 -Raw
-$resources = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_shell_sidecar\runtime\resources.py') -Encoding UTF8 -Raw
+$handlers = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_ssh_sidecar\agent\handlers.py') -Encoding UTF8 -Raw
+$resources = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_ssh_sidecar\runtime\resources.py') -Encoding UTF8 -Raw
 if (-not $handlers.Contains('CredentialRepository(PlaintextRecordStore(session))') -or
     -not $handlers.Contains('read_session()') -or
     -not $resources.Contains('register_agent_handlers(')) {
@@ -44,7 +44,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'OpenSSH lab startup failed' }
     $labStarted = $true
     $env:HARNESS_RUN_SSH_INTEGRATION = '1'
-    $integrationTemp = Join-Path $env:TEMP "harness-shell-agent-integration-$PID"
+    $integrationTemp = Join-Path $env:TEMP "harness-ssh-agent-integration-$PID"
     & $pythonExe -m pytest --basetemp $integrationTemp -p no:cacheprovider `
         (Join-Path $backendRoot 'tests\ssh_integration\test_agent_command.py') -q
     if ($LASTEXITCODE -ne 0) { throw 'OpenSSH Agent integration failed' }

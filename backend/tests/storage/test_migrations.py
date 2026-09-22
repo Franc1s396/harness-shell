@@ -10,7 +10,7 @@ import pytest
 def upgrade(path: Path) -> None:
     """把缺失实现转换为明确的功能缺失断言。"""
     try:
-        runner = importlib.import_module("harness_shell_sidecar.storage.migration_runner")
+        runner = importlib.import_module("harness_ssh_sidecar.storage.migration_runner")
     except ModuleNotFoundError:
         pytest.fail("Alembic startup migration is not implemented")
     runner.upgrade_database(path)
@@ -29,7 +29,7 @@ def test_initial_revision_creates_strict_business_tables(tmp_path: Path) -> None
 
 
 def test_legacy_database_is_rejected_without_changes(tmp_path: Path) -> None:
-    from harness_shell_sidecar.storage import StorageSelfCheckFailed
+    from harness_ssh_sidecar.storage import StorageSelfCheckFailed
     path = tmp_path / "legacy.sqlite3"
     with sqlite3.connect(path) as connection:
         connection.execute("CREATE TABLE schema_migrations(version INTEGER)")
@@ -46,7 +46,7 @@ def test_retry_upgrade_preserves_existing_data(tmp_path: Path, revision: str) ->
     from alembic import command
     from alembic.config import Config
     from sqlalchemy import create_engine
-    from harness_shell_sidecar.storage.migration_runner import migration_resource_dir
+    from harness_ssh_sidecar.storage.migration_runner import migration_resource_dir
     path = tmp_path / "old.sqlite3"
     engine = create_engine("sqlite:///" + str(path))
     try:

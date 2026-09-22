@@ -4,8 +4,8 @@ import asyncio
 
 from langchain_core.messages import AIMessage
 
-from harness_shell_sidecar.agent.approval_models import ApprovalDecision
-from harness_shell_sidecar.agent.contracts import AgentRunStatus
+from harness_ssh_sidecar.agent.approval_models import ApprovalDecision
+from harness_ssh_sidecar.agent.contracts import AgentRunStatus
 from .conftest import AgentStorage
 from .fakes import FakeModelSequence, RecordingTurnSink, make_tool_call
 from .test_graph import RecordingExecutor, _run_turn, _service
@@ -46,7 +46,7 @@ def test_mutation_waits_and_rejection_returns_to_model(agent_storage: AgentStora
 def test_approval_executes_once_and_releases_checkpoint(agent_storage: AgentStorage, monkeypatch) -> None:
     """重复通过只执行一次，Run 结束清空所有 checkpoint 与授权。"""
     from langgraph.checkpoint.memory import InMemorySaver
-    from harness_shell_sidecar.agent import service as service_module
+    from harness_ssh_sidecar.agent import service as service_module
     from .test_approvals import decision_for
     savers = []
 
@@ -186,7 +186,7 @@ def test_each_new_mutation_requires_a_new_approval(agent_storage: AgentStorage) 
 def test_checkpoint_cleanup_failure_does_not_replace_cancellation(agent_storage: AgentStorage, monkeypatch) -> None:
     """次生清理异常记录后保留最先发生的取消，并仍清理授权表。"""
     from langgraph.checkpoint.memory import InMemorySaver
-    from harness_shell_sidecar.agent import service as service_module
+    from harness_ssh_sidecar.agent import service as service_module
     class FailingCleanupSaver(InMemorySaver):
         """实际清理后报告注入的 cleanup 故障。"""
         def delete_thread(self, thread_id: str) -> None:

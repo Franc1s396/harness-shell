@@ -3,8 +3,8 @@
 import asyncio
 from contextlib import contextmanager
 from langchain_core.messages import AIMessage
-from harness_shell_sidecar.agent.contracts import AgentRunStatus
-from harness_shell_sidecar.agent.model_gateway import ModelGateway
+from harness_ssh_sidecar.agent.contracts import AgentRunStatus
+from harness_ssh_sidecar.agent.model_gateway import ModelGateway
 from .fakes import FakeModelSequence, make_tool_call
 from .test_graph import RecordingExecutor, _service, _run_turn
 

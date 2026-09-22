@@ -5,13 +5,13 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from harness_shell_sidecar.web.models import ProblemDetails, RuntimeStateResponse
+from harness_ssh_sidecar.web.models import ProblemDetails, RuntimeStateResponse
 
 
 def test_problem_details_and_runtime_responses_are_strict() -> None:
     request_id = uuid4()
     problem = ProblemDetails(
-        type="urn:harness-shell:error:runtime-not-ready",
+        type="urn:harness-ssh:error:runtime-not-ready",
         title="Runtime not ready",
         status=503,
         error_code="RUNTIME_NOT_READY",

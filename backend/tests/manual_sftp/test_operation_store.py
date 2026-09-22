@@ -7,12 +7,12 @@ from ..storage_support import RepositoryClient, sql
 from pathlib import Path
 from uuid import UUID
 
-from harness_shell_sidecar.manual_sftp.models import TransferSnapshot
-from harness_shell_sidecar.manual_sftp.operation_store import (
+from harness_ssh_sidecar.manual_sftp.models import TransferSnapshot
+from harness_ssh_sidecar.manual_sftp.operation_store import (
     ManualSftpOperationStore,
     RemoteOperationRecord,
 )
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_ssh_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 OPERATION_ID = UUID("00000000-0000-4000-8000-000000000301")
@@ -44,7 +44,7 @@ def record(operation_id: UUID, state: str) -> RemoteOperationRecord:
         jump_profile_version=None,
         jump_host_key_fingerprint=None,
         remote_path="/home/demo/data.txt",
-        temp_path=f"/home/demo/.harness-shell-upload-{operation_id}.part",
+        temp_path=f"/home/demo/.harness-ssh-upload-{operation_id}.part",
         expected_sha256="0" * 64,
         target_snapshot=TransferSnapshot(
             path="/home/demo/data.txt",

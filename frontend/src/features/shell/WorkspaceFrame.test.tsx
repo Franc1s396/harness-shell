@@ -123,10 +123,10 @@ describe("WorkspaceFrame", () => {
 
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(
-      screen.getByRole("dialog", { name: "Exit Harness Shell?" }),
+      screen.getByRole("dialog", { name: "Exit harness-ssh?" }),
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog", { name: "Exit Harness Shell?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Exit harness-ssh?" })).not.toBeInTheDocument();
     expect(tauriWindow.close).not.toHaveBeenCalled();
   });
 
@@ -176,7 +176,7 @@ describe("WorkspaceFrame", () => {
       "SFTP_CANCEL_TOO_LATE: The operation is already committing.",
     );
     expect(
-      screen.getByRole("dialog", { name: "Exit Harness Shell?" }),
+      screen.getByRole("dialog", { name: "Exit harness-ssh?" }),
     ).toBeVisible();
     expect(tauriWindow.close).not.toHaveBeenCalled();
   });
@@ -198,7 +198,7 @@ describe("WorkspaceFrame", () => {
 
     expect(screen.getByRole("button", { name: "Continue waiting" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Cancel and clean up" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Exit Harness Shell" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Exit harness-ssh" })).not.toBeInTheDocument();
   });
 
   it("offers Force exit for Agent-only work but never bypasses an SFTP committing gate", async () => {
@@ -267,7 +267,7 @@ describe("WorkspaceFrame", () => {
   it("keeps only context and one quick-actions entry in the top bar", () => {
     const callbacks = renderFrame();
     const header = screen.getByRole("banner");
-    expect(within(header).getByText("Harness Shell")).toBeVisible();
+    expect(within(header).getByText("harness-ssh")).toBeVisible();
     expect(within(header).getByText("Local")).toBeVisible();
     expect(within(header).getByText("Production")).toBeVisible();
     expect(within(header).getByText("admin@example.com")).toBeVisible();

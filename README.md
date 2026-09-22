@@ -1,12 +1,12 @@
-# Harness Shell
+# harness-ssh
 
 简体中文 | [English](README.en.md)
 
 ## 项目介绍
 
-Harness Shell 是面向 Windows 的本地 AI SSH Agent 桌面应用，将 SSH 终端、文件传输和 AI 辅助操作整合在同一工作区。
+harness-ssh 是面向 Windows 的本地 AI SSH Agent 桌面应用，将 SSH 终端、文件传输和 AI 辅助操作整合在同一工作区。
 
-![Harness Shell SSH 终端与 AI Agent 工作区](demo.png)
+![harness-ssh SSH 终端与 AI Agent 工作区](demo.png)
 
 **功能特性**
 
@@ -41,7 +41,7 @@ backend\.venv\Scripts\python.exe backend/scripts/prepare_tokenizer.py --output-d
 
 ```powershell
 $devDataDir = Join-Path (Get-Location).Path ".runtime\dev"
-backend\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765 --data-dir "$devDataDir"
+backend\.venv\Scripts\python.exe -m harness_ssh_sidecar serve --port 8765 --data-dir "$devDataDir"
 ```
 
 ### 3. 启动桌面 UI

@@ -7,10 +7,10 @@ from collections.abc import Sequence
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage
 from pydantic import SecretStr
-from harness_shell_sidecar.agent.context_models import ContextError, TokenEstimate, ContextMessage, ContextSummary
-from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
-from harness_shell_sidecar.agent.model_gateway import ModelGatewayError
-from harness_shell_sidecar.agent.contracts import AgentRunStatus, ModelApiConfig
+from harness_ssh_sidecar.agent.context_models import ContextError, TokenEstimate, ContextMessage, ContextSummary
+from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
+from harness_ssh_sidecar.agent.model_gateway import ModelGatewayError
+from harness_ssh_sidecar.agent.contracts import AgentRunStatus, ModelApiConfig
 from .conftest import AgentStorage, valid_api_config_input
 
 
@@ -51,7 +51,7 @@ class SummaryGateway:
 
 @pytest.mark.parametrize("failures", [0, 2, 3])
 def test_compaction_retries_and_preserves_messages(agent_storage: AgentStorage, failures: int) -> None:
-    from harness_shell_sidecar.agent.context_compaction import ContextCompactor
+    from harness_ssh_sidecar.agent.context_compaction import ContextCompactor
     from .fakes import instant_sleep
     repo = agent_storage.conversations
     config = agent_storage.api_configs.create(valid_api_config_input())
@@ -122,8 +122,8 @@ def test_compaction_retries_and_preserves_messages(agent_storage: AgentStorage, 
 def test_failed_candidate_preserves_existing_summary(
     agent_storage: AgentStorage, failure_stage: str,
 ) -> None:
-    from harness_shell_sidecar.agent.context_compaction import ContextCompactor
-    from harness_shell_sidecar.agent.executor import AgentCancelled
+    from harness_ssh_sidecar.agent.context_compaction import ContextCompactor
+    from harness_ssh_sidecar.agent.executor import AgentCancelled
     repo = agent_storage.conversations
     config = agent_storage.api_configs.create(valid_api_config_input())
     conversation = repo.create_conversation()
@@ -171,7 +171,7 @@ def test_failed_candidate_preserves_existing_summary(
 
 
 def test_summary_input_excludes_usage_and_opaque_replay() -> None:
-    from harness_shell_sidecar.agent.context_compaction import build_summary_messages
+    from harness_ssh_sidecar.agent.context_compaction import build_summary_messages
     run_id = uuid4()
     prefix = [ContextMessage(1, run_id, HumanMessage(content="inspect service")),
         ContextMessage(2, run_id, AIMessage(content="service is running",

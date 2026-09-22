@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.agent.api_configs import ApiConfigRepositoryError
-from harness_shell_sidecar.agent.contracts import ApiType
+from harness_ssh_sidecar.agent.api_configs import ApiConfigRepositoryError
+from harness_ssh_sidecar.agent.contracts import ApiType
 
 from .conftest import AgentStorage, valid_api_config_input
 

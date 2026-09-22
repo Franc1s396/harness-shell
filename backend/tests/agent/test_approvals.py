@@ -5,9 +5,9 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.agent.approval_models import ApprovalDecision, ApprovalRequest, ApprovalTarget
-from harness_shell_sidecar.agent.approvals import ApprovalError, ApprovalRegistry
-from harness_shell_sidecar.agent.contracts import ExecuteCommandArguments
+from harness_ssh_sidecar.agent.approval_models import ApprovalDecision, ApprovalRequest, ApprovalTarget
+from harness_ssh_sidecar.agent.approvals import ApprovalError, ApprovalRegistry
+from harness_ssh_sidecar.agent.contracts import ExecuteCommandArguments
 
 
 def approval_request() -> ApprovalRequest:

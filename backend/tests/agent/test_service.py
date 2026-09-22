@@ -1,7 +1,7 @@
 from __future__ import annotations
 from tests.agent.fakes import FakeSessionRegistry
 
-from harness_shell_sidecar.agent.conversations import ConversationRepository
+from harness_ssh_sidecar.agent.conversations import ConversationRepository
 
 from ..storage_support import RepositoryClient, sql
 
@@ -17,25 +17,25 @@ import anyio
 from collections.abc import Mapping
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
-from harness_shell_sidecar.agent.streaming import AgentTurnEventSink
-from harness_shell_sidecar.runtime.dispatcher import RequestDispatcher
-from harness_shell_sidecar.runtime.request_context import RequestContext
-from harness_shell_sidecar.web.agent_stream import AgentTurnStreamSession
+from harness_ssh_sidecar.agent.streaming import AgentTurnEventSink
+from harness_ssh_sidecar.runtime.dispatcher import RequestDispatcher
+from harness_ssh_sidecar.runtime.request_context import RequestContext
+from harness_ssh_sidecar.web.agent_stream import AgentTurnStreamSession
 from .fakes import FakeAsyncStream, FakeOpenAIClient
 
-from harness_shell_sidecar.agent.context import ContextService
-from harness_shell_sidecar.agent.contracts import (
+from harness_ssh_sidecar.agent.context import ContextService
+from harness_ssh_sidecar.agent.contracts import (
     AgentRun,
     AgentRunStatus,
     AgentTurnInput,
     AgentTurnResult,
     CommandToolEnvelope,
 )
-from harness_shell_sidecar.agent.model_gateway import ModelGateway
-from harness_shell_sidecar.agent import service as agent_service_module
-from harness_shell_sidecar.agent.graph import CommandExecutor
-from harness_shell_sidecar.agent.service import AgentService, AgentServiceError
-from harness_shell_sidecar.runtime.models import MAX_JSON_BODY_BYTES
+from harness_ssh_sidecar.agent.model_gateway import ModelGateway
+from harness_ssh_sidecar.agent import service as agent_service_module
+from harness_ssh_sidecar.agent.graph import CommandExecutor
+from harness_ssh_sidecar.agent.service import AgentService, AgentServiceError
+from harness_ssh_sidecar.runtime.models import MAX_JSON_BODY_BYTES
 
 from .conftest import AgentStorage, valid_api_config_input
 from .fakes import (
@@ -220,7 +220,7 @@ def test_model_failure_marks_run_failed_exactly_once(
             return real_finish(self, agent_run_id, status, error_code)
 
         monkeypatch.setattr(ConversationRepository, "finish_run", count_finish)
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
+        caplog.set_level(logging.INFO, logger="harness_ssh_sidecar.agent.service")
         event_sink = RecordingTurnSink()
 
         result = await _run_turn(
@@ -412,7 +412,7 @@ def test_cancellation_is_returned_as_cancelled_run(
             update={"api_config_id": config.api_config_id}
         )
         cancelled = asyncio.Event()
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
+        caplog.set_level(logging.INFO, logger="harness_ssh_sidecar.agent.service")
 
         task = asyncio.create_task(
             _run_turn(agent_storage, service, turn, "key", cancelled)
@@ -735,7 +735,7 @@ def test_successful_turn_removes_unused_conversation_lock(
         turn = make_turn_input().model_copy(
             update={"api_config_id": config.api_config_id}
         )
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
+        caplog.set_level(logging.INFO, logger="harness_ssh_sidecar.agent.service")
 
         result = await service.run_turn(
             turn,
@@ -778,7 +778,7 @@ def test_react_limit_logs_one_failed_terminal_lifecycle(
         turn = make_turn_input().model_copy(
             update={"api_config_id": config.api_config_id}
         )
-        caplog.set_level(logging.INFO, logger="harness_shell_sidecar.agent.service")
+        caplog.set_level(logging.INFO, logger="harness_ssh_sidecar.agent.service")
 
         result = await _run_turn(agent_storage, service, turn, "key", asyncio.Event())
 

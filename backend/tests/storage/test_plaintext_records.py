@@ -7,7 +7,7 @@ from typing import Protocol
 
 import pytest
 
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_ssh_sidecar.storage import RuntimeDatabase
 
 
 class _PlaintextStore(Protocol):
@@ -26,7 +26,7 @@ def load_plaintext_types() -> tuple[type, type]:
     """加载目标公开类型，使缺失实现明确触发测试失败。"""
 
     try:
-        from harness_shell_sidecar.storage import PlaintextRecord, PlaintextRecordStore
+        from harness_ssh_sidecar.storage import PlaintextRecord, PlaintextRecordStore
     except ImportError as exc:
         raise AssertionError("plaintext record API is not implemented") from exc
     return PlaintextRecord, PlaintextRecordStore

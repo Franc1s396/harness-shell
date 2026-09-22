@@ -44,7 +44,7 @@ it("creates the exact RSA-OAEP and AES-GCM v1 envelope", async () => {
       name: "AES-GCM",
       iv: fromBase64(envelope.iv_b64),
       additionalData: new TextEncoder().encode(
-        `harness-shell-credential-v1\0${keyId}`,
+        `harness-ssh-credential-v1\0${keyId}`,
       ),
     },
     await crypto.subtle.importKey("raw", aesKey, "AES-GCM", false, ["decrypt"]),

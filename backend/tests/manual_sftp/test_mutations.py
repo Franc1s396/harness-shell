@@ -17,14 +17,14 @@ from uuid import UUID, uuid4
 import asyncssh
 import pytest
 
-from harness_shell_sidecar.manual_sftp.channels import SftpChannelFactory
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.mutations import MutationManager
-from harness_shell_sidecar.manual_sftp.models import TransferSnapshot
-from harness_shell_sidecar.manual_sftp.operation_store import ManualSftpOperationStore
-from harness_shell_sidecar.manual_sftp.transfers import UploadManager
-from harness_shell_sidecar.ssh.sessions import SshSession, SshSessionRegistry
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_ssh_sidecar.manual_sftp.channels import SftpChannelFactory
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp.mutations import MutationManager
+from harness_ssh_sidecar.manual_sftp.models import TransferSnapshot
+from harness_ssh_sidecar.manual_sftp.operation_store import ManualSftpOperationStore
+from harness_ssh_sidecar.manual_sftp.transfers import UploadManager
+from harness_ssh_sidecar.ssh.sessions import SshSession, SshSessionRegistry
+from harness_ssh_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000401")
@@ -488,7 +488,7 @@ def test_recursive_preflight_uses_only_60_second_progress_windows(
         database, owner, mutations = manager(tmp_path, remote)
         probe = TimeoutProbe()
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.mutations.asyncio.timeout", probe
+            "harness_ssh_sidecar.manual_sftp.mutations.asyncio.timeout", probe
         )
         try:
             plan = await mutations.delete_preflight(

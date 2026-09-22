@@ -11,7 +11,7 @@ $tauriRoot = Join-Path $frontendRoot 'src-tauri'
 $pythonExe = Join-Path $backendRoot '.venv\Scripts\python.exe'
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 $cargoExe = Join-Path $cargoBin 'cargo.exe'
-$sidecarExe = Join-Path $backendRoot 'dist\harness-shell-sidecar.exe'
+$sidecarExe = Join-Path $backendRoot 'dist\harness-ssh-sidecar.exe'
 
 foreach ($path in @($pythonExe, $cargoExe)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -32,7 +32,7 @@ if ($LASTEXITCODE -ne 0 -or $rustHost -ne 'host: x86_64-pc-windows-msvc') {
 }
 
 Write-Output '[1/6] Python tests'
-$pytestTemp = Join-Path $env:TEMP "harness-shell-core-pytest-$PID"
+$pytestTemp = Join-Path $env:TEMP "harness-ssh-core-pytest-$PID"
 & $pythonExe -m pytest --basetemp $pytestTemp -p no:cacheprovider $backendRoot
 if ($LASTEXITCODE -ne 0) { throw 'Python tests failed' }
 
@@ -56,7 +56,7 @@ New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
 $smokeStdout = Join-Path $smokeData 'packaged-serve.stdout.log'
 $smokeStderr = Join-Path $smokeData 'packaged-serve.stderr.log'
 $existingSidecarIds = @(
-    Get-Process -Name harness-shell-sidecar -ErrorAction SilentlyContinue |
+    Get-Process -Name harness-ssh-sidecar -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -eq $sidecarExe } |
         Select-Object -ExpandProperty Id
 )
@@ -90,7 +90,7 @@ try {
     # PyInstaller 单文件模式包含父进程和 worker；停止该精确产物
     # 本次新增的所有进程，同时保留此前已存在的进程。
     $smokeProcesses = @(
-        Get-Process -Name harness-shell-sidecar -ErrorAction SilentlyContinue |
+        Get-Process -Name harness-ssh-sidecar -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.Path -eq $sidecarExe -and
                 $existingSidecarIds -notcontains $_.Id

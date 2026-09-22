@@ -8,14 +8,14 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_ssh_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 def load_credentials_module():
     """加载目标包，使缺失实现明确触发测试失败。"""
 
     try:
-        return import_module("harness_shell_sidecar.credentials")
+        return import_module("harness_ssh_sidecar.credentials")
     except ModuleNotFoundError as exc:
         raise AssertionError("credential repository API is not implemented") from exc
 

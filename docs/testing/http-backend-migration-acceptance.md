@@ -20,8 +20,8 @@ Python 与 Frontend 数字来自 2026-09-03 本轮实际输出；Tauri、Launche
 
 ## 必须满足的架构事实
 
-- NSIS Start Menu、Desktop shortcut、finish action 和 silent `/R` 只启动 `harness-shell-launcher.exe`。
-- Launcher 创建 Job，先启动 Backend `desktop --port 0`，从 inherited ready pipe 获取端口，再启动 `harness-shell-ui.exe --backend-url ...`；不得扫描端口。
+- NSIS Start Menu、Desktop shortcut、finish action 和 silent `/R` 只启动 `harness-ssh-launcher.exe`。
+- Launcher 创建 Job，先启动 Backend `desktop --port 0`，从 inherited ready pipe 获取端口，再启动 `harness-ssh-ui.exe --backend-url ...`；不得扫描端口。
 - Tauri 只暴露 `get_backend_bootstrap`；不存在独立 approval window 或 approval capability。
 - React 通过 typed HTTP 与 Runtime WebSocket 直连 Python。
 - Python ASGI lifespan 自主初始化资源，只接受全新 plaintext schema v6；没有旧库 migration 或存储加密保证，也不保存无读取闭环的 SQLite Audit/Trace。
@@ -32,7 +32,7 @@ Python 与 Frontend 数字来自 2026-09-03 本轮实际输出；Tauri、Launche
 
 在一次性 Windows 用户配置文件中安装本轮 NSIS 后逐项记录：
 
-- [ ] Start Menu/Apps 中只有一个可见 Harness Shell 入口，目标为 Launcher。
+- [ ] Start Menu/Apps 中只有一个可见 harness-ssh 入口，目标为 Launcher。
 - [ ] 进程顺序为 Launcher → Backend ready → UI；Backend port 来自 ready evidence。
 - [ ] direct HTTP 与 Runtime WebSocket 可用，Backend 提前退出不会 respawn。
 - [ ] Upload 使用浏览器 file picker；Download 在网络读取前同步取得 save handle。

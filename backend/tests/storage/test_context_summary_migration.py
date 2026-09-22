@@ -8,7 +8,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine
 
-from harness_shell_sidecar.storage import migration_runner as runner
+from harness_ssh_sidecar.storage import migration_runner as runner
 from .test_migration_transactions import snapshot
 
 

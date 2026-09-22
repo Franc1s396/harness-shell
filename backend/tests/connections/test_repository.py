@@ -6,14 +6,14 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.connections import repository as repository_module
-from harness_shell_sidecar.connections import (
+from harness_ssh_sidecar.connections import repository as repository_module
+from harness_ssh_sidecar.connections import (
     ConnectionProfileInput,
     ConnectionRepository,
     ConnectionRepositoryError,
     HostKeyCandidate,
 )
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_ssh_sidecar.storage import RuntimeDatabase
 
 
 def profile_input(name: str, **overrides: object) -> ConnectionProfileInput:
@@ -144,7 +144,7 @@ def test_profile_update_rejects_version_exhaustion(
 ) -> None:
     created = repository.create(profile_input("created"))
     from sqlalchemy import update
-    from harness_shell_sidecar.storage.orm import ConnectionProfileRow
+    from harness_ssh_sidecar.storage.orm import ConnectionProfileRow
     repository._session.execute(update(ConnectionProfileRow).where(
         ConnectionProfileRow.connection_id == str(created.connection_id)).values(version=2**53 - 1))
 

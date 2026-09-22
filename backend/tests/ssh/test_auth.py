@@ -5,8 +5,8 @@ from typing import Literal
 import asyncssh
 import pytest
 
-from harness_shell_sidecar.ssh.auth import build_auth_options
-from harness_shell_sidecar.ssh.errors import SshRuntimeError
+from harness_ssh_sidecar.ssh.auth import build_auth_options
+from harness_ssh_sidecar.ssh.errors import SshRuntimeError
 
 
 def test_password_auth_disables_agent_and_default_key_discovery() -> None:

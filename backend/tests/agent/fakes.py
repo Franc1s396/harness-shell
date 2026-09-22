@@ -13,7 +13,7 @@ from openai.types.chat import ChatCompletionChunk
 from openai.types.responses import ResponseStreamEvent
 from pydantic import TypeAdapter
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentTurnInput, ExecuteCommandArguments
+from harness_ssh_sidecar.agent.contracts import AgentRun, AgentTurnInput, ExecuteCommandArguments
 
 _RESPONSE_EVENT_ADAPTER = TypeAdapter(ResponseStreamEvent)
 

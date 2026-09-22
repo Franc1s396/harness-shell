@@ -46,8 +46,8 @@
 ## Tauri Desktop observations
 
 - Command: `cd frontend; npm.cmd run tauri:dev`
-- Result: PARTIAL PASS；Sidecar build、Vite、Rust dev build 与 `harness-shell.exe` 启动成功，结束验收后已停止 dev process。
-- Observed window: `Harness Shell`，一次捕获尺寸约 `1442×864`；当前 Windows automation API 未能精确调整到计划要求的 `1280×720` 和 `900×600`，因此这两个指定尺寸均为 NOT RUN。
+- Result: PARTIAL PASS；Sidecar build、Vite、Rust dev build 与 `harness-ssh.exe` 启动成功，结束验收后已停止 dev process。
+- Observed window: `harness-ssh`，一次捕获尺寸约 `1442×864`；当前 Windows automation API 未能精确调整到计划要求的 `1280×720` 和 `900×600`，因此这两个指定尺寸均为 NOT RUN。
 
 | Checklist | Result | Actual observation |
 | --- | --- | --- |

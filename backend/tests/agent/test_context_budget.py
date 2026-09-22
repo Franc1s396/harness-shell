@@ -4,11 +4,11 @@ from uuid import uuid4
 
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage
-from harness_shell_sidecar.agent.context import ContextService
-from harness_shell_sidecar.agent.context_budget import ContextBudget
-from harness_shell_sidecar.agent.context_models import ContextMessage, AgentContextPolicy, ContextError, ContextSummary
-from harness_shell_sidecar.agent.model_gateway import model_input_payload
-from harness_shell_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
+from harness_ssh_sidecar.agent.context import ContextService
+from harness_ssh_sidecar.agent.context_budget import ContextBudget
+from harness_ssh_sidecar.agent.context_models import ContextMessage, AgentContextPolicy, ContextError, ContextSummary
+from harness_ssh_sidecar.agent.model_gateway import model_input_payload
+from harness_ssh_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
 from .test_model_gateway import chat_config
 
 

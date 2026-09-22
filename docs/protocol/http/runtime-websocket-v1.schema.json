@@ -830,7 +830,7 @@
       "type": "string"
     }
   },
-  "$id": "https://harness-shell.local/schemas/runtime-websocket-v1.schema.json",
+  "$id": "https://harness-ssh.local/schemas/runtime-websocket-v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Strict server and client messages carried by /v1/runtime/events after HTTP runtime initialization.",
   "discriminator": {
@@ -876,7 +876,7 @@
       "$ref": "#/$defs/RuntimeErrorMessage"
     }
   ],
-  "title": "Harness Shell Runtime WebSocket v1",
+  "title": "harness-ssh Runtime WebSocket v1",
   "x-max-text-message-bytes": 65536,
   "x-queue-capacity": 64
 }

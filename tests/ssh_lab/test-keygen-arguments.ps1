@@ -8,7 +8,7 @@ if ([regex]::Matches($startScript, [regex]::Escape($expectedArgument)).Count -lt
 }
 
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
-$testRoot = [IO.Path]::GetFullPath((Join-Path $tempBase "harness-shell-keygen-test-$PID"))
+$testRoot = [IO.Path]::GetFullPath((Join-Path $tempBase "harness-ssh-keygen-test-$PID"))
 if ([IO.Path]::GetDirectoryName($testRoot).TrimEnd('\') -ne $tempBase) {
     throw 'keygen test path escaped the temporary directory'
 }

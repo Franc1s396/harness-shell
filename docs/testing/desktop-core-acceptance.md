@@ -25,7 +25,7 @@ npm.cmd run tauri:dev --prefix frontend
 1. 主窗口从 `STARTING`/`HANDSHAKING` 到达 `READY`，并显示非空 correlation ID。
 2. “Open approval window” 打开 label 固定的独立窗口；窗口显示 `pending=false` 和 “No approval request is pending.”。
 3. 在主窗口 DevTools 执行 `window.__TAURI_INTERNALS__.invoke("submit_approval_decision")`，调用被 ACL 拒绝；不得收到 `NO_PENDING_APPROVAL`，因为该命令不属于主窗口。
-4. 在任务管理器结束 `harness-shell-sidecar.exe`。主窗口转为 `PAUSED`、`recoverable=true`、错误码 `SIDECAR_EXITED`，correlation ID 不变。
+4. 在任务管理器结束 `harness-ssh-sidecar.exe`。主窗口转为 `PAUSED`、`recoverable=true`、错误码 `SIDECAR_EXITED`，correlation ID 不变。
 5. 等待至少 16 秒并确认没有新的 Sidecar 进程自动出现。
 6. 正常关闭桌面应用后确认没有残留 Sidecar 进程。
 

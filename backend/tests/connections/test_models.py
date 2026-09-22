@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from harness_shell_sidecar.connections import (
+from harness_ssh_sidecar.connections import (
     ConnectionProfile,
     ConnectionProfileInput,
     HostKeyCandidate,

@@ -8,13 +8,13 @@ from uuid import UUID, uuid4
 import pytest
 import anyio
 
-from harness_shell_sidecar.agent.contracts import AgentRun, AgentRunStatus, ExecuteCommandArguments
-from harness_shell_sidecar.agent.service import AgentServiceError
-from harness_shell_sidecar.agent.streaming import AgentTurnTextDeltaEvent
-from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
-from harness_shell_sidecar.runtime.request_context import RequestContext
-from harness_shell_sidecar.web.agent_stream import AgentTurnStreamSession
-from harness_shell_sidecar.web.sse import encode_sse_event
+from harness_ssh_sidecar.agent.contracts import AgentRun, AgentRunStatus, ExecuteCommandArguments
+from harness_ssh_sidecar.agent.service import AgentServiceError
+from harness_ssh_sidecar.agent.streaming import AgentTurnTextDeltaEvent
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.runtime.request_context import RequestContext
+from harness_ssh_sidecar.web.agent_stream import AgentTurnStreamSession
+from harness_ssh_sidecar.web.sse import encode_sse_event
 
 
 def _run(status: AgentRunStatus, *, error_code: str | None = None) -> AgentRun:
@@ -465,9 +465,9 @@ def test_tool_status_is_encoded_in_sequence_without_changing_text() -> None:
 
 def test_worst_utf8_approval_event_fits_frame_budget() -> None:
     """最大合法命令与显示目标仍在现有 SSE 单帧限制以内。"""
-    from harness_shell_sidecar.agent.approval_models import ApprovalTarget
-    from harness_shell_sidecar.agent.streaming import AgentTurnApprovalRequestedEvent
-    from harness_shell_sidecar.web.agent_stream import MAX_AGENT_SSE_FRAME_BYTES
+    from harness_ssh_sidecar.agent.approval_models import ApprovalTarget
+    from harness_ssh_sidecar.agent.streaming import AgentTurnApprovalRequestedEvent
+    from harness_ssh_sidecar.web.agent_stream import MAX_AGENT_SSE_FRAME_BYTES
     from tests.agent.test_approvals import approval_request
     request = approval_request().model_copy(update={
         "arguments": ExecuteCommandArguments(command="🧪" * 4096),

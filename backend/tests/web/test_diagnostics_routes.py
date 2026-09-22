@@ -7,8 +7,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from harness_shell_sidecar.runtime.settings import RuntimeSettings
-from harness_shell_sidecar.web import create_app
+from harness_ssh_sidecar.runtime.settings import RuntimeSettings
+from harness_ssh_sidecar.web import create_app
 
 
 def request_headers() -> dict[str, str]:

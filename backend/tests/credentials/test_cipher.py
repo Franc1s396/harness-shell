@@ -13,7 +13,7 @@ def load_credentials_module():
     """加载目标包，使缺失实现明确触发测试失败。"""
 
     try:
-        return import_module("harness_shell_sidecar.credentials")
+        return import_module("harness_ssh_sidecar.credentials")
     except ModuleNotFoundError as exc:
         raise AssertionError("credential cipher API is not implemented") from exc
 
@@ -24,7 +24,7 @@ def encrypt_for_test(public_key, plaintext: bytes):
     credentials = load_credentials_module()
     aes_key = bytes(range(32))
     iv = bytes(range(12))
-    aad = f"harness-shell-credential-v1\0{public_key.key_id}".encode("utf-8")
+    aad = f"harness-ssh-credential-v1\0{public_key.key_id}".encode("utf-8")
     ciphertext = AESGCM(aes_key).encrypt(iv, plaintext, aad)
     rsa_public_key = serialization.load_der_public_key(
         base64.b64decode(public_key.public_key_spki_b64, validate=True)

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from harness_shell_sidecar.web import create_app
+from harness_ssh_sidecar.web import create_app
 
 
 def runtime_settings(data_dir: Path):
@@ -14,7 +14,7 @@ def runtime_settings(data_dir: Path):
 
     try:
         settings_type = import_module(
-            "harness_shell_sidecar.runtime.settings"
+            "harness_ssh_sidecar.runtime.settings"
         ).RuntimeSettings
     except (ModuleNotFoundError, AttributeError) as exc:
         raise AssertionError("autonomous Runtime settings are not implemented") from exc
@@ -44,12 +44,12 @@ def test_lifespan_initializes_plaintext_resources_before_requests(
 
 def test_restart_purges_unbound_images_only(tmp_path: Path) -> None:
     """使用真实 Runtime 启停，绑定图在重启后仍可读取。"""
-    from harness_shell_sidecar.storage import RuntimeDatabase
-    from harness_shell_sidecar.agent.attachments import AttachmentRepository
-    from harness_shell_sidecar.agent.conversations import ConversationRepository
-    from harness_shell_sidecar.storage import PlaintextRecordStore
+    from harness_ssh_sidecar.storage import RuntimeDatabase
+    from harness_ssh_sidecar.agent.attachments import AttachmentRepository
+    from harness_ssh_sidecar.agent.conversations import ConversationRepository
+    from harness_ssh_sidecar.storage import PlaintextRecordStore
     from ..agent.test_image_validation import picture
-    from harness_shell_sidecar.agent.image_validation import validate_image
+    from harness_ssh_sidecar.agent.image_validation import validate_image
     settings = runtime_settings(tmp_path)
     with TestClient(create_app(settings=settings)):
         pass

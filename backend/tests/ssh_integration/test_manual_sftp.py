@@ -10,9 +10,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.models import RemoteEntry, TransferSnapshot
-from harness_shell_sidecar.manual_sftp.service import ManualSftpService
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp.models import RemoteEntry, TransferSnapshot
+from harness_ssh_sidecar.manual_sftp.service import ManualSftpService
 
 
 SFTP_CHUNK_BYTES = 256 * 1024

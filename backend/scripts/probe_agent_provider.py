@@ -11,8 +11,8 @@ from uuid import uuid4
 from langchain_core.messages import HumanMessage
 from pydantic import SecretStr, ValidationError
 
-from harness_shell_sidecar.agent.contracts import ApiType, ModelApiConfig
-from harness_shell_sidecar.agent.model_gateway import ModelGateway
+from harness_ssh_sidecar.agent.contracts import ApiType, ModelApiConfig
+from harness_ssh_sidecar.agent.model_gateway import ModelGateway
 
 
 REQUIRED_ENVIRONMENT = (

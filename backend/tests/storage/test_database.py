@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
+from harness_ssh_sidecar.storage import RuntimeDatabase, StorageSelfCheckFailed
 
 
 def test_plaintext_database_bootstraps_alembic_baseline(tmp_path: Path) -> None:

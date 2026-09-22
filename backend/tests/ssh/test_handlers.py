@@ -5,10 +5,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.credentials import ResolvedSshConnect
-from harness_shell_sidecar.runtime import DispatchError, RequestDispatcher
-from harness_shell_sidecar.ssh.errors import ConnectionStatus, SshRuntimeError
-from harness_shell_sidecar.ssh.handlers import register_ssh_handlers
+from harness_ssh_sidecar.credentials import ResolvedSshConnect
+from harness_ssh_sidecar.runtime import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.ssh.errors import ConnectionStatus, SshRuntimeError
+from harness_ssh_sidecar.ssh.handlers import register_ssh_handlers
 
 
 class FakeRuntime:

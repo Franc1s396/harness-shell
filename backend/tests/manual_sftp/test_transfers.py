@@ -15,12 +15,12 @@ import asyncssh
 import pytest
 from asyncssh.constants import FXR_ATOMIC, FXR_OVERWRITE
 
-from harness_shell_sidecar.manual_sftp.channels import SftpChannelFactory
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.operation_store import ManualSftpOperationStore
-from harness_shell_sidecar.manual_sftp.transfers import DownloadManager, UploadManager
-from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
-from harness_shell_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
+from harness_ssh_sidecar.manual_sftp.channels import SftpChannelFactory
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp.operation_store import ManualSftpOperationStore
+from harness_ssh_sidecar.manual_sftp.transfers import DownloadManager, UploadManager
+from harness_ssh_sidecar.ssh.sessions import SshSessionRegistry
+from harness_ssh_sidecar.storage import PlaintextRecordStore, RuntimeDatabase
 
 
 CONNECTION_ID = UUID("00000000-0000-4000-8000-000000000311")
@@ -390,7 +390,7 @@ def test_transfer_chunk_requests_use_thirty_second_deadlines(
 
     async def scenario() -> None:
         monkeypatch.setattr(
-            "harness_shell_sidecar.manual_sftp.transfers.asyncio.timeout",
+            "harness_ssh_sidecar.manual_sftp.transfers.asyncio.timeout",
             lambda seconds: RecordedTimeout(seconds),
         )
         remote = FakeRemote({TARGET_PATH: b"payload"})

@@ -1,14 +1,14 @@
 [package]
-name = "harness-shell-launcher"
+name = "harness-ssh-launcher"
 version = "0.2.3"
 edition = "2021"
 
 [lib]
-name = "harness_shell_launcher"
+name = "harness_ssh_launcher"
 path = "src/lib.rs"
 
 [[bin]]
-name = "harness-shell-launcher"
+name = "harness-ssh-launcher"
 path = "src/main.rs"
 
 [[bin]]

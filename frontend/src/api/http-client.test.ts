@@ -165,7 +165,7 @@ it("sends one correlated JSON request and validates the response identity", asyn
 it("maps correlated Problem Details without returning a success-shaped value", async () => {
   fetchMock.mockResolvedValue(new Response(
     JSON.stringify({
-      type: "urn:harness-shell:error:invalid-request-payload",
+      type: "urn:harness-ssh:error:invalid-request-payload",
       title: "Invalid request payload",
       status: 422,
       error_code: "INVALID_REQUEST_PAYLOAD",
@@ -245,7 +245,7 @@ it("downloads one exact binary chunk with validated metadata", async () => {
 it("maps a binary-route Problem Details response before reading chunk headers", async () => {
   fetchMock.mockResolvedValue(new Response(
     JSON.stringify({
-      type: "urn:harness-shell:error:sftp-download-stale",
+      type: "urn:harness-ssh:error:sftp-download-stale",
       title: "Download changed",
       status: 409,
       error_code: "SFTP_DOWNLOAD_STALE",
@@ -407,7 +407,7 @@ it("maps Problem Details before entering SSE framing", async () => {
   fetchMock.mockResolvedValue(
     new Response(
       JSON.stringify({
-        type: "urn:harness-shell:error:model-api-config-not-found",
+        type: "urn:harness-ssh:error:model-api-config-not-found",
         title: "Missing config",
         status: 404,
         error_code: "MODEL_API_CONFIG_NOT_FOUND",

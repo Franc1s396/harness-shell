@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.runtime import RuntimeInitializationFailure, RuntimePhase
-from harness_shell_sidecar.runtime.resources import RuntimeResources
-from harness_shell_sidecar.runtime.settings import RuntimeSettings
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_ssh_sidecar.runtime import RuntimeInitializationFailure, RuntimePhase
+from harness_ssh_sidecar.runtime.resources import RuntimeResources
+from harness_ssh_sidecar.runtime.settings import RuntimeSettings
+from harness_ssh_sidecar.storage import RuntimeDatabase
 
 
 async def discard_event(_event: dict[str, object]) -> None:
@@ -70,7 +70,7 @@ def test_runtime_resources_initialization_failure_closes_partial_database(
         raise OSError("injected cipher failure")
 
     monkeypatch.setattr(
-        "harness_shell_sidecar.runtime.resources.RuntimeCredentialCipher.generate",
+        "harness_ssh_sidecar.runtime.resources.RuntimeCredentialCipher.generate",
         fail_cipher,
     )
     with pytest.raises(RuntimeInitializationFailure, match="initialization failed"):
@@ -144,12 +144,12 @@ def test_runtime_resources_preserve_first_cleanup_error_and_run_later_stages(
 def test_tokenizer_startup_failure_preserves_code_and_closes_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from harness_shell_sidecar.agent.context_models import ContextError
+    from harness_ssh_sidecar.agent.context_models import ContextError
     runtime_settings = settings(tmp_path)
     def missing_encoding(*args: object) -> None:
         """模拟 READY 发布前缺失打包编码资源。"""
         raise ContextError("CONTEXT_TOKENIZER_UNAVAILABLE", "bundled encoding missing")
-    monkeypatch.setattr("harness_shell_sidecar.runtime.resources.load_local_encoding", missing_encoding)
+    monkeypatch.setattr("harness_ssh_sidecar.runtime.resources.load_local_encoding", missing_encoding)
     with pytest.raises(RuntimeInitializationFailure) as error:
         RuntimeResources.initialize_from_settings(runtime_settings, discard_event)
     assert error.value.error_code == "CONTEXT_TOKENIZER_UNAVAILABLE"
@@ -165,7 +165,7 @@ def test_tokenizer_startup_failure_preserves_code_and_closes_database(
 
 def test_migration_failure_prevents_service_construction(tmp_path, monkeypatch):
     """迁移失败时不构造凭据服务，也不发布部分 Runtime。"""
-    from harness_shell_sidecar.storage import migration_runner
+    from harness_ssh_sidecar.storage import migration_runner
     constructed = []
     def fail_migration(path):
         """在唯一迁移入口注入明确失败。"""
@@ -175,7 +175,7 @@ def test_migration_failure_prevents_service_construction(tmp_path, monkeypatch):
         constructed.append(True)
         raise AssertionError("service constructed before migration success")
     monkeypatch.setattr(migration_runner, "upgrade_database", fail_migration)
-    monkeypatch.setattr("harness_shell_sidecar.runtime.resources.RuntimeCredentialCipher.generate", record_cipher)
+    monkeypatch.setattr("harness_ssh_sidecar.runtime.resources.RuntimeCredentialCipher.generate", record_cipher)
     with pytest.raises(RuntimeInitializationFailure):
         RuntimeResources.initialize_from_settings(settings(tmp_path), discard_event)
     assert constructed == []

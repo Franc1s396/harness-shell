@@ -4,13 +4,13 @@ from ..storage_support import RepositoryClient, sql
 from uuid import uuid4
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage
-from harness_shell_sidecar.agent.contracts import AgentRunStatus
-from harness_shell_sidecar.agent.context_models import ContextError
+from harness_ssh_sidecar.agent.contracts import AgentRunStatus
+from harness_ssh_sidecar.agent.context_models import ContextError
 from .conftest import AgentStorage, valid_api_config_input
 
 
 def test_summary_commit_preserves_history_and_rejects_stale_writer(agent_storage: AgentStorage) -> None:
-    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
     repo = agent_storage.conversations
     config = agent_storage.api_configs.create(valid_api_config_input())
     conversation = repo.create_conversation()
@@ -34,7 +34,7 @@ def test_summary_commit_preserves_history_and_rejects_stale_writer(agent_storage
 
 
 def test_summary_cannot_cover_current_user(agent_storage: AgentStorage) -> None:
-    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
     repo = agent_storage.conversations
     config = agent_storage.api_configs.create(valid_api_config_input())
     conversation = repo.create_conversation()
@@ -47,7 +47,7 @@ def test_summary_cannot_cover_current_user(agent_storage: AgentStorage) -> None:
 
 
 def test_summary_source_cannot_cover_its_own_completed_turn(agent_storage: AgentStorage) -> None:
-    from harness_shell_sidecar.agent.context_summaries import ContextSummaryRepository
+    from harness_ssh_sidecar.agent.context_summaries import ContextSummaryRepository
     repo = agent_storage.conversations
     config = agent_storage.api_configs.create(valid_api_config_input())
     conversation = repo.create_conversation()

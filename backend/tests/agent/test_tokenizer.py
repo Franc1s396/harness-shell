@@ -2,18 +2,18 @@
 from pathlib import Path
 import socket
 import pytest
-from harness_shell_sidecar.agent.context_models import ContextError
+from harness_ssh_sidecar.agent.context_models import ContextError
 
 
 def test_missing_local_encoding_fails(tmp_path: Path) -> None:
-    from harness_shell_sidecar.agent.tokenizer import load_local_encoding
+    from harness_ssh_sidecar.agent.tokenizer import load_local_encoding
     with pytest.raises(ContextError) as error:
         load_local_encoding(tmp_path, "o200k_base")
     assert error.value.error_code == "CONTEXT_TOKENIZER_UNAVAILABLE"
 
 
 def test_bundled_encoding_needs_no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    from harness_shell_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
+    from harness_ssh_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
     def reject_network(*args: object, **kwargs: object) -> None:
         """本地编码期间任何借用网络的尝试都失败。"""
         raise AssertionError("unexpected network")
@@ -24,7 +24,7 @@ def test_bundled_encoding_needs_no_network(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_corrupt_ranks_fail_without_fallback(tmp_path: Path) -> None:
-    from harness_shell_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
+    from harness_ssh_sidecar.agent.tokenizer import load_local_encoding, tokenizer_resource_dir
     source = tokenizer_resource_dir()
     (tmp_path / "o200k_base.json").write_bytes((source / "o200k_base.json").read_bytes())
     (tmp_path / "o200k_base.tiktoken").write_bytes(b"corrupt")

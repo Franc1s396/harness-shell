@@ -2,9 +2,9 @@ $ErrorActionPreference = 'Stop'
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $manifestPath = Join-Path $workspaceRoot 'launcher\Cargo.toml'
-$sourceExe = Join-Path $workspaceRoot 'launcher\target\x86_64-pc-windows-msvc\release\harness-shell-launcher.exe'
+$sourceExe = Join-Path $workspaceRoot 'launcher\target\x86_64-pc-windows-msvc\release\harness-ssh-launcher.exe'
 $binariesDir = Join-Path $workspaceRoot 'frontend\src-tauri\binaries'
-$targetExe = Join-Path $binariesDir 'harness-shell-launcher-x86_64-pc-windows-msvc.exe'
+$targetExe = Join-Path $binariesDir 'harness-ssh-launcher-x86_64-pc-windows-msvc.exe'
 
 $rustVersion = & rustc.exe -vV
 if ($LASTEXITCODE -ne 0) {

@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Harness Shell",
+  "productName": "harness-ssh",
   "version": "0.2.3",
-  "identifier": "com.harnessshell.app",
-  "mainBinaryName": "harness-shell-ui",
+  "identifier": "com.harness-ssh.app",
+  "mainBinaryName": "harness-ssh-ui",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Harness Shell",
+        "title": "harness-ssh",
         "width": 1440,
         "height": 900,
         "minWidth": 960,
@@ -42,8 +42,8 @@
   "bundle": {
     "active": true,
     "externalBin": [
-      "binaries/harness-shell-sidecar",
-      "binaries/harness-shell-launcher"
+      "binaries/harness-ssh-sidecar",
+      "binaries/harness-ssh-launcher"
     ],
     "targets": ["nsis"],
     "icon": [

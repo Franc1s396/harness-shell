@@ -6,11 +6,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.runtime.dispatcher import DispatchError
-from harness_shell_sidecar.runtime.settings import RuntimeSettings
-from harness_shell_sidecar.web import create_app
-from harness_shell_sidecar.web.dependencies import dispatch_application
-from harness_shell_sidecar.web.errors import HttpProblem
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError
+from harness_ssh_sidecar.runtime.settings import RuntimeSettings
+from harness_ssh_sidecar.web import create_app
+from harness_ssh_sidecar.web.dependencies import dispatch_application
+from harness_ssh_sidecar.web.errors import HttpProblem
 
 
 def headers(request_id: UUID | None = None) -> dict[str, str]:

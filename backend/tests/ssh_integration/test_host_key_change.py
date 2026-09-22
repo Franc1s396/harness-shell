@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.ssh.errors import SshRuntimeError
+from harness_ssh_sidecar.ssh.errors import SshRuntimeError
 
 
 LAB_ROOT = Path(__file__).resolve().parents[3] / "tests" / "ssh_lab"
@@ -21,7 +21,7 @@ def compose_exec(service: str, script: str) -> None:
             "--env-file",
             str(ENV_FILE),
             "--project-name",
-            "harness-shell-ssh-lab",
+            "harness-ssh-ssh-lab",
             "exec",
             "-T",
             service,

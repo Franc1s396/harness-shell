@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.storage import RuntimeDatabase, PlaintextRecord, PlaintextRecordStore
+from harness_ssh_sidecar.storage import RuntimeDatabase, PlaintextRecord, PlaintextRecordStore
 
 
 def test_write_failure_rolls_back_record(tmp_path: Path) -> None:
@@ -42,7 +42,7 @@ def test_successful_write_survives_reopen(tmp_path: Path) -> None:
 def test_read_rolls_back_and_sessions_are_not_reused(tmp_path: Path) -> None:
     """读取作用域误写不得落盘，结束后的 Session 不可重新激活。"""
     from sqlalchemy.exc import InvalidRequestError
-    from harness_shell_sidecar.storage import StorageSelfCheckFailed
+    from harness_ssh_sidecar.storage import StorageSelfCheckFailed
     database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
     try:
         with database.read_session() as first:
@@ -78,7 +78,7 @@ def test_base_exception_rolls_back_and_releases_session(tmp_path: Path) -> None:
 def test_constraint_error_hides_secret_parameters(tmp_path: Path, caplog) -> None:
     """约束错误与 SQLAlchemy 日志不暴露业务绑定参数。"""
     from sqlalchemy.exc import IntegrityError
-    from harness_shell_sidecar.storage.orm import RuntimeRecordRow
+    from harness_ssh_sidecar.storage.orm import RuntimeRecordRow
     database = RuntimeDatabase.open(tmp_path / "runtime.sqlite3")
     marker = "secret-parameter-sentinel"
     try:

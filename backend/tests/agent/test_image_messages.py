@@ -1,16 +1,16 @@
 """canonical 引用、SDK 投影与图片预算隔离。"""
 from uuid import uuid4
 from langchain_core.messages import HumanMessage, AIMessage
-from harness_shell_sidecar.agent.image_messages import build_user_message, user_content_identity, resolve_image_messages
-from harness_shell_sidecar.agent.attachments import AttachmentRepository
-from harness_shell_sidecar.agent.image_validation import validate_image
-from harness_shell_sidecar.agent.model_gateway import _serialize_one_chat_message, _serialize_one_responses_message
-from harness_shell_sidecar.agent.context_budget import ContextBudget
+from harness_ssh_sidecar.agent.image_messages import build_user_message, user_content_identity, resolve_image_messages
+from harness_ssh_sidecar.agent.attachments import AttachmentRepository
+from harness_ssh_sidecar.agent.image_validation import validate_image
+from harness_ssh_sidecar.agent.model_gateway import _serialize_one_chat_message, _serialize_one_responses_message
+from harness_ssh_sidecar.agent.context_budget import ContextBudget
 from .test_image_validation import picture
-from harness_shell_sidecar.agent.contracts import AgentTurnInput
-from harness_shell_sidecar.agent.conversations import _serialize_message, _deserialize_message
-from harness_shell_sidecar.agent.context_compaction import build_summary_messages
-from harness_shell_sidecar.agent.context_models import ContextMessage
+from harness_ssh_sidecar.agent.contracts import AgentTurnInput
+from harness_ssh_sidecar.agent.conversations import _serialize_message, _deserialize_message
+from harness_ssh_sidecar.agent.context_compaction import build_summary_messages
+from harness_ssh_sidecar.agent.context_models import ContextMessage
 
 
 def test_image_only_turn_and_canonical_roundtrip():
@@ -29,7 +29,7 @@ def test_summary_contains_real_image_reference_instead_of_json_text():
 
 def test_image_summary_keeps_old_ai_blocks_as_untrusted_history_text():
     """旧 AI Responses 内容不能被误认为用户图片协议块。"""
-    from harness_shell_sidecar.agent.image_messages import budget_image_messages
+    from harness_ssh_sidecar.agent.image_messages import budget_image_messages
     source = build_summary_messages([
         ContextMessage(1, uuid4(), build_user_message('inspect', (uuid4(),))),
         ContextMessage(2, uuid4(), AIMessage(content=[{'type': 'text', 'text': 'old answer', 'annotations': []}])),

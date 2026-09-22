@@ -5,7 +5,7 @@ use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 pub const MAX_LOG_FILE_SIZE_BYTES: u128 = 10 * 1024 * 1024;
 pub const ARCHIVED_LOG_FILE_COUNT: usize = 4;
-pub const LOG_FILE_NAME: &str = "harness-shell";
+pub const LOG_FILE_NAME: &str = "harness-ssh";
 
 /// 返回所有 Tauri 日志目标配置的时间戳时钟。
 fn log_timezone_strategy() -> TimezoneStrategy {
@@ -38,7 +38,7 @@ mod tests {
     fn persistent_log_policy_keeps_four_archives_plus_the_active_file() {
         assert_eq!(MAX_LOG_FILE_SIZE_BYTES, 10 * 1024 * 1024);
         assert_eq!(ARCHIVED_LOG_FILE_COUNT, 4);
-        assert_eq!(LOG_FILE_NAME, "harness-shell");
+        assert_eq!(LOG_FILE_NAME, "harness-ssh");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use harness_shell_launcher::{
+use harness_ssh_launcher::{
     config::LauncherConfig,
     control::ReadyFrame,
     error::LauncherError,
@@ -38,23 +38,27 @@ fn ready_frame_rejects_unknown_fields_and_zero_port() {
 #[test]
 fn installed_paths_are_fixed_siblings() {
     let config = LauncherConfig::from_executable(Path::new(
-        r"C:\App\harness-shell-launcher.exe",
+        r"C:\App\harness-ssh-launcher.exe",
     ))
     .unwrap();
-    assert_eq!(config.ui_exe, Path::new(r"C:\App\harness-shell-ui.exe"));
+    assert_eq!(config.ui_exe, Path::new(r"C:\App\harness-ssh-ui.exe"));
+    assert_eq!(
+        config.data_dir,
+        PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap()).join("com.harness-ssh.app"),
+    );
     assert_eq!(
         config.backend_exe,
-        Path::new(r"C:\App\harness-shell-sidecar.exe"),
+        Path::new(r"C:\App\harness-ssh-sidecar.exe"),
     );
 }
 
 #[test]
 fn child_arguments_are_exact_and_do_not_expose_extra_state() {
     let mut config = LauncherConfig::from_executable(Path::new(
-        r"C:\App\harness-shell-launcher.exe",
+        r"C:\App\harness-ssh-launcher.exe",
     ))
     .unwrap();
-    config.data_dir = r"C:\Users\Example\AppData\Local\com.harnessshell.app".into();
+    config.data_dir = r"C:\Users\Example\AppData\Local\com.harness-ssh.app".into();
 
     assert_eq!(
         config.backend_arguments(164, 168),
@@ -63,7 +67,7 @@ fn child_arguments_are_exact_and_do_not_expose_extra_state() {
             "--port",
             "0",
             "--data-dir",
-            r"C:\Users\Example\AppData\Local\com.harnessshell.app",
+            r"C:\Users\Example\AppData\Local\com.harness-ssh.app",
             "--control-read-handle",
             "164",
             "--ready-write-handle",
@@ -123,7 +127,7 @@ fn backend_stderr_is_written_to_the_dedicated_log_file() {
         .config
         .data_dir
         .join("logs")
-        .join("harness-shell-backend.log");
+        .join("harness-ssh-backend.log");
     let _environment = TestEnvironment::new(&[
         ("HARNESS_LAUNCHER_TEST_BACKEND_MODE", "ready-wait".into()),
         ("HARNESS_LAUNCHER_TEST_UI_MODE", "exit-immediately".into()),
@@ -143,7 +147,7 @@ fn full_backend_log_rotates_before_new_stderr_is_appended() {
     let fixture = InstalledFixture::new();
     let log_dir = fixture.config.data_dir.join("logs");
     fs::create_dir_all(&log_dir).unwrap();
-    let log_path = log_dir.join("harness-shell-backend.log");
+    let log_path = log_dir.join("harness-ssh-backend.log");
     fs::write(&log_path, vec![b'x'; 10 * 1024 * 1024]).unwrap();
     let _environment = TestEnvironment::new(&[
         ("HARNESS_LAUNCHER_TEST_BACKEND_MODE", "ready-wait".into()),
@@ -233,8 +237,8 @@ impl InstalledFixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let source = PathBuf::from(env!("CARGO_BIN_EXE_launcher_test_child"));
-        let ui_exe = root.path().join("harness-shell-ui.exe");
-        let backend_exe = root.path().join("harness-shell-sidecar.exe");
+        let ui_exe = root.path().join("harness-ssh-ui.exe");
+        let backend_exe = root.path().join("harness-ssh-sidecar.exe");
         fs::copy(&source, &ui_exe).unwrap();
         fs::copy(&source, &backend_exe).unwrap();
         let config = LauncherConfig {

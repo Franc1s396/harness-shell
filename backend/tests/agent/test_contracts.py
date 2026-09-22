@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from harness_shell_sidecar.agent.contracts import (
+from harness_ssh_sidecar.agent.contracts import (
     AgentRunStatus,
     AgentTurnInput,
     ApiType,

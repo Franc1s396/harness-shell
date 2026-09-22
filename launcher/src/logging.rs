@@ -17,7 +17,7 @@ use windows_sys::Win32::{
 
 use crate::error::LauncherError;
 
-pub const BACKEND_LOG_FILE_NAME: &str = "harness-shell-backend.log";
+pub const BACKEND_LOG_FILE_NAME: &str = "harness-ssh-backend.log";
 pub const MAX_BACKEND_LOG_FILE_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 pub const ARCHIVED_BACKEND_LOG_FILE_COUNT: usize = 4;
 
@@ -38,7 +38,7 @@ impl BackendLogCapture {
             .map_err(|_| LauncherError::BackendLogFailed)?;
         let (read, write) = stderr_pipe()?;
         let worker = thread::Builder::new()
-            .name("harness-shell-backend-log".to_owned())
+            .name("harness-ssh-backend-log".to_owned())
             .spawn(move || drain_stderr(read, writer))
             .map_err(|_| LauncherError::BackendLogFailed)?;
         Ok(Self {

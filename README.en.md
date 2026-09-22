@@ -1,12 +1,12 @@
-# Harness Shell
+# harness-ssh
 
 [简体中文](README.md) | English
 
 ## Introduction
 
-Harness Shell is a local AI SSH Agent desktop application for Windows, bringing SSH terminals, file transfers, and AI-assisted operations into one workspace.
+harness-ssh is a local AI SSH Agent desktop application for Windows, bringing SSH terminals, file transfers, and AI-assisted operations into one workspace.
 
-![Harness Shell SSH terminal and AI Agent workspace](demo.png)
+![harness-ssh SSH terminal and AI Agent workspace](demo.png)
 
 **Features**
 
@@ -41,7 +41,7 @@ Run from the repository root and keep the terminal open:
 
 ```powershell
 $devDataDir = Join-Path (Get-Location).Path ".runtime\dev"
-backend\.venv\Scripts\python.exe -m harness_shell_sidecar serve --port 8765 --data-dir "$devDataDir"
+backend\.venv\Scripts\python.exe -m harness_ssh_sidecar serve --port 8765 --data-dir "$devDataDir"
 ```
 
 ### 3. Start the Desktop UI

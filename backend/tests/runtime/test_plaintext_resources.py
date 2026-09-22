@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.runtime import RuntimePhase
-from harness_shell_sidecar.runtime.resources import RuntimeResources
+from harness_ssh_sidecar.runtime import RuntimePhase
+from harness_ssh_sidecar.runtime.resources import RuntimeResources
 
 
 async def discard_event(_event: dict[str, object]) -> None:
@@ -19,7 +19,7 @@ def load_runtime_settings_type():
 
     try:
         return import_module(
-            "harness_shell_sidecar.runtime.settings"
+            "harness_ssh_sidecar.runtime.settings"
         ).RuntimeSettings
     except (ModuleNotFoundError, AttributeError) as exc:
         raise AssertionError("autonomous Runtime settings are not implemented") from exc

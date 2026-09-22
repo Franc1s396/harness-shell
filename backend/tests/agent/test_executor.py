@@ -10,8 +10,8 @@ from uuid import UUID, uuid4
 import asyncssh
 import pytest
 
-from harness_shell_sidecar.agent.executor import AgentCancelled, SshCommandExecutor
-from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
+from harness_ssh_sidecar.agent.executor import AgentCancelled, SshCommandExecutor
+from harness_ssh_sidecar.ssh.sessions import SshSessionRegistry
 
 
 class FakeCommandProcess:

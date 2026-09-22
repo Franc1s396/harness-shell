@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from harness_shell_sidecar.agent.model_gateway import (
+from harness_ssh_sidecar.agent.model_gateway import (
     _InvocationState,
     _parse_chat_completions_stream,
     _parse_responses_stream,
@@ -112,10 +112,10 @@ def test_tool_can_complete_without_delta_lifecycle(responses: bool) -> None:
 @pytest.mark.parametrize("responses", [False, True])
 def test_mixed_tool_turn_displays_commentary_then_updates_final_answer(agent_storage, responses: bool) -> None:
     """运行真实图和服务，确保工具说明可见且最终文本一致。"""
-    from harness_shell_sidecar.agent.context import ContextService
-    from harness_shell_sidecar.agent.contracts import ApiType, AgentRunStatus
-    from harness_shell_sidecar.agent.model_gateway import ModelGateway
-    from harness_shell_sidecar.agent.service import AgentService
+    from harness_ssh_sidecar.agent.context import ContextService
+    from harness_ssh_sidecar.agent.contracts import ApiType, AgentRunStatus
+    from harness_ssh_sidecar.agent.model_gateway import ModelGateway
+    from harness_ssh_sidecar.agent.service import AgentService
     from .conftest import valid_api_config_input
     from .fakes import FakeOpenAIClient, RecordingOpenAIClientBuilder, RecordingTurnSink, make_turn_input
     from .test_graph import RecordingExecutor, _run_turn

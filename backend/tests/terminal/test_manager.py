@@ -7,8 +7,8 @@ from uuid import uuid4
 
 import pytest
 
-from harness_shell_sidecar.ssh.sessions import SshSessionRegistry
-from harness_shell_sidecar.terminal.manager import PtyManager, PtyManagerError
+from harness_ssh_sidecar.ssh.sessions import SshSessionRegistry
+from harness_ssh_sidecar.terminal.manager import PtyManager, PtyManagerError
 
 
 class FakeReader:

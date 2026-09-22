@@ -1,4 +1,4 @@
-use harness_shell_lib::commands::BackendBootstrap;
+use harness_ssh_lib::commands::BackendBootstrap;
 
 #[test]
 fn production_bootstrap_accepts_only_http_loopback_with_nonzero_port() {
@@ -13,7 +13,7 @@ fn production_bootstrap_accepts_only_http_loopback_with_nonzero_port() {
 #[test]
 fn bootstrap_argument_must_be_unique_and_complete() {
     let parsed = BackendBootstrap::from_args([
-        "harness-shell-ui.exe",
+        "harness-ssh-ui.exe",
         "--backend-url",
         "http://127.0.0.1:49152",
     ])
@@ -22,7 +22,7 @@ fn bootstrap_argument_must_be_unique_and_complete() {
     assert_eq!(parsed.backend_base_url, "http://127.0.0.1:49152");
 
     assert!(BackendBootstrap::from_args([
-        "harness-shell-ui.exe",
+        "harness-ssh-ui.exe",
         "--backend-url",
         "http://127.0.0.1:49152",
         "--backend-url",
@@ -30,7 +30,7 @@ fn bootstrap_argument_must_be_unique_and_complete() {
     ])
     .is_err());
     assert!(BackendBootstrap::from_args([
-        "harness-shell-ui.exe",
+        "harness-ssh-ui.exe",
         "--backend-url",
     ])
     .is_err());

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar import __main__
+from harness_ssh_sidecar import __main__
 
 
 def test_main_parses_only_explicit_serve_port_and_orders_process_setup(

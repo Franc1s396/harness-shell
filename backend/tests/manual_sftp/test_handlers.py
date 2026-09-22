@@ -7,12 +7,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.handlers import (
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp.handlers import (
     ManualSftpApplication,
     register_manual_sftp_handlers,
 )
-from harness_shell_sidecar.manual_sftp.models import (
+from harness_ssh_sidecar.manual_sftp.models import (
     DeletePlanSummary,
     DownloadChunk,
     ManualSftpContext,
@@ -20,8 +20,8 @@ from harness_shell_sidecar.manual_sftp.models import (
     TransferSnapshot,
     UploadChunkAck,
 )
-from harness_shell_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
-from harness_shell_sidecar.runtime.request_context import RequestContext
+from harness_ssh_sidecar.runtime.dispatcher import DispatchError, RequestDispatcher
+from harness_ssh_sidecar.runtime.request_context import RequestContext
 
 
 SESSION_ID = UUID("00000000-0000-4000-8000-000000000222")

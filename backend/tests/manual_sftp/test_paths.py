@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from harness_shell_sidecar.manual_sftp.errors import ManualSftpError
-from harness_shell_sidecar.manual_sftp.paths import (
+from harness_ssh_sidecar.manual_sftp.errors import ManualSftpError
+from harness_ssh_sidecar.manual_sftp.paths import (
     join_remote_path,
     validate_basename,
     validate_remote_path,

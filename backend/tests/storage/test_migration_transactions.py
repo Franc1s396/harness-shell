@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from harness_shell_sidecar.storage import StorageSelfCheckFailed
-from harness_shell_sidecar.storage import migration_runner as runner
+from harness_ssh_sidecar.storage import StorageSelfCheckFailed
+from harness_ssh_sidecar.storage import migration_runner as runner
 
 
 def snapshot(path: Path) -> tuple:
@@ -169,8 +169,8 @@ def test_failure_during_batch_copy_rolls_back_temporary_table(tmp_path, monkeypa
 @pytest.mark.parametrize("fail_after_rebuild", [False, True])
 def test_batch_preserves_foreign_key_and_partial_index(tmp_path, monkeypatch, fail_after_rebuild):
     """真实 Host Key 表重建保留 FK、部分索引与数据，后续失败可整批回滚。"""
-    from harness_shell_sidecar.storage import RuntimeDatabase
-    from harness_shell_sidecar.connections import ConnectionRepository
+    from harness_ssh_sidecar.storage import RuntimeDatabase
+    from harness_ssh_sidecar.connections import ConnectionRepository
     from ..connections.test_repository import profile_input, candidate
     path = tmp_path / "runtime.sqlite3"
     database = RuntimeDatabase.open(path)

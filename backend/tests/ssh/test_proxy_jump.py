@@ -10,11 +10,11 @@ from uuid import uuid4
 import asyncssh
 import pytest
 
-from harness_shell_sidecar.connections import ConnectionProfileInput, ConnectionRepository
-from harness_shell_sidecar.ssh.errors import SshRuntimeError
-from harness_shell_sidecar.ssh.host_keys import candidate_from_key
-from harness_shell_sidecar.ssh.runtime import SshRuntime
-from harness_shell_sidecar.storage import RuntimeDatabase
+from harness_ssh_sidecar.connections import ConnectionProfileInput, ConnectionRepository
+from harness_ssh_sidecar.ssh.errors import SshRuntimeError
+from harness_ssh_sidecar.ssh.host_keys import candidate_from_key
+from harness_ssh_sidecar.ssh.runtime import SshRuntime
+from harness_ssh_sidecar.storage import RuntimeDatabase
 
 
 class FakeConnection:

@@ -26,7 +26,7 @@
 ## 当前源码真源
 
 - Python 工程配置：[backend/pyproject.toml](../../backend/pyproject.toml)
-- 生产代码：[backend/src/harness_shell_sidecar/](../../backend/src/harness_shell_sidecar/)
+- 生产代码：[backend/src/harness_ssh_sidecar/](../../backend/src/harness_ssh_sidecar/)
 - Python 测试：[backend/tests/](../../backend/tests/)
 - Python 工具脚本：[backend/scripts/](../../backend/scripts/)
 - Python Sidecar 模块边界：[Python Sidecar Guide](python-sidecar.md)

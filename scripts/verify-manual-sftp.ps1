@@ -20,7 +20,7 @@ Write-Output '[1/5] SSH regression gate'
 if ($LASTEXITCODE -ne 0) { throw 'SSH regression gate failed' }
 
 Write-Output '[2/5] Focused Manual SFTP contracts'
-$focusedTemp = Join-Path $env:TEMP "harness-shell-manual-sftp-unit-$PID"
+$focusedTemp = Join-Path $env:TEMP "harness-ssh-manual-sftp-unit-$PID"
 & $pythonExe -m pytest --basetemp $focusedTemp -p no:cacheprovider (Join-Path $backendRoot 'tests\manual_sftp') -q
 if ($LASTEXITCODE -ne 0) { throw 'Focused Python Manual SFTP tests failed' }
 & npm.cmd test --prefix $frontendRoot -- `
@@ -35,7 +35,7 @@ $gateway = Get-Content -LiteralPath (Join-Path $frontendRoot 'src\features\sftp\
 $coordinator = Get-Content -LiteralPath (Join-Path $frontendRoot 'src\features\sftp\browser-transfer-coordinator.ts') -Encoding UTF8 -Raw
 $client = Get-Content -LiteralPath (Join-Path $frontendRoot 'src\api\manual-sftp.ts') -Encoding UTF8 -Raw
 $binaryClient = Get-Content -LiteralPath (Join-Path $frontendRoot 'src\api\http-client.ts') -Encoding UTF8 -Raw
-$route = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_shell_sidecar\web\routes\manual_sftp.py') -Encoding UTF8 -Raw
+$route = Get-Content -LiteralPath (Join-Path $backendRoot 'src\harness_ssh_sidecar\web\routes\manual_sftp.py') -Encoding UTF8 -Raw
 foreach ($assertion in @(
     @($gateway, 'SFTP_CHUNK_BYTES = 262_144', 'Browser chunk size'),
     @($gateway, 'showSaveFilePicker', 'Browser download picker'),
@@ -52,7 +52,7 @@ foreach ($assertion in @(
 }
 foreach ($removedPath in @(
     (Join-Path $frontendRoot 'src-tauri\src\sftp'),
-    (Join-Path $backendRoot 'src\harness_shell_sidecar\manual_sftp\local_files.py')
+    (Join-Path $backendRoot 'src\harness_ssh_sidecar\manual_sftp\local_files.py')
 )) {
     if (Test-Path -LiteralPath $removedPath) {
         throw "Removed local-file owner still exists: $removedPath"
