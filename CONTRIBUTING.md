@@ -2,7 +2,7 @@
 
 简体中文 | [English](CONTRIBUTING.en.md)
 
-欢迎通过问题反馈、文档、翻译、测试或代码改进参与 harness-ssh。
+欢迎通过问题反馈、文档、翻译、测试或代码改进参与 Harness SSH。
 
 ## 问题反馈与功能建议
 

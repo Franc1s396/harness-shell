@@ -79,7 +79,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/build_sideca
 
 ## Desktop 与安装验收
 
-`scripts/build-desktop.ps1` 生成 NSIS 后，必须在 disposable Windows user profile 人工核对：只有一个 harness-ssh 用户入口、Launcher→Backend-ready→UI 顺序、direct HTTP/WebSocket、upload picker、同步 save picker、strict chunks、reload 丢失 local preparation、UI close graceful exit、forced cleanup 和无残留进程。
+`scripts/build-desktop.ps1` 生成 NSIS 后，必须在 disposable Windows user profile 人工核对：只有一个 Harness SSH 用户入口、Launcher→Backend-ready→UI 顺序、direct HTTP/WebSocket、upload picker、同步 save picker、strict chunks、reload 丢失 local preparation、UI close graceful exit、forced cleanup 和无残留进程。
 
 没有执行这组观察时，只能报告构建或静态检查，不能报告 Desktop/install acceptance。fake Provider 不是真实 Provider；containerized OpenSSH 不是生产 SSH。
 

@@ -31,7 +31,7 @@ if ($config.bundle.windows.nsis.template -ne './windows/installer.nsi') {
 $startMenuDeclarations = @(
     [regex]::Matches(
         $template,
-        '(?m)^\s*CreateShortcut\s+"\$SMPROGRAMS\\harness-ssh\.lnk"\s+"\$INSTDIR\\harness-ssh-launcher\.exe"\s*$'
+        '(?m)^\s*CreateShortcut\s+"\$SMPROGRAMS\\Harness SSH\.lnk"\s+"\$INSTDIR\\harness-ssh-launcher\.exe"\s*$'
     )
 )
 if ($startMenuDeclarations.Count -ne 1) {

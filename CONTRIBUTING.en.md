@@ -2,7 +2,7 @@
 
 [简体中文](CONTRIBUTING.md) | English
 
-Contributions to harness-ssh are welcome through bug reports, documentation, translations, tests, and code improvements.
+Contributions to Harness SSH are welcome through bug reports, documentation, translations, tests, and code improvements.
 
 ## Bug Reports and Feature Requests
 

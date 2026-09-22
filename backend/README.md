@@ -1,4 +1,4 @@
-# harness-ssh Backend
+# Harness SSH Backend
 
 Python Backend 提供仅监听 `127.0.0.1` 的 typed HTTP API 与单个 Runtime WebSocket。业务状态、凭据、SSH/PTY、remote Manual SFTP 和实验性 Agent 都由 Python 所有；Tauri 不代理这些调用。
 

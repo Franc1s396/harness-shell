@@ -3,9 +3,9 @@ use thiserror::Error;
 /// 可安全显示在原生启动对话框中的有界 Launcher 失败。
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum LauncherError {
-    #[error("LAUNCHER_CONFIG_INVALID: The harness-ssh installation paths are invalid.")]
+    #[error("LAUNCHER_CONFIG_INVALID: The Harness SSH installation paths are invalid.")]
     ConfigInvalid,
-    #[error("LAUNCHER_COMPONENT_MISSING: A required harness-ssh component is missing.")]
+    #[error("LAUNCHER_COMPONENT_MISSING: A required Harness SSH component is missing.")]
     ComponentMissing,
     #[error("LAUNCHER_DATA_DIRECTORY_FAILED: The application data directory could not be prepared.")]
     DataDirectoryFailed,
@@ -15,13 +15,13 @@ pub enum LauncherError {
     ControlPipeFailed,
     #[error("LAUNCHER_JOB_FAILED: The desktop process owner could not be created.")]
     JobFailed,
-    #[error("LAUNCHER_BACKEND_START_FAILED: The harness-ssh Backend could not be started.")]
+    #[error("LAUNCHER_BACKEND_START_FAILED: The Harness SSH Backend could not be started.")]
     BackendStartFailed,
-    #[error("LAUNCHER_BACKEND_READY_FAILED: The harness-ssh Backend did not publish valid readiness.")]
+    #[error("LAUNCHER_BACKEND_READY_FAILED: The Harness SSH Backend did not publish valid readiness.")]
     BackendReadyFailed,
-    #[error("LAUNCHER_BACKEND_EXITED_EARLY: The harness-ssh Backend exited during startup.")]
+    #[error("LAUNCHER_BACKEND_EXITED_EARLY: The Harness SSH Backend exited during startup.")]
     BackendExitedEarly,
-    #[error("LAUNCHER_UI_START_FAILED: The harness-ssh window could not be started.")]
+    #[error("LAUNCHER_UI_START_FAILED: The Harness SSH window could not be started.")]
     UiStartFailed,
     #[error("LAUNCHER_PROCESS_WAIT_FAILED: Desktop process supervision failed.")]
     ProcessWaitFailed,

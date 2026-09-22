@@ -37,7 +37,7 @@ def create_app(
 
     # 1. 构建无启动副作用的应用，资源初始化只交给 lifespan。
     app = FastAPI(
-        title="harness-ssh Private Python Runtime API",
+        title="Harness SSH Private Python Runtime API",
         version="1.0.0",
         description=(
             "Loopback-only API owned by the Python process. "

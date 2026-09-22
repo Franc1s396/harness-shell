@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "harness-ssh",
+  "productName": "Harness SSH",
   "version": "0.2.3",
   "identifier": "com.harness-ssh.app",
   "mainBinaryName": "harness-ssh-ui",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "harness-ssh",
+        "title": "Harness SSH",
         "width": 1440,
         "height": 900,
         "minWidth": 960,

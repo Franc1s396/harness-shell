@@ -20,7 +20,7 @@ fn main() {
 }
 
 fn show_error(message: &str) {
-    let title = wide("harness-ssh startup error");
+    let title = wide("Harness SSH startup error");
     let message = wide(message);
     // 只有有界 LauncherError 显示文本能进入原生对话框。
     unsafe {

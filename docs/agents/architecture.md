@@ -6,7 +6,7 @@
 
 ## 当前进程模型
 
-harness-ssh 的生产桌面路径只有一条：
+Harness SSH 的生产桌面路径只有一条：
 
 ```text
 NSIS shortcut / finish action

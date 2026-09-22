@@ -1,12 +1,12 @@
-# harness-ssh
+# Harness SSH
 
 [简体中文](README.md) | English
 
 ## Introduction
 
-harness-ssh is a local AI SSH Agent desktop application for Windows, bringing SSH terminals, file transfers, and AI-assisted operations into one workspace.
+Harness SSH is a local AI SSH Agent desktop application for Windows, bringing SSH terminals, file transfers, and AI-assisted operations into one workspace.
 
-![harness-ssh SSH terminal and AI Agent workspace](demo.png)
+![Harness SSH SSH terminal and AI Agent workspace](demo.png)
 
 **Features**
 

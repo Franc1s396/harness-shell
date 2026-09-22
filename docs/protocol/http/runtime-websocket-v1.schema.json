@@ -876,7 +876,7 @@
       "$ref": "#/$defs/RuntimeErrorMessage"
     }
   ],
-  "title": "harness-ssh Runtime WebSocket v1",
+  "title": "Harness SSH Runtime WebSocket v1",
   "x-max-text-message-bytes": 65536,
   "x-queue-capacity": 64
 }

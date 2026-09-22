@@ -364,7 +364,7 @@ def build_websocket_schema() -> dict[str, object]:
                 "https://harness-ssh.local/schemas/"
                 "runtime-websocket-v1.schema.json"
             ),
-            "title": "harness-ssh Runtime WebSocket v1",
+            "title": "Harness SSH Runtime WebSocket v1",
             "description": (
                 "Strict server and client messages carried by "
                 "/v1/runtime/events after HTTP runtime initialization."

@@ -1,4 +1,4 @@
-"""harness-ssh Sidecar 的命令行入口。"""
+"""Harness SSH Sidecar 的命令行入口。"""
 
 from __future__ import annotations
 

@@ -14,7 +14,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 
 - Tester: Codex Computer Use（用户授权的本机桌面验收）
 - Windows build: Microsoft Windows 11 家庭版 中文版，10.0.26200（Build 26200）
-- harness-ssh commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`)
+- Harness SSH commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`)
 - Start time (timezone): 2026-08-28 09:45:25 +08:00
 - End time (timezone): 2026-08-28 09:53:18 +08:00
 - Correlation IDs: 阻塞发生前 UI 未显示 correlation ID
@@ -33,7 +33,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 
 - Tester: Codex Computer Use（用户授权的本机桌面复验）
 - Windows build: Microsoft Windows 11 家庭版 中文版，10.0.26200（Build 26200）
-- harness-ssh commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted Host Key state fix and regression test listed by `git diff`.
+- Harness SSH commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted Host Key state fix and regression test listed by `git diff`.
 - Start time (timezone): 2026-08-28 10:02:42 +08:00
 - End time (timezone): 2026-08-28 10:11:24 +08:00
 - Correlation IDs: 本轮 UI 未显示 correlation ID
@@ -43,7 +43,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 - After replacement, the PTY reached `Connected` and the footer projected `Runtime: READY`, `Host Key: trusted`, and `PTY size: 131×45`. This is the exact previously failing Desktop projection.
 - Closing the Session and reopening the same Profile connected without another Host Key prompt and retained `Host Key: trusted`, proving the corrected state survives the normal reconnect path.
 - Sidecar-loss check: with the direct PTY focused, terminating the PyInstaller launcher alone left its worker running; terminating the actual managed worker then changed the tab to `Disconnected`, runtime to `PAUSED`, and displayed `Sidecar unavailable. Existing PTYs are disconnected; no fallback terminal was created.` A process check returned `NO_SIDECAR_OR_SSH_PROCESS`.
-- Application exit check after the injected Sidecar loss: **Exit harness-ssh** removed the Desktop window, the `tauri dev` process exited with code `0`, and a final process query returned no `harness-ssh.exe`, `harness-ssh-sidecar.exe`, or `ssh.exe`. This does not replace the still-required shutdown check with both direct and ProxyJump tabs open.
+- Application exit check after the injected Sidecar loss: **Exit Harness SSH** removed the Desktop window, the `tauri dev` process exited with code `0`, and a final process query returned no `harness-ssh.exe`, `harness-ssh-sidecar.exe`, or `ssh.exe`. This does not replace the still-required shutdown check with both direct and ProxyJump tabs open.
 - Profile cleanup: PASS by user confirmation after the Desktop run; the local SSH test Profile was successfully deleted.
 - Targeted Host Key defect reacceptance: PASS.
 - Full SSH manual matrix: INCOMPLETE. Computer Use policy forbids automating terminal applications, so Bash/CJK/emoji/full-screen input and multi-PTY byte-isolation must be performed by the user or another approved manual tester. ProxyJump, both-endpoint rotation/conflict, full responsive/locale matrix, DevTools inspection, and shutdown with both direct and ProxyJump tabs remain unexecuted and must not be inferred as passing.
@@ -52,11 +52,11 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 
 - Tester: Codex Computer Use（用户授权继续复验）
 - Windows build: Microsoft Windows 11 家庭版 中文版，10.0.26200（Build 26200）
-- harness-ssh commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted Host Key state fix and regression test listed by `git diff`.
+- Harness SSH commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted Host Key state fix and regression test listed by `git diff`.
 - Start time (timezone): 2026-08-28 10:20:52 +08:00
 - End time (timezone): 2026-08-28 10:26:53 +08:00
 - Correlation IDs: 阻塞发生在 Profile 保存前，UI 未显示 correlation ID
-- The deterministic OpenSSH lab and harness-ssh Desktop started successfully. A new Password profile was filled with name `SSH Direct`, group `SSH Acceptance`, host `127.0.0.1`, port `2222`, username `jumpuser`, and the generated lab password.
+- The deterministic OpenSSH lab and Harness SSH Desktop started successfully. A new Password profile was filled with name `SSH Direct`, group `SSH Acceptance`, host `127.0.0.1`, port `2222`, username `jumpuser`, and the generated lab password.
 - After entering the password under **Authentication**, switching to **Advanced**, enabling **Favorite**, and pressing **Save**, the dialog returned to **Authentication** with `Password: Required`. No Profile was saved.
 - Source tracing confirmed that the Password and Private Key passphrase inputs exist only inside the conditionally mounted Authentication panel. Their unsaved values are held only by DOM refs; switching tabs unmounts the inputs and clears the refs before Save validation reads them. The current dialog tests submit immediately after entering a secret and therefore do not cover Authentication → Advanced → Save.
 - This is a blocking Profile-creation defect and likely affects both Password and Private Key passphrase flows. The run stopped immediately; Direct/ProxyJump connection, two-endpoint Host Key, rotation/conflict, remaining UI/security checks, user terminal checks, and two-session shutdown were not executed and must not be inferred as passing.
@@ -67,7 +67,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 
 - Tester: Codex Computer Use（用户授权修复并继续复验）
 - Windows build: Microsoft Windows 11 家庭版 中文版，10.0.26200（Build 26200）
-- harness-ssh commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted fixes and regression tests listed by `git diff`.
+- Harness SSH commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted fixes and regression tests listed by `git diff`.
 - Desktop run time: 本轮开始与结束时间未单独捕获，不补写推测值；最终自动化门禁结束于 2026-08-28 11:11:52 +08:00。
 - Correlation IDs: 修复前 ProxyJump 复验显示 `3215473f-bbc2-4ca1-b934-13136dada727`；修复后未显示新的错误 correlation ID。
 - Connection Dialog secret-state fix: Basic、Authentication、Advanced panel 保持挂载，仅用 `hidden` 切换可见性。新增 Password 与 encrypted Private Key passphrase 的 Authentication → Advanced → Save 回归测试。
@@ -77,7 +77,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 - Rotated-lab Desktop reacceptance: the **Host Key changed** prompt for jump `127.0.0.1:2222` showed algorithm `ssh-ed25519` and new fingerprint `SHA256:xDFAA6GrkunpiKS3LFgmCOd+8A5efXwNRz65lInRe5M`, which exactly matched the generated manifest before **Replace trusted key**.
 - Immediately after replacing the jump key, the Desktop displayed a distinct target prompt for `target:22`, algorithm `ssh-ed25519`, fingerprint `SHA256:nz13UEgBegFwHIg7rTSpKexYFjHquAy2Z8FbHktJ3IY`; it exactly matched the manifest. Trusting it connected without `SSH_CONNECTION_NOT_READY`.
 - ProxyJump PTY reached `Connected`; the footer showed `Runtime: READY`, `Host Key: trusted`, `PTY size: 131×45`, and `Route: ProxyJump`.
-- Concurrent-session and shutdown check: PASS for the observable Desktop/process scope. `SSH Target Key` and `SSH Direct` were simultaneously connected in separate tabs. Closing harness-ssh through **Exit harness-ssh** removed the window, `tauri dev` exited with code `0`, and the final process query returned no `harness-ssh.exe`, `harness-ssh-sidecar.exe`, or `ssh.exe`.
+- Concurrent-session and shutdown check: PASS for the observable Desktop/process scope. `SSH Target Key` and `SSH Direct` were simultaneously connected in separate tabs. Closing Harness SSH through **Exit Harness SSH** removed the window, `tauri dev` exited with code `0`, and the final process query returned no `harness-ssh.exe`, `harness-ssh-sidecar.exe`, or `ssh.exe`.
 - Fresh final automated gate: PASS. `scripts/verify-ssh.ps1` exited with code `0` and the explicit final line `SSH automated gate passed: local Windows checkout plus containerized OpenSSH lab only.` Python: `125 passed, 8 skipped`; Web: `173 passed`; production build: `119 modules transformed`; SSH integration: `8 passed`; Vault runtime evidence: `1 passed`.
 - Tool-executable Desktop scope for both repaired defects: PASS.
 - Full SSH manual matrix: INCOMPLETE. Computer Use policy forbids automating terminal input, so Bash/CJK/emoji/full-screen terminal input, hidden-tab typing, and multi-PTY byte isolation remain user/manual-tester checks. The unchecked responsive/locale, DevTools persistence/log/Trace/Audit, disabled-control, stale replacement-conflict, and remaining profile-management cases below also remain unproven. Agent implementation was not authorized at this point.
@@ -86,7 +86,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
 
 - Tester: Codex Computer Use（用户授权继续复验）
 - Windows build: Microsoft Windows 11 家庭版 中文版，10.0.26200（Build 26200）
-- harness-ssh commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted fixes and regression tests listed by `git diff`.
+- Harness SSH commit: `50b64c1b5ee2ace1ecb55336fc84c8d0ba989278` (`develop`) plus the uncommitted fixes and regression tests listed by `git diff`.
 - Desktop run time: 本轮开始时间未单独捕获，不补写推测值；验收记录结束于 2026-08-28 11:45:11 +08:00。
 - Correlation IDs: 一次使用旧 Password secret 的预期连接失败显示 `7b475c4b-0aad-4956-9da0-bb00ddf7de0a`；原始错误字段保持为 `SSH_AUTHENTICATION_FAILED`、`authentication`、`recoverable=false`、`pre_auth`。
 - Profile UI: search filtered `SSH Target Key` and clearing the query restored the full list. Editing `SSH Direct` showed an empty Password input with “留空以保留現有秘密”. Editing `SSH Target Key` showed the same non-replay contract for both Private Key and passphrase.
@@ -131,7 +131,7 @@ The automated gate proves this Windows checkout, the packaged Sidecar lifecycle 
    - Kill the managed Sidecar while a PTY is focused.
    - Confirm every tab stops accepting input, runtime becomes `PAUSED`, and no fallback `ssh.exe` or replacement Sidecar process appears.
 7. Application shutdown
-   - Close harness-ssh with direct and ProxyJump tabs open.
+   - Close Harness SSH with direct and ProxyJump tabs open.
    - Confirm all target, jump, PTY, exec/SFTP channels, and the Sidecar process terminate.
 
 ## Terminal-first UI redesign

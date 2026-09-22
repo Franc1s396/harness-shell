@@ -1,12 +1,12 @@
-# harness-ssh
+# Harness SSH
 
 简体中文 | [English](README.en.md)
 
 ## 项目介绍
 
-harness-ssh 是面向 Windows 的本地 AI SSH Agent 桌面应用，将 SSH 终端、文件传输和 AI 辅助操作整合在同一工作区。
+Harness SSH 是面向 Windows 的本地 AI SSH Agent 桌面应用，将 SSH 终端、文件传输和 AI 辅助操作整合在同一工作区。
 
-![harness-ssh SSH 终端与 AI Agent 工作区](demo.png)
+![Harness SSH SSH 终端与 AI Agent 工作区](demo.png)
 
 **功能特性**
 

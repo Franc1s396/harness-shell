@@ -6,7 +6,7 @@
         "request_id": "6fc07aec-23d1-47a0-a770-64334dce908f",
         "body": {
           "schema_version": 1,
-          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\harness-ssh\\runtime.db",
+          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\Harness SSH\\runtime.db",
           "runtime_key_b64": "c2hvcnQ="
         }
       },
@@ -19,7 +19,7 @@
         "request_id": "cba9967a-c8b8-4b53-935c-f9926e9ada92",
         "body": {
           "schema_version": 1,
-          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\harness-ssh\\runtime.db",
+          "database_path": "C:\\Users\\Example\\AppData\\Roaming\\Harness SSH\\runtime.db",
           "runtime_key_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         }
       },

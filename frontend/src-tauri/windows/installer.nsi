@@ -824,19 +824,19 @@ Section Uninstall
     !insertmacro DeleteAppUserModelId
 
     ; 移除唯一的 Launcher 开始菜单快捷方式。
-    !insertmacro IsShortcutTarget "$SMPROGRAMS\harness-ssh.lnk" "$INSTDIR\harness-ssh-launcher.exe"
+    !insertmacro IsShortcutTarget "$SMPROGRAMS\Harness SSH.lnk" "$INSTDIR\harness-ssh-launcher.exe"
     Pop $0
     ${If} $0 = 1
-      !insertmacro UnpinShortcut "$SMPROGRAMS\harness-ssh.lnk"
-      Delete "$SMPROGRAMS\harness-ssh.lnk"
+      !insertmacro UnpinShortcut "$SMPROGRAMS\Harness SSH.lnk"
+      Delete "$SMPROGRAMS\Harness SSH.lnk"
     ${EndIf}
 
     ; 移除 Launcher 桌面快捷方式。
-    !insertmacro IsShortcutTarget "$DESKTOP\harness-ssh.lnk" "$INSTDIR\harness-ssh-launcher.exe"
+    !insertmacro IsShortcutTarget "$DESKTOP\Harness SSH.lnk" "$INSTDIR\harness-ssh-launcher.exe"
     Pop $0
     ${If} $0 = 1
-      !insertmacro UnpinShortcut "$DESKTOP\harness-ssh.lnk"
-      Delete "$DESKTOP\harness-ssh.lnk"
+      !insertmacro UnpinShortcut "$DESKTOP\Harness SSH.lnk"
+      Delete "$DESKTOP\Harness SSH.lnk"
     ${EndIf}
   ${EndIf}
 
@@ -904,7 +904,7 @@ Function un.SkipIfPassive
 FunctionEnd
 
 Function CreateOrUpdateStartMenuShortcut
-  ; harness-ssh 仅暴露一个由 Launcher 拥有的用户入口。
+  ; Harness SSH 仅暴露一个由 Launcher 拥有的用户入口。
   ${If} $WixMode = 0
     ${If} $UpdateMode = 1
     ${OrIf} $NoShortcutMode = 1
@@ -912,8 +912,8 @@ Function CreateOrUpdateStartMenuShortcut
     ${EndIf}
   ${EndIf}
 
-  CreateShortcut "$SMPROGRAMS\harness-ssh.lnk" "$INSTDIR\harness-ssh-launcher.exe"
-  !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\harness-ssh.lnk"
+  CreateShortcut "$SMPROGRAMS\Harness SSH.lnk" "$INSTDIR\harness-ssh-launcher.exe"
+  !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\Harness SSH.lnk"
 FunctionEnd
 
 Function CreateOrUpdateDesktopShortcut
@@ -922,7 +922,7 @@ Function CreateOrUpdateDesktopShortcut
   !insertmacro IsShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
   Pop $0
   ${If} $0 = 1
-    !insertmacro SetShortcutTarget "$DESKTOP\harness-ssh.lnk" "$INSTDIR\harness-ssh-launcher.exe"
+    !insertmacro SetShortcutTarget "$DESKTOP\Harness SSH.lnk" "$INSTDIR\harness-ssh-launcher.exe"
     Return
   ${EndIf}
 
@@ -935,6 +935,6 @@ Function CreateOrUpdateDesktopShortcut
     ${EndIf}
   ${EndIf}
 
-  CreateShortcut "$DESKTOP\harness-ssh.lnk" "$INSTDIR\harness-ssh-launcher.exe"
-  !insertmacro SetLnkAppUserModelId "$DESKTOP\harness-ssh.lnk"
+  CreateShortcut "$DESKTOP\Harness SSH.lnk" "$INSTDIR\harness-ssh-launcher.exe"
+  !insertmacro SetLnkAppUserModelId "$DESKTOP\Harness SSH.lnk"
 FunctionEnd

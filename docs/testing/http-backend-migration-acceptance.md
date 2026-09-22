@@ -32,7 +32,7 @@ Python 与 Frontend 数字来自 2026-09-03 本轮实际输出；Tauri、Launche
 
 在一次性 Windows 用户配置文件中安装本轮 NSIS 后逐项记录：
 
-- [ ] Start Menu/Apps 中只有一个可见 harness-ssh 入口，目标为 Launcher。
+- [ ] Start Menu/Apps 中只有一个可见 Harness SSH 入口，目标为 Launcher。
 - [ ] 进程顺序为 Launcher → Backend ready → UI；Backend port 来自 ready evidence。
 - [ ] direct HTTP 与 Runtime WebSocket 可用，Backend 提前退出不会 respawn。
 - [ ] Upload 使用浏览器 file picker；Download 在网络读取前同步取得 save handle。
